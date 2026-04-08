@@ -123,3 +123,58 @@ async def worker_shell(websocket: WebSocket, hostname: str) -> None:
 
         await asyncio.gather(ws_to_ssh(), ssh_to_ws(), return_exceptions=True)
         log.info("Shell session closed: %s@%s", username, fqdn)
+
+
+@router.websocket("/{hostname:path}/vnc")
+async def worker_vnc(websocket: WebSocket, hostname: str) -> None:
+    """WebSocket → TCP proxy for VNC (port 5900).
+
+    noVNC speaks the RFB protocol directly; we just forward bytes.
+    The 'binary' subprotocol header is required by noVNC.
+    """
+    await websocket.accept(subprotocol="binary")
+    fqdn = hostname if "." in hostname else f"{hostname}.test.releng.mdc1.mozilla.com"
+
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(fqdn, 5900),
+            timeout=10,
+        )
+    except (OSError, asyncio.TimeoutError) as e:
+        log.warning("VNC connect failed for %s: %s", fqdn, e)
+        await websocket.close(1011, f"Cannot reach {fqdn}:5900")
+        return
+
+    log.info("VNC session opened: %s", fqdn)
+    stop = asyncio.Event()
+
+    async def ws_to_tcp() -> None:
+        try:
+            async for data in websocket.iter_bytes():
+                writer.write(data)
+                await writer.drain()
+        except (WebSocketDisconnect, ConnectionResetError):
+            pass
+        finally:
+            stop.set()
+            try:
+                writer.close()
+            except Exception:
+                pass
+
+    async def tcp_to_ws() -> None:
+        try:
+            while not stop.is_set():
+                data = await reader.read(32768)
+                if not data:
+                    break
+                await websocket.send_bytes(data)
+        except (WebSocketDisconnect, ConnectionResetError):
+            pass
+        except Exception as e:
+            log.debug("VNC tcp_to_ws ended: %s", e)
+        finally:
+            stop.set()
+
+    await asyncio.gather(ws_to_tcp(), tcp_to_ws(), return_exceptions=True)
+    log.info("VNC session closed: %s", fqdn)
