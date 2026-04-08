@@ -116,7 +116,7 @@ export interface FleetSummary {
   by_state: Record<string, number>;
   by_pool: Record<string, number>;
   by_os: Record<string, number>;
-  alerts: { quarantined: number; missing_from_tc: number; mdm_unenrolled: number };
+  alerts: { quarantined: number; quarantined_non_staging: number; missing_from_tc: number; mdm_unenrolled: number };
   branch_overrides: { total: number; by_branch: Record<string, number>; by_pool: Record<string, number> };
   sync_status: Record<string, SyncStatus>;
 }

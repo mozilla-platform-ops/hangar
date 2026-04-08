@@ -34,6 +34,7 @@ def fleet_summary(db: Session = Depends(get_db)) -> dict[str, Any]:
     by_os: dict[str, int] = {}
 
     mdm_unenrolled = 0
+    quarantined_non_staging = 0
     branch_by_branch: dict[str, int] = {}
     branch_by_pool: dict[str, int] = {}
     branch_total = 0
@@ -53,6 +54,9 @@ def fleet_summary(db: Session = Depends(get_db)) -> dict[str, Any]:
 
         if w.mdm_enrollment_status == "unenrolled":
             mdm_unenrolled += 1
+
+        if w.tc_quarantined and state != "staging":
+            quarantined_non_staging += 1
 
         if _is_branch_override(w.branch):
             branch_total += 1
@@ -92,6 +96,7 @@ def fleet_summary(db: Session = Depends(get_db)) -> dict[str, Any]:
         "by_os": by_os,
         "alerts": {
             "quarantined": quarantined,
+            "quarantined_non_staging": quarantined_non_staging,
             "missing_from_tc": missing_from_tc,
             "mdm_unenrolled": mdm_unenrolled,
         },

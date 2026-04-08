@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, Monitor, Server, Activity, Clock, TrendingUp, GitBranch } from "lucide-react";
+import { AlertTriangle, Monitor, Server, Activity, Clock, TrendingUp, GitBranch, ShieldOff } from "lucide-react";
 import { PieChart, Pie, Cell, Tooltip, BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Legend } from "recharts";
 import { api } from "../api";
 import type { FleetSummary } from "../api";
@@ -104,9 +104,10 @@ export function Overview() {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <StatCard icon={Monitor} label="Total Workers" value={data.total_workers} color="blue" />
         <StatCard icon={Server} label="Production" value={data.by_state.production || 0} color="green" to="/workers?state=production" />
+        <StatCard icon={ShieldOff} label="Quarantined" value={data.alerts.quarantined_non_staging} color="red" to="/workers?tc_quarantined=true" sub="non-staging" />
         <StatCard icon={TrendingUp} label="Defective / Spare" value={(data.by_state.defective || 0) + (data.by_state.spare || 0)} color="yellow" />
         <StatCard icon={Activity} label="Active Alerts" value={totalAlerts} color="red" to="/alerts" />
       </div>
