@@ -14,6 +14,7 @@ from pathlib import Path
 
 from .api.alerts import router as alerts_router
 from .api.fleet import router as fleet_router
+from .api.shell import router as shell_router
 from .api.workers import router as workers_router
 from .database import init_db
 from .sync.scheduler import run_all_sync, start_scheduler, stop_scheduler
@@ -54,6 +55,7 @@ app.add_middleware(
 app.include_router(workers_router, prefix="/api")
 app.include_router(fleet_router, prefix="/api")
 app.include_router(alerts_router, prefix="/api")
+app.include_router(shell_router, prefix="/api")
 
 
 @app.post("/api/sync/run")
