@@ -5,9 +5,9 @@ Auth: HTTP Basic with API key as username, blank password.
 """
 from __future__ import annotations
 
-import json
 import logging
 from base64 import b64encode
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Any
 
@@ -48,45 +48,31 @@ class SimpleMDMClient:
             params["starting_after"] = last_id
         return devices
 
-    def list_custom_attribute_values(self) -> dict[int, dict[str, str]]:
-        """Return {device_id: {attr_name: value}} for all custom attributes."""
-        result: dict[int, dict[str, str]] = {}
-        params: dict[str, Any] = {"limit": 200}
-        while True:
-            data = self._get("/custom_attribute_values", params)
+    def get_device_custom_attributes(self, device_id: int) -> dict[str, str]:
+        """Return {attr_name: value} for a single device."""
+        try:
+            data = self._get(f"/devices/{device_id}/custom_attribute_values")
+            result: dict[str, str] = {}
             for item in data.get("data", []):
                 attrs = item.get("attributes", {})
-                device_id = attrs.get("device_id")
                 name = attrs.get("name", "")
-                value = attrs.get("value", "") or ""
-                if device_id:
-                    result.setdefault(device_id, {})[name] = value
-            if not data.get("has_more"):
-                break
-            last_id = data["data"][-1]["id"]
-            params["starting_after"] = last_id
+                value = attrs.get("value") or ""
+                if name:
+                    result[name] = value
+            return result
+        except Exception:
+            return {}
+
+    def bulk_custom_attribute_values(self, device_ids: list[int], workers: int = 10) -> dict[int, dict[str, str]]:
+        """Fetch custom attributes for all devices in parallel."""
+        result: dict[int, dict[str, str]] = {}
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(self.get_device_custom_attributes, did): did for did in device_ids}
+            for future in as_completed(futures):
+                did = futures[future]
+                result[did] = future.result()
         return result
 
-    def list_device_groups(self) -> dict[int, list[str]]:
-        """Return {device_id: [group_name, ...]} by iterating assignment_groups."""
-        device_groups: dict[int, list[str]] = {}
-        # Get all assignment groups
-        groups_data = self._get("/assignment_groups")
-        for group in groups_data.get("data", []):
-            group_attrs = group.get("attributes", {})
-            group_name = group_attrs.get("name", "")
-            group_id = group["id"]
-            # Get devices in this group
-            page_params: dict[str, Any] = {"limit": 200}
-            while True:
-                d = self._get(f"/assignment_groups/{group_id}/devices", page_params)
-                for dev in d.get("data", []):
-                    device_groups.setdefault(dev["id"], []).append(group_name)
-                if not d.get("has_more"):
-                    break
-                last_id = d["data"][-1]["id"]
-                page_params["starting_after"] = last_id
-        return device_groups
 
 
 def _hostname_from_device(device: dict[str, Any]) -> str | None:
@@ -118,8 +104,9 @@ def run_sync(db: Session) -> int:
         devices = client.list_devices()
         log.info("Fetched %d devices", len(devices))
 
-        log.info("Fetching SimpleMDM custom attribute values...")
-        custom_attrs = client.list_custom_attribute_values()
+        device_ids = [d["id"] for d in devices]
+        log.info("Fetching SimpleMDM custom attribute values for %d devices...", len(device_ids))
+        custom_attrs = client.bulk_custom_attribute_values(device_ids)
 
         count = 0
         for device in devices:
