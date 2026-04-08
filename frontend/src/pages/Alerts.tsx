@@ -101,7 +101,7 @@ export function Alerts() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-800">
-                {["Type", "Worker", "Detail", "Created", "Actions"].map(h => (
+                {["Type", "Worker", "Pool", "Detail", "Since", "Actions"].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">{h}</th>
                 ))}
               </tr>
@@ -110,20 +110,26 @@ export function Alerts() {
               {alerts.map(alert => {
                 const cfg = TYPE_LABELS[alert.alert_type] || { label: alert.alert_type, color: "gray" as const };
                 return (
-                  <tr key={alert.id} className={`border-b border-gray-800/50 ${alert.acknowledged ? "opacity-50" : ""}`}>
+                  <tr key={alert.id} className={`border-b border-gray-800/50 ${alert.acknowledged ? "opacity-60" : ""}`}>
                     <td className="px-4 py-3">
                       <Badge label={cfg.label} variant={cfg.color} />
                     </td>
                     <td className="px-4 py-3">
                       <button
-                        className="text-brand-400 hover:text-brand-300 font-mono text-xs"
+                        className="text-brand-400 hover:text-brand-300 font-mono text-xs block"
                         onClick={() => navigate(`/workers/${alert.hostname}`)}
                       >
                         {alert.hostname.split(".")[0]}
                       </button>
+                      {alert.worker?.generation && (
+                        <span className="text-xs text-gray-500">{alert.worker.generation}</span>
+                      )}
                     </td>
-                    <td className="px-4 py-3 text-xs text-gray-400 max-w-sm truncate">{alert.detail || "—"}</td>
-                    <td className="px-4 py-3 text-xs text-gray-500">{timeAgo(alert.created_at)}</td>
+                    <td className="px-4 py-3 text-xs text-gray-400 font-mono">
+                      {alert.worker?.worker_pool?.replace(/^gecko-t-osx-\d+-/, "") || "—"}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-400">{alert.detail || "—"}</td>
+                    <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{timeAgo(alert.created_at)}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         {!alert.acknowledged && (

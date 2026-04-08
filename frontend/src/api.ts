@@ -80,6 +80,11 @@ export interface Alert {
   resolved_at: string | null;
   acknowledged: boolean;
   active: boolean;
+  worker: {
+    generation: string | null;
+    worker_pool: string | null;
+    state: string | null;
+  };
 }
 
 export interface AlertListResponse {

@@ -169,6 +169,66 @@ def _generate_alerts(db: Session, hostname: str, worker: Worker) -> None:
                 a.resolved_at = now
 
 
+def _check_absent_workers(db: Session, seen_hostnames: set[str]) -> None:
+    """Flag production workers that TC did not return at all in this sync cycle.
+
+    A worker known to Puppet or previously seen in TC that is completely absent
+    from TC's current worker list has either crashed and dropped off or was
+    deregistered.  We generate a missing_from_tc alert so the operator is
+    notified immediately rather than waiting for a stale lastDateActive.
+    """
+    now = datetime.utcnow()
+    threshold_hours = settings.tc_missing_threshold_hours
+
+    # All workers that should be in TC: has puppet_role OR was previously in TC
+    candidates = (
+        db.query(Worker)
+        .filter(
+            (Worker.puppet_role != None) | (Worker.tc_worker_pool_id != None)  # noqa: E711
+        )
+        .all()
+    )
+
+    for worker in candidates:
+        hostname = worker.hostname
+        if hostname in seen_hostnames:
+            continue  # TC returned this worker — handled by _generate_alerts
+
+        # Worker not returned by TC this cycle
+        def _active_alert(alert_type: str) -> Alert | None:
+            return (
+                db.query(Alert)
+                .filter(Alert.hostname == hostname, Alert.alert_type == alert_type, Alert.resolved_at == None)  # noqa: E711
+                .first()
+            )
+
+        # Skip states that are intentionally offline
+        if worker.effective_state in ("loaner", "defective", "spare"):
+            # Resolve any existing missing_from_tc alert if state changed
+            a = _active_alert("missing_from_tc")
+            if a:
+                a.resolved_at = now
+            continue
+
+        if worker.tc_last_active:
+            hours_inactive = (now - worker.tc_last_active).total_seconds() / 3600
+            if hours_inactive > threshold_hours:
+                if not _active_alert("missing_from_tc"):
+                    db.add(Alert(
+                        alert_type="missing_from_tc",
+                        hostname=hostname,
+                        detail=f"Not found in any TC pool. Last seen {hours_inactive:.0f}h ago ({worker.tc_last_active.date()})",
+                    ))
+        else:
+            # Never seen in TC — only alert if Puppet knows about it (confirmed production)
+            if worker.puppet_role and not _active_alert("missing_from_tc"):
+                db.add(Alert(
+                    alert_type="missing_from_tc",
+                    hostname=hostname,
+                    detail="Not found in any TC pool and has no recorded TC activity",
+                ))
+
+
 def run_sync(db: Session) -> int:
     log_entry = SyncLog(source="taskcluster", started_at=datetime.utcnow())
     db.add(log_entry)
@@ -176,6 +236,8 @@ def run_sync(db: Session) -> int:
 
     try:
         total = 0
+        seen_hostnames: set[str] = set()
+
         for provisioner_id, worker_type in MAC_WORKER_POOLS:
             log.info("Fetching TC workers: %s/%s", provisioner_id, worker_type)
             try:
@@ -187,6 +249,7 @@ def run_sync(db: Session) -> int:
             for node in workers:
                 worker_id = node.get("workerId", "")
                 hostname = _worker_hostname(worker_id)
+                seen_hostnames.add(hostname)
 
                 worker = db.get(Worker, hostname)
                 if worker is None:
@@ -222,6 +285,9 @@ def run_sync(db: Session) -> int:
                 worker.last_synced_tc = datetime.utcnow()
                 _generate_alerts(db, hostname, worker)
                 total += 1
+
+        # Second pass: flag known production workers absent from TC entirely
+        _check_absent_workers(db, seen_hostnames)
 
         db.commit()
         log_entry.finished_at = datetime.utcnow()
