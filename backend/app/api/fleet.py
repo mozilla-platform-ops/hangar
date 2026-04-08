@@ -13,6 +13,13 @@ from ..models import Alert, SyncLog, Worker
 
 router = APIRouter(prefix="/fleet", tags=["fleet"])
 
+DEFAULT_BRANCH = "master"
+
+
+def _is_branch_override(branch: str | None) -> bool:
+    """Return True only if the branch is set and differs from the default."""
+    return bool(branch and branch.lower() != DEFAULT_BRANCH.lower())
+
 
 @router.get("/summary")
 def fleet_summary(db: Session = Depends(get_db)) -> dict[str, Any]:
@@ -47,9 +54,9 @@ def fleet_summary(db: Session = Depends(get_db)) -> dict[str, Any]:
         if w.mdm_enrollment_status == "unenrolled":
             mdm_unenrolled += 1
 
-        if w.branch:
+        if _is_branch_override(w.branch):
             branch_total += 1
-            branch_by_branch[w.branch] = branch_by_branch.get(w.branch, 0) + 1
+            branch_by_branch[w.branch] = branch_by_branch.get(w.branch, 0) + 1  # type: ignore[index]
             branch_by_pool[pool] = branch_by_pool.get(pool, 0) + 1
 
     # Read alert counts directly from the alerts table — single source of truth
@@ -142,7 +149,7 @@ def pool_health(db: Session = Depends(get_db)) -> dict[str, Any]:
         if w.mdm_enrollment_status == "unenrolled":
             p["mdm_unenrolled"] += 1
 
-        if w.branch:
+        if _is_branch_override(w.branch):
             p["branch_override_count"] += 1
 
         # Staleness bucket
