@@ -55,7 +55,7 @@ export function Overview() {
   const stateData = Object.entries(data.by_state).map(([name, value]) => ({ name, value }));
   const genData = Object.entries(data.by_generation).map(([name, value]) => ({ name, value }));
   const topPools = Object.entries(data.by_pool).sort((a, b) => b[1] - a[1]).slice(0, 10)
-    .map(([name, value]) => ({ name: name.replace("gecko-t-", "").replace("-r8", "").replace("-m4", ""), value }));
+    .map(([name, value]) => ({ name: name.replace("gecko-t-osx-", "").replace("gecko-t-", ""), value }));
 
   return (
     <div className="p-8 space-y-8">
@@ -122,11 +122,11 @@ export function Overview() {
         {/* Top pools bar */}
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
           <h3 className="text-sm font-semibold text-gray-300 mb-4">Top Pools (by count)</h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={topPools} layout="vertical" margin={{ left: 0, right: 12, top: 0, bottom: 0 }}>
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={topPools} layout="vertical" margin={{ left: 4, right: 12, top: 8, bottom: 4 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
               <XAxis type="number" tick={{ fontSize: 10, fill: "#9ca3af" }} />
-              <YAxis type="category" dataKey="name" width={80} tick={{ fontSize: 9, fill: "#9ca3af" }} />
+              <YAxis type="category" dataKey="name" width={100} interval={0} tick={{ fontSize: 9, fill: "#9ca3af" }} />
               <Tooltip contentStyle={{ background: "#1f2937", border: "1px solid #374151", borderRadius: 8 }} />
               <Bar dataKey="value" fill="#4c6ef5" radius={[0, 4, 4, 0]} />
             </BarChart>

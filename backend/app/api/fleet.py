@@ -9,7 +9,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import SyncLog, Worker
+from ..models import Alert, SyncLog, Worker
 
 router = APIRouter(prefix="/fleet", tags=["fleet"])
 
@@ -24,11 +24,7 @@ def fleet_summary(db: Session = Depends(get_db)) -> dict[str, Any]:
     by_pool: dict[str, int] = {}
     by_os: dict[str, int] = {}
 
-    quarantined = 0
-    missing_from_tc = 0
     mdm_unenrolled = 0
-    now = datetime.utcnow()
-    threshold = now - timedelta(hours=24)
 
     for w in workers:
         gen = w.generation or "unknown"
@@ -43,14 +39,19 @@ def fleet_summary(db: Session = Depends(get_db)) -> dict[str, Any]:
         os = w.os_version or "unknown"
         by_os[os] = by_os.get(os, 0) + 1
 
-        if w.tc_quarantined:
-            quarantined += 1
-
-        if (w.effective_state == "production" and w.tc_last_active and w.tc_last_active < threshold):
-            missing_from_tc += 1
-
         if w.mdm_enrollment_status == "unenrolled":
             mdm_unenrolled += 1
+
+    # Read alert counts directly from the alerts table — single source of truth
+    def _active_alert_count(alert_type: str) -> int:
+        return (
+            db.query(func.count(Alert.id))
+            .filter(Alert.alert_type == alert_type, Alert.resolved_at == None)  # noqa: E711
+            .scalar() or 0
+        )
+
+    quarantined = _active_alert_count("quarantined")
+    missing_from_tc = _active_alert_count("missing_from_tc")
 
     # Sync status
     sync_status = {}

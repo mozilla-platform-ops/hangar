@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import asc, desc, nullslast
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -70,7 +71,19 @@ def list_workers(
     search: str | None = Query(None),
     limit: int = Query(500, le=2000),
     offset: int = Query(0),
+    sort_by: str = Query("hostname"),
+    sort_dir: str = Query("asc"),
 ) -> dict[str, Any]:
+    _SORTABLE = {
+        "hostname": Worker.hostname,
+        "generation": Worker.generation,
+        "worker_pool": Worker.worker_pool,
+        "os_version": Worker.os_version,
+        "tc_last_active": Worker.tc_last_active,
+        "tc_state": Worker.tc_state,
+        "mdm_enrollment_status": Worker.mdm_enrollment_status,
+    }
+
     q = db.query(Worker)
 
     if generation:
@@ -97,7 +110,9 @@ def list_workers(
         q = q.filter(Worker.hostname.ilike(like) | Worker.serial_number.ilike(like))
 
     total = q.count()
-    workers = q.order_by(Worker.hostname).offset(offset).limit(limit).all()
+    sort_col = _SORTABLE.get(sort_by, Worker.hostname)
+    order = nullslast(desc(sort_col)) if sort_dir == "desc" else nullslast(asc(sort_col))
+    workers = q.order_by(order).offset(offset).limit(limit).all()
     return {"total": total, "workers": [_worker_to_dict(w) for w in workers]}
 
 

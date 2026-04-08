@@ -38,9 +38,21 @@ export function Workers() {
   const state = searchParams.get("state") || "";
   const pool = searchParams.get("worker_pool") || "";
 
+  // Map TanStack column id → API sort_by param
+  const SORT_MAP: Record<string, string> = {
+    hostname: "hostname",
+    generation: "generation",
+    worker_pool: "worker_pool",
+    os: "os_version",
+    tc_last_active: "tc_last_active",
+    tc_status: "tc_state",
+    mdm: "mdm_enrollment_status",
+  };
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
+      const sortCol = sorting[0];
       const result = await api.workers.list({
         search: search || undefined,
         generation: generation || undefined,
@@ -48,6 +60,8 @@ export function Workers() {
         worker_pool: pool || undefined,
         offset: page * PAGE_SIZE,
         limit: PAGE_SIZE,
+        sort_by: sortCol ? (SORT_MAP[sortCol.id] || sortCol.id) : "hostname",
+        sort_dir: sortCol?.desc ? "desc" : "asc",
       });
       setWorkers(result.workers);
       setTotal(result.total);
@@ -56,7 +70,7 @@ export function Workers() {
     } finally {
       setLoading(false);
     }
-  }, [search, generation, state, pool, page]);
+  }, [search, generation, state, pool, page, sorting]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -129,12 +143,13 @@ export function Workers() {
     data: workers,
     columns,
     state: { sorting },
-    onSortingChange: setSorting,
+    onSortingChange: (updater) => { setPage(0); setSorting(updater); },
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     manualPagination: true,
     manualFiltering: true,
+    manualSorting: true,
   });
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
