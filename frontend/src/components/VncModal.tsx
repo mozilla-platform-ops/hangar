@@ -44,7 +44,10 @@ export function VncModal({ hostname, onClose }: Props) {
     // @ts-ignore
     import("@novnc/novnc/lib/rfb.js").then((module: { default?: RFBType }) => {
       // Vite CJS interop: default export may be on .default or on the module itself
-      const RFB = module.default ?? module;
+      // Vite wraps CJS exports as the default export, so the actual class
+      // is at module.default.default when __esModule:true is present
+      const exports = module.default;
+      const RFB = (typeof exports?.default === "function" ? exports.default : exports) ?? module;
       try {
         connectWithRFB(RFB, container, url, pw);
       } catch (err) {
