@@ -126,6 +126,7 @@ export function WorkerDetail() {
         <Field label="Safari Driver" value={worker.mdm.safari_driver} />
         <Field label="Video Dongle" value={worker.mdm.video_dongle} />
         <Field label="Worker Config" value={worker.mdm.worker_config} mono />
+        <Field label="Branch Override" value={worker.mdm.branch} mono />
       </Section>
 
       <Section title="Sync Timestamps">

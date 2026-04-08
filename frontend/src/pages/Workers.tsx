@@ -137,6 +137,14 @@ export function Workers() {
         return <span className={`text-xs ${s === "ENABLED" ? "text-emerald-400" : "text-gray-500"}`}>{s || "—"}</span>;
       },
     },
+    {
+      id: "branch",
+      header: "Branch",
+      cell: ({ row }) => {
+        const b = row.original.mdm.branch;
+        return <span className={`text-xs font-mono ${b ? "text-amber-400" : "text-gray-600"}`}>{b || "—"}</span>;
+      },
+    },
   ];
 
   const table = useReactTable({

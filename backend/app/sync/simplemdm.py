@@ -135,6 +135,7 @@ def run_sync(db: Session) -> int:
             worker.worker_config = ca.get("Worker_Config") or ca.get("worker_config")
             worker.refresh_hz = ca.get("Hz") or ca.get("hz")
             worker.resolution = ca.get("Resolution") or ca.get("resolution")
+            worker.branch = ca.get("Branch") or ca.get("branch") or None
 
             # Backfill worker_pool from MDM Worker_Config if Puppet/TC haven't set it.
             if not worker.worker_pool and worker.worker_config:

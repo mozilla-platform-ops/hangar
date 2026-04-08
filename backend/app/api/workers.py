@@ -37,6 +37,7 @@ def _worker_to_dict(w: Worker) -> dict[str, Any]:
             "worker_config": w.worker_config,
             "refresh_hz": w.refresh_hz,
             "resolution": w.resolution,
+            "branch": w.branch,
         },
         "tc": {
             "worker_id": w.tc_worker_id,

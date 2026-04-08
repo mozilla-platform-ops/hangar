@@ -39,6 +39,7 @@ class Worker(Base):
     worker_config: Mapped[str | None] = mapped_column(String(255))
     refresh_hz: Mapped[str | None] = mapped_column(String(20))
     resolution: Mapped[str | None] = mapped_column(String(50))
+    branch: Mapped[str | None] = mapped_column(String(255))
 
     # From Taskcluster
     tc_worker_id: Mapped[str | None] = mapped_column(String(255))
