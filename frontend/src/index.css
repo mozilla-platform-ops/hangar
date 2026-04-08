@@ -4,11 +4,25 @@
 
 @layer base {
   body {
-    @apply bg-gray-950 text-gray-100 font-sans;
+    @apply bg-gray-950 text-gray-100 font-sans antialiased;
     margin: 0;
+    background-image: radial-gradient(circle, #ffffff06 1px, transparent 1px);
+    background-size: 24px 24px;
   }
   * { box-sizing: border-box; }
-  ::-webkit-scrollbar { width: 6px; height: 6px; }
-  ::-webkit-scrollbar-track { background: #111; }
-  ::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #2d3748; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #4a5568; }
+}
+
+@layer utilities {
+  .card {
+    @apply bg-gray-900/80 border border-gray-800 rounded-xl backdrop-blur-sm;
+  }
+  .card-glow-blue  { box-shadow: 0 0 0 1px #3b5bdb22, 0 4px 24px #4c6ef510; }
+  .card-glow-green { box-shadow: 0 0 0 1px #05966922, 0 4px 24px #10b98110; }
+  .card-glow-red   { box-shadow: 0 0 0 1px #c9192222, 0 4px 24px #ef444410; }
+  .card-glow-yellow{ box-shadow: 0 0 0 1px #d9770622, 0 4px 24px #f59e0b10; }
 }

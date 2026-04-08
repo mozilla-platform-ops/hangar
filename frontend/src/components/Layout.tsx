@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from "react-router-dom";
-import { LayoutDashboard, Monitor, AlertTriangle, BarChart2, RefreshCw } from "lucide-react";
+import { LayoutDashboard, Monitor, AlertTriangle, BarChart2, RefreshCw, Cpu } from "lucide-react";
 import { clsx } from "clsx";
 import { useState } from "react";
 import { api } from "../api";
@@ -32,38 +32,60 @@ export function Layout() {
   return (
     <div className="flex h-screen bg-gray-950">
       {/* Sidebar */}
-      <aside className="w-56 flex-shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col">
-        <div className="px-5 py-5 border-b border-gray-800">
-          <div className="text-sm font-semibold text-brand-500 uppercase tracking-widest">RelOps</div>
-          <div className="text-lg font-bold text-white mt-0.5">Fleet Dashboard</div>
+      <aside className="w-56 flex-shrink-0 flex flex-col border-r border-gray-800/80"
+        style={{ background: "linear-gradient(180deg, #0f1117 0%, #0d1117 100%)" }}>
+
+        {/* Brand */}
+        <div className="px-4 py-5 border-b border-gray-800/60">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-brand-600/20 border border-brand-500/30 flex items-center justify-center flex-shrink-0">
+              <Cpu size={14} className="text-brand-400" />
+            </div>
+            <div>
+              <div className="text-[10px] font-semibold text-brand-400/80 uppercase tracking-[0.2em] leading-none">RelOps</div>
+              <div className="text-sm font-semibold text-white leading-tight mt-0.5">Fleet Dashboard</div>
+            </div>
+          </div>
         </div>
-        <nav className="flex-1 px-2 py-4 space-y-0.5">
+
+        {/* Nav */}
+        <nav className="flex-1 px-2 py-3 space-y-0.5">
           {NAV.map(({ to, icon: Icon, label }) => (
             <NavLink
               key={to}
               to={to}
               end={to === "/"}
               className={({ isActive }) =>
-                clsx("flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
+                clsx(
+                  "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 relative",
                   isActive
-                    ? "bg-brand-500/20 text-brand-400"
-                    : "text-gray-400 hover:text-white hover:bg-gray-800"
+                    ? "bg-brand-500/10 text-brand-300 border border-brand-500/20"
+                    : "text-gray-500 hover:text-gray-200 hover:bg-gray-800/60 border border-transparent"
                 )
               }
             >
-              <Icon size={16} />
-              {label}
+              {({ isActive }) => (
+                <>
+                  {isActive && (
+                    <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 bg-brand-400 rounded-full" />
+                  )}
+                  <Icon size={15} />
+                  {label}
+                </>
+              )}
             </NavLink>
           ))}
         </nav>
-        <div className="px-3 pb-4">
+
+        {/* Sync */}
+        <div className="px-3 pb-4 border-t border-gray-800/60 pt-3">
           <button
             onClick={triggerSync}
             disabled={syncing}
-            className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-gray-800 transition-colors disabled:opacity-50"
+            className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-xs font-medium text-gray-500 hover:text-gray-200 hover:bg-gray-800/60 transition-all disabled:opacity-40 border border-transparent hover:border-gray-700/50"
           >
-            <RefreshCw size={14} className={syncing ? "animate-spin" : ""} />
-            {syncing ? "Syncing…" : syncMsg || "Sync All"}
+            <RefreshCw size={12} className={syncing ? "animate-spin" : ""} />
+            {syncing ? "Syncing…" : syncMsg || "Sync All Sources"}
           </button>
         </div>
       </aside>
