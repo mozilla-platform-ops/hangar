@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-// noVNC is CJS and requires a dynamic import for correct Vite interop
+// noVNC is CJS — dynamic import handles Vite interop correctly
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type RFBType = any;
 import { X, Monitor } from "lucide-react";
@@ -11,6 +11,8 @@ interface Props {
 
 type Phase = "form" | "connecting" | "connected" | "error";
 
+const CONNECT_TIMEOUT_MS = 12000;
+
 export function VncModal({ hostname, onClose }: Props) {
   const shortName = hostname.split(".")[0];
   const [phase, setPhase] = useState<Phase>("form");
@@ -20,22 +22,39 @@ export function VncModal({ hostname, onClose }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rfbRef = useRef<RFBType>(null);
   const phaseRef = useRef(phase);
+  const intentionalDisconnect = useRef(false);
   useEffect(() => { phaseRef.current = phase; }, [phase]);
 
+  // Tear down on unmount
   useEffect(() => {
-    return () => {
-      rfbRef.current?.disconnect();
-    };
+    return () => { rfbRef.current?.disconnect(); };
   }, []);
+
+  // Timeout if stuck connecting
+  useEffect(() => {
+    if (phase !== "connecting") return;
+    const t = setTimeout(() => {
+      if (phaseRef.current === "connecting") {
+        intentionalDisconnect.current = true;
+        rfbRef.current?.disconnect();
+        setPhase("error");
+        setErrorMsg(
+          "Connection timed out. macOS Screen Sharing may require a VNC password — " +
+          "set one in System Settings → General → Sharing → Screen Sharing → ⓘ"
+        );
+      }
+    }, CONNECT_TIMEOUT_MS);
+    return () => clearTimeout(t);
+  }, [phase]);
 
   function connect(e: React.FormEvent) {
     e.preventDefault();
+    intentionalDisconnect.current = false;
     setPhase("connecting");
     setErrorMsg("");
 
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     const url = `${proto}//${window.location.host}/api/workers/${hostname}/vnc`;
-
     if (!containerRef.current) return;
     const container = containerRef.current;
     const pw = password;
@@ -43,62 +62,45 @@ export function VncModal({ hostname, onClose }: Props) {
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
     import("@novnc/novnc/lib/rfb.js").then((module: { default?: RFBType }) => {
-      // Vite CJS interop: default export may be on .default or on the module itself
-      // Vite wraps CJS exports as the default export, so the actual class
-      // is at module.default.default when __esModule:true is present
       const exports = module.default;
       const RFB = (typeof exports?.default === "function" ? exports.default : exports) ?? module;
       try {
-        connectWithRFB(RFB, container, url, pw);
-      } catch (err) {
+        const rfb = new RFB(container, url, {
+          credentials: pw ? { password: pw } : undefined,
+        });
+        rfb.scaleViewport = scale;
+        rfb.resizeSession = false;
+
+        rfb.addEventListener("connect", () => {
+          setPhase("connected");
+        });
+
+        rfb.addEventListener("disconnect", (e: CustomEvent) => {
+          if (intentionalDisconnect.current) return; // handled elsewhere
+          const detail = e.detail as { clean: boolean; reason?: string };
+          const msg = detail.reason || "Could not connect — is Screen Sharing enabled on this host?";
+          setPhase(phaseRef.current === "connected" ? "error" : "error");
+          setErrorMsg(msg);
+        });
+
+        rfb.addEventListener("credentialsrequired", () => {
+          // Server wants a password we didn't supply — go back to form
+          intentionalDisconnect.current = true;
+          rfb.disconnect();
+          setPhase("form");
+          setErrorMsg("VNC password required — enter the Screen Sharing password below");
+        });
+
+        rfbRef.current = rfb;
+      } catch (err: unknown) {
         setPhase("error");
         setErrorMsg(String(err));
       }
-    }).catch(err => {
+    }).catch((err: unknown) => {
       setPhase("error");
       setErrorMsg(`Failed to load noVNC: ${err}`);
     });
   }
-
-  function connectWithRFB(RFB: RFBType, container: HTMLDivElement, url: string, pw: string) {
-    try {
-      const rfb = new RFB(container, url, {
-        credentials: pw ? { password: pw } : undefined,
-      });
-
-      rfb.scaleViewport = scale;
-      rfb.resizeSession = false;
-
-      rfb.addEventListener("connect", () => setPhase("connected"));
-
-      rfb.addEventListener("disconnect", (e: CustomEvent) => {
-        const detail = e.detail as { clean: boolean; reason?: string };
-        if (phaseRef.current !== "connected") {
-          setPhase("error");
-          setErrorMsg(detail.reason || "Could not connect — is VNC/Screen Sharing enabled on this host?");
-        } else {
-          setPhase("error");
-          setErrorMsg("Session ended");
-        }
-      });
-
-      rfb.addEventListener("credentialsrequired", () => {
-        // If we didn't supply a password, prompt and reconnect
-        if (!password) {
-          rfb.disconnect();
-          setPhase("form");
-          setErrorMsg("VNC password required");
-        }
-      });
-
-      rfbRef.current = rfb;
-    } catch (err: unknown) {
-      setPhase("error");
-      setErrorMsg(String(err));
-    }
-  }
-
-
 
   return (
     <div
@@ -143,7 +145,7 @@ export function VncModal({ hostname, onClose }: Props) {
               <div className="text-center">
                 <div className="text-gray-400 text-sm mb-1">VNC into</div>
                 <div className="font-mono text-white font-semibold">{shortName}</div>
-                {errorMsg && <div className="text-red-400 text-xs mt-2">{errorMsg}</div>}
+                {errorMsg && <div className="text-amber-400 text-xs mt-2 text-left leading-relaxed">{errorMsg}</div>}
               </div>
               <div>
                 <label className="block text-xs text-gray-400 mb-1">VNC password</label>
@@ -152,7 +154,7 @@ export function VncModal({ hostname, onClose }: Props) {
                   className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-brand-500"
                   value={password}
                   onChange={e => setPassword(e.target.value)}
-                  placeholder="leave blank if no password"
+                  placeholder="Screen Sharing password"
                   autoFocus
                 />
               </div>
@@ -166,24 +168,22 @@ export function VncModal({ hostname, onClose }: Props) {
           )}
 
           {phase === "connecting" && (
-            <div className="flex-1 flex items-center justify-center text-gray-500 text-sm">
-              Connecting to {shortName}…
+            <div className="flex-1 flex flex-col items-center justify-center gap-2">
+              <div className="text-gray-500 text-sm">Connecting to {shortName}…</div>
+              <div className="text-gray-600 text-xs">timing out in {CONNECT_TIMEOUT_MS / 1000}s if no response</div>
             </div>
           )}
 
           {phase === "error" && (
             <div className="flex flex-col items-center justify-center gap-4 p-8 flex-1">
-              <div className="text-red-400 text-sm text-center">{errorMsg}</div>
-              <button
-                className="text-xs text-gray-400 hover:text-white underline"
-                onClick={() => { setPhase("form"); }}
-              >
+              <div className="text-red-400 text-sm text-center max-w-sm leading-relaxed">{errorMsg}</div>
+              <button className="text-xs text-gray-400 hover:text-white underline" onClick={() => setPhase("form")}>
                 Try again
               </button>
             </div>
           )}
 
-          {/* noVNC renders its own canvas into this div */}
+          {/* noVNC attaches its canvas here; always mounted so the ref is valid */}
           <div
             ref={containerRef}
             className="flex-1"
