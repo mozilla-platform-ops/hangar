@@ -20,7 +20,7 @@ def _worker_to_dict(w: Worker) -> dict[str, Any]:
         "generation": w.generation,
         "worker_pool": w.worker_pool,
         "puppet_role": w.puppet_role,
-        "state": w.sheet_state,
+        "state": w.effective_state,
         "kvm": w.sheet_kvm,
         "loaner_assignee": w.sheet_loaner_assignee,
         "notes": w.sheet_notes,
@@ -76,7 +76,16 @@ def list_workers(
     if generation:
         q = q.filter(Worker.generation == generation)
     if state:
-        q = q.filter(Worker.sheet_state == state)
+        if state == "production":
+            # production = explicit sheet state OR inferred (in TC pool or has puppet role)
+            q = q.filter(
+                (Worker.sheet_state == "production") |
+                (Worker.sheet_state == None) & (  # noqa: E711
+                    (Worker.tc_worker_pool_id != None) | (Worker.puppet_role != None)  # noqa: E711
+                )
+            )
+        else:
+            q = q.filter(Worker.sheet_state == state)
     if worker_pool:
         q = q.filter(Worker.worker_pool == worker_pool)
     if tc_quarantined is not None:

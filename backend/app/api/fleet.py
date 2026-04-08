@@ -34,7 +34,7 @@ def fleet_summary(db: Session = Depends(get_db)) -> dict[str, Any]:
         gen = w.generation or "unknown"
         by_generation[gen] = by_generation.get(gen, 0) + 1
 
-        state = w.sheet_state or "unknown"
+        state = w.effective_state
         by_state[state] = by_state.get(state, 0) + 1
 
         pool = w.worker_pool or "unknown"
@@ -46,7 +46,7 @@ def fleet_summary(db: Session = Depends(get_db)) -> dict[str, Any]:
         if w.tc_quarantined:
             quarantined += 1
 
-        if (w.sheet_state == "production" and w.tc_last_active and w.tc_last_active < threshold):
+        if (w.effective_state == "production" and w.tc_last_active and w.tc_last_active < threshold):
             missing_from_tc += 1
 
         if w.mdm_enrollment_status == "unenrolled":
@@ -95,7 +95,7 @@ def consolidation_analysis(db: Session = Depends(get_db)) -> dict[str, Any]:
         by_pool: dict[str, int] = {}
         inactive_30d: list[str] = []
         for w in workers:
-            s = w.sheet_state or "unknown"
+            s = w.effective_state
             by_state[s] = by_state.get(s, 0) + 1
             p = w.worker_pool or "unknown"
             by_pool[p] = by_pool.get(p, 0) + 1
@@ -112,7 +112,7 @@ def consolidation_analysis(db: Session = Depends(get_db)) -> dict[str, Any]:
     # Retirement candidates: r8 workers that are defective, spare, or inactive >30d
     retirement_candidates = [
         w.hostname for w in r8_workers
-        if w.sheet_state in ("defective", "spare") or (w.tc_last_active and w.tc_last_active < stale_threshold)
+        if w.effective_state in ("defective", "spare") or (w.tc_last_active and w.tc_last_active < stale_threshold)
     ]
 
     return {
@@ -121,8 +121,8 @@ def consolidation_analysis(db: Session = Depends(get_db)) -> dict[str, Any]:
         "retirement_candidates": retirement_candidates[:50],
         "retirement_candidate_count": len(retirement_candidates),
         "analysis": {
-            "r8_production_count": sum(1 for w in r8_workers if w.sheet_state == "production"),
-            "m4_production_count": sum(1 for w in m4_workers if w.sheet_state == "production"),
-            "r8_safe_to_retire_estimate": len([w for w in r8_workers if w.sheet_state in ("defective", "spare")]),
+            "r8_production_count": sum(1 for w in r8_workers if w.effective_state == "production"),
+            "m4_production_count": sum(1 for w in m4_workers if w.effective_state == "production"),
+            "r8_safe_to_retire_estimate": len([w for w in r8_workers if w.effective_state in ("defective", "spare")]),
         },
     }

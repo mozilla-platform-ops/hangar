@@ -52,6 +52,15 @@ class Worker(Base):
     tc_latest_task_state: Mapped[str | None] = mapped_column(String(50))
     tc_worker_pool_id: Mapped[str | None] = mapped_column(String(255))
 
+    @property
+    def effective_state(self) -> str:
+        """State from Google Sheets if available; otherwise infer from TC/Puppet membership."""
+        if self.sheet_state:
+            return self.sheet_state
+        if self.tc_worker_pool_id or self.puppet_role:
+            return "production"
+        return "unknown"
+
     # Sync bookkeeping
     last_synced_puppet: Mapped[datetime | None] = mapped_column(DateTime)
     last_synced_mdm: Mapped[datetime | None] = mapped_column(DateTime)

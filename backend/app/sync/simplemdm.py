@@ -147,7 +147,7 @@ def run_sync(db: Session) -> int:
             worker.last_synced_mdm = datetime.utcnow()
 
             # Alert: MDM unenrolled for production worker
-            if (worker.sheet_state == "production" or worker.puppet_role) and attrs.get("status") == "unenrolled":
+            if worker.effective_state == "production" and attrs.get("status") == "unenrolled":
                 existing = (
                     db.query(Alert)
                     .filter(Alert.hostname == hostname, Alert.alert_type == "mdm_unenrolled", Alert.resolved_at == None)  # noqa: E711

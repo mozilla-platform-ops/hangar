@@ -153,7 +153,7 @@ def _generate_alerts(db: Session, hostname: str, worker: Worker) -> None:
             a.resolved_at = now
 
     # Missing-from-TC alert: production/staging workers with no recent TC activity
-    is_active_state = (worker.sheet_state or worker.puppet_role) and (worker.sheet_state not in ("loaner", "defective", "spare", None))
+    is_active_state = worker.effective_state not in ("loaner", "defective", "spare", "unknown")
     if is_active_state and worker.tc_last_active:
         hours_inactive = (now - worker.tc_last_active).total_seconds() / 3600
         if hours_inactive > threshold_hours:
