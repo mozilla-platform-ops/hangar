@@ -217,7 +217,7 @@ export function Alerts() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500 font-mono">
-                      {alert.worker?.worker_pool?.replace(/^gecko-t-osx-\d+-/, "") || "—"}
+                      {alert.worker?.worker_pool || "—"}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500 max-w-[200px]">{alert.detail || "—"}</td>
                     <td className="px-4 py-2">

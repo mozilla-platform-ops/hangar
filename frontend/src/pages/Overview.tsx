@@ -83,7 +83,7 @@ export function Overview() {
   const stateData = Object.entries(data.by_state).map(([name, value]) => ({ name, value }));
   const genData = Object.entries(data.by_generation).map(([name, value]) => ({ name, value }));
   const topPools = Object.entries(data.by_pool).sort((a, b) => b[1] - a[1]).slice(0, 10)
-    .map(([name, value]) => ({ name: name.replace("gecko-t-osx-", "").replace("gecko-t-", ""), value }));
+    .map(([name, value]) => ({ name, value }));
 
   const totalAlerts = data.alerts.quarantined + data.alerts.missing_from_tc + data.alerts.mdm_unenrolled;
 
@@ -210,7 +210,7 @@ export function Overview() {
                   .sort((a, b) => b[1] - a[1])
                   .map(([pool, count]) => (
                     <div key={pool} className="flex items-center gap-2 bg-gray-800/40 border border-gray-700/40 rounded-lg px-3 py-1.5">
-                      <span className="text-xs font-mono text-gray-400">{pool.replace("gecko-t-osx-", "")}</span>
+                      <span className="text-xs font-mono text-gray-400">{pool}</span>
                       <span className="text-xs font-bold text-amber-400 tabular-nums">{count}</span>
                     </div>
                   ))

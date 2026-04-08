@@ -84,7 +84,7 @@ function HealthRing({ score }: { score: number }) {
 
 function PinnedCard({ pool }: { pool: PoolHealth }) {
   const navigate = useNavigate();
-  const shortName = pool.name.replace("gecko-t-osx-", "");
+  const shortName = pool.name;
   const issues = pool.quarantined + pool.mdm_unenrolled;
   return (
     <div
@@ -231,7 +231,7 @@ export function Pools() {
             <tbody>
               {pools.map(pool => {
                 const isPinned = PINNED_POOLS.includes(pool.name);
-                const shortName = pool.name.replace("gecko-t-osx-", "").replace("gecko-t-", "");
+                const shortName = pool.name;
                 const issues = pool.quarantined + pool.mdm_unenrolled;
                 const stale = pool.stale_1_7d + pool.stale_7_30d + pool.stale_30d_plus + pool.never_seen;
                 return (

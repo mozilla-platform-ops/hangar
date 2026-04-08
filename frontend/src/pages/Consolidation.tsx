@@ -54,7 +54,7 @@ function GenCard({
                   style={{ width: `${Math.min(100, (count / data.total) * 100)}%`, background: color === "text-indigo-400" ? "#6366f1" : "#10b981" }}
                 />
               </div>
-              <span className="text-xs text-gray-400 w-20 truncate">{pool.replace("gecko-t-", "")}</span>
+              <span className="text-xs text-gray-400 w-48 truncate">{pool}</span>
               <span className="text-xs text-white w-6 text-right">{count}</span>
             </div>
           ))}

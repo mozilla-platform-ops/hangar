@@ -140,7 +140,7 @@ export function Workers() {
       header: "Pool",
       cell: ({ getValue }) => (
         <span className="text-xs text-gray-400 font-mono truncate max-w-[160px] block">
-          {(getValue() as string)?.replace("gecko-t-osx-", "").replace("gecko-t-", "") || "—"}
+          {(getValue() as string) || "—"}
         </span>
       ),
     },
