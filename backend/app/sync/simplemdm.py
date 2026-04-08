@@ -54,13 +54,13 @@ class SimpleMDMClient:
             data = self._get(f"/devices/{device_id}/custom_attribute_values")
             result: dict[str, str] = {}
             for item in data.get("data", []):
-                attrs = item.get("attributes", {})
-                name = attrs.get("name", "")
-                value = attrs.get("value") or ""
+                name = item.get("id", "")
+                value = item.get("attributes", {}).get("value") or ""
                 if name:
                     result[name] = value
             return result
         except Exception:
+            log.warning("Failed to fetch custom attributes for device %s", device_id, exc_info=True)
             return {}
 
     def bulk_custom_attribute_values(self, device_ids: list[int], workers: int = 10) -> dict[int, dict[str, str]]:
@@ -107,6 +107,11 @@ def run_sync(db: Session) -> int:
         device_ids = [d["id"] for d in devices]
         log.info("Fetching SimpleMDM custom attribute values for %d devices...", len(device_ids))
         custom_attrs = client.bulk_custom_attribute_values(device_ids)
+        sample = next((v for v in custom_attrs.values() if v), None)
+        if sample:
+            log.info("Sample custom attribute keys: %s", sorted(sample.keys()))
+        else:
+            log.warning("No custom attribute values returned for any device")
 
         count = 0
         for device in devices:
