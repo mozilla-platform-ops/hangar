@@ -198,7 +198,7 @@ def run_sync(db: Session) -> int:
                 worker.tc_worker_group = node.get("workerGroup")
                 worker.tc_state = node.get("state")
                 worker.tc_last_active = _parse_dt(node.get("lastDateActive"))
-                worker.tc_quarantined = quarantine_until is not None
+                worker.tc_quarantined = quarantine_until is not None and quarantine_until > datetime.utcnow()
                 worker.tc_quarantine_until = quarantine_until
                 worker.tc_first_claim = _parse_dt(node.get("firstClaim"))
                 worker.tc_worker_pool_id = node.get("workerPoolId")
