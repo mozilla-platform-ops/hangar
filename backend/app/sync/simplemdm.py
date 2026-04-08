@@ -136,6 +136,10 @@ def run_sync(db: Session) -> int:
             worker.refresh_hz = ca.get("Hz") or ca.get("hz")
             worker.resolution = ca.get("Resolution") or ca.get("resolution")
 
+            # Backfill worker_pool from MDM Worker_Config if Puppet/TC haven't set it.
+            if not worker.worker_pool and worker.worker_config:
+                worker.worker_pool = worker.worker_config
+
             if not worker.generation:
                 h = hostname.lower()
                 worker.generation = "m4" if "-m4-" in h else "m2" if "-m2-" in h else "r8" if "-r8-" in h else None

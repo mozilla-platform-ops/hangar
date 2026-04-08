@@ -203,6 +203,11 @@ def run_sync(db: Session) -> int:
                 worker.tc_first_claim = _parse_dt(node.get("firstClaim"))
                 worker.tc_worker_pool_id = node.get("workerPoolId")
 
+                # Backfill worker_pool from TC if Puppet hasn't set it yet.
+                # workerPoolId is "releng-hardware/gecko-t-osx-1500-m4" → "gecko-t-osx-1500-m4"
+                if not worker.worker_pool and worker.tc_worker_pool_id:
+                    worker.worker_pool = worker.tc_worker_pool_id.split("/")[-1]
+
                 latest_task = (node.get("latestTask") or {}).get("run") or {}
                 worker.tc_latest_task_id = latest_task.get("taskId")
                 worker.tc_latest_task_state = latest_task.get("state")
