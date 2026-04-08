@@ -39,19 +39,40 @@ def _worker_id_from_hostname(hostname: str) -> str:
 
 
 def _ensure_repo(repo_url: str, local_path: str) -> None:
-    """Clone or pull the puppet repo."""
+    """Clone or pull the puppet repo.
+
+    Uses git-init-in-place so we never have to remove the directory —
+    important because Docker volume mount points cannot be rmdir'd (EBUSY).
+    """
     path = Path(local_path)
     git_dir = path / ".git"
-    if path.exists() and git_dir.exists():
+
+    if git_dir.exists():
         log.info("Pulling puppet repo at %s", local_path)
-        subprocess.run(["git", "-C", local_path, "pull", "--ff-only", "--quiet"], check=True, timeout=120)
+        subprocess.run(
+            ["git", "-C", local_path, "fetch", "--depth=1", "--quiet", "origin"],
+            check=True, timeout=120,
+        )
+        subprocess.run(
+            ["git", "-C", local_path, "checkout", "--quiet", "FETCH_HEAD"],
+            check=True, timeout=60,
+        )
     else:
-        log.info("Cloning puppet repo %s → %s", repo_url, local_path)
-        # Remove any empty directory left by the Docker volume mount
-        if path.exists() and not any(path.iterdir()):
-            path.rmdir()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(["git", "clone", "--depth=1", repo_url, local_path], check=True, timeout=300)
+        log.info("Initialising puppet repo in %s from %s", local_path, repo_url)
+        path.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["git", "-C", local_path, "init", "--quiet"], check=True, timeout=30)
+        subprocess.run(
+            ["git", "-C", local_path, "remote", "add", "origin", repo_url],
+            check=True, timeout=10,
+        )
+        subprocess.run(
+            ["git", "-C", local_path, "fetch", "--depth=1", "--quiet", "origin", "master"],
+            check=True, timeout=300,
+        )
+        subprocess.run(
+            ["git", "-C", local_path, "checkout", "--quiet", "FETCH_HEAD"],
+            check=True, timeout=60,
+        )
 
 
 def _parse_inventory_d(inventory_d: Path) -> list[dict]:
