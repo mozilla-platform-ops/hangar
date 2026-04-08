@@ -21,11 +21,16 @@ function timeAgo(iso: string | null) {
   return `${Math.round(hrs / 24)}d ago`;
 }
 
+function isSigningWorker(hostname: string) {
+  return !hostname.startsWith("macmini-");
+}
+
 export function Alerts() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [activeOnly, setActiveOnly] = useState(true);
+  const [hideSigningWorkers, setHideSigningWorkers] = useState(true);
   const navigate = useNavigate();
 
   async function load() {
@@ -52,7 +57,11 @@ export function Alerts() {
     setAlerts(prev => prev.map(a => a.id === id ? { ...a, acknowledged: true } : a));
   }
 
-  const byType = alerts.reduce<Record<string, number>>((acc, a) => {
+  const visibleAlerts = hideSigningWorkers
+    ? alerts.filter(a => !isSigningWorker(a.hostname))
+    : alerts;
+
+  const byType = visibleAlerts.reduce<Record<string, number>>((acc, a) => {
     acc[a.alert_type] = (acc[a.alert_type] || 0) + 1;
     return acc;
   }, {});
@@ -64,12 +73,20 @@ export function Alerts() {
           <h1 className="text-2xl font-bold text-white flex items-center gap-2">
             <AlertTriangle size={22} className="text-red-400" /> Alerts
           </h1>
-          <p className="text-gray-400 text-sm mt-1">{total} {activeOnly ? "active" : "total"} alerts</p>
+          <p className="text-gray-400 text-sm mt-1">
+            {visibleAlerts.length}{total !== visibleAlerts.length ? ` of ${total}` : ""} {activeOnly ? "active" : "total"} alerts
+          </p>
         </div>
-        <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
-          <input type="checkbox" checked={activeOnly} onChange={e => setActiveOnly(e.target.checked)} className="accent-brand-500" />
-          Active only
-        </label>
+        <div className="flex items-center gap-4">
+          <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
+            <input type="checkbox" checked={hideSigningWorkers} onChange={e => setHideSigningWorkers(e.target.checked)} className="accent-brand-500" />
+            Hide signing workers
+          </label>
+          <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
+            <input type="checkbox" checked={activeOnly} onChange={e => setActiveOnly(e.target.checked)} className="accent-brand-500" />
+            Active only
+          </label>
+        </div>
       </div>
 
       {/* Summary by type */}
@@ -91,7 +108,7 @@ export function Alerts() {
       <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
         {loading ? (
           <div className="p-8 text-center text-gray-500">Loading…</div>
-        ) : alerts.length === 0 ? (
+        ) : visibleAlerts.length === 0 ? (
           <div className="p-12 text-center">
             <CheckCircle2 size={40} className="text-emerald-400 mx-auto mb-3" />
             <div className="text-lg font-medium text-gray-300">All clear!</div>
@@ -107,7 +124,7 @@ export function Alerts() {
               </tr>
             </thead>
             <tbody>
-              {alerts.map(alert => {
+              {visibleAlerts.map(alert => {
                 const cfg = TYPE_LABELS[alert.alert_type] || { label: alert.alert_type, color: "gray" as const };
                 return (
                   <tr key={alert.id} className={`border-b border-gray-800/50 ${alert.acknowledged ? "opacity-60" : ""}`}>

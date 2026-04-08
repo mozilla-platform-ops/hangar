@@ -180,12 +180,15 @@ def _check_absent_workers(db: Session, seen_hostnames: set[str]) -> None:
     now = datetime.utcnow()
     threshold_hours = settings.tc_missing_threshold_hours
 
-    # All workers that should be in TC: has puppet_role OR was previously in TC
+    # Only macmini workers are expected to be in TC.
+    # Signing workers (mac-v3-signing, adhoc-mac, dep-mac, fx-mac, tb-mac, vpn-mac)
+    # never use TC — exclude them from missing_from_tc alert generation.
     candidates = (
         db.query(Worker)
         .filter(
             (Worker.puppet_role != None) | (Worker.tc_worker_pool_id != None)  # noqa: E711
         )
+        .filter(Worker.hostname.like("macmini-%"))
         .all()
     )
 
