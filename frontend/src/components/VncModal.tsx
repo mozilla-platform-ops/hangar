@@ -18,6 +18,8 @@ export function VncModal({ hostname, onClose }: Props) {
   const [scale, setScale] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
   const rfbRef = useRef<InstanceType<typeof RFB> | null>(null);
+  const phaseRef = useRef(phase);
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
 
   useEffect(() => {
     return () => {
@@ -47,10 +49,11 @@ export function VncModal({ hostname, onClose }: Props) {
 
       rfb.addEventListener("disconnect", (e: CustomEvent) => {
         const detail = e.detail as { clean: boolean; reason?: string };
-        if (phase !== "connected") {
+        if (phaseRef.current !== "connected") {
           setPhase("error");
-          setErrorMsg(detail.reason || "Connection closed before completing handshake");
+          setErrorMsg(detail.reason || "Could not connect — is VNC/Screen Sharing enabled on this host?");
         } else {
+          setPhase("error");
           setErrorMsg("Session ended");
         }
       });

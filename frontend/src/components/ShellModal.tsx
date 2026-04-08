@@ -21,6 +21,8 @@ export function ShellModal({ hostname, onClose }: Props) {
   const wsRef = useRef<WebSocket | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  const phaseRef = useRef(phase);
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
 
   // Tear down on unmount
   useEffect(() => {
@@ -111,13 +113,16 @@ export function ShellModal({ hostname, onClose }: Props) {
     };
 
     ws.onclose = (ev) => {
-      if (phase !== "error") {
+      if (phaseRef.current === "connecting") {
+        setPhase("error");
+        setErrorMsg(ev.reason || "WebSocket closed before connecting — is the backend reachable?");
+      } else if (phaseRef.current === "connected") {
         termRef.current?.write(`\r\n\x1b[90m[Connection closed${ev.reason ? ": " + ev.reason : ""}]\x1b[0m\r\n`);
       }
     };
 
     ws.onerror = () => {
-      if (phase === "connecting") {
+      if (phaseRef.current === "connecting") {
         setPhase("error");
         setErrorMsg("WebSocket error — is the backend reachable?");
       }
