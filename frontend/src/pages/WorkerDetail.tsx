@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, ExternalLink, Terminal, Monitor } from "lucide-react";
+import { ArrowLeft, ExternalLink, Terminal, Monitor, Pencil, CheckCircle2, X } from "lucide-react";
 import { api } from "../api";
 import type { Worker } from "../api";
 import { stateBadge, tcStatusBadge, enrollmentBadge } from "../components/Badge";
@@ -29,6 +29,55 @@ function Field({ label, value, mono = false }: { label: string; value: React.Rea
 function fmtDate(iso: string | null) {
   if (!iso) return null;
   return new Date(iso).toLocaleString();
+}
+
+function InlineNoteEditor({ hostname, initial }: { hostname: string; initial: string | null }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(initial || "");
+  const [saved, setSaved] = useState(initial);
+  const [saving, setSaving] = useState(false);
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  function start() { setValue(saved || ""); setEditing(true); setTimeout(() => ref.current?.focus(), 0); }
+
+  async function save() {
+    setSaving(true);
+    try {
+      const w = await api.workers.updateNotes(hostname, value.trim() || null);
+      setSaved(w.dashboard_notes);
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (editing) return (
+    <div className="flex items-start gap-2">
+      <textarea
+        ref={ref}
+        className="flex-1 bg-gray-800 border border-brand-500 rounded px-2 py-1 text-sm text-white resize-none focus:outline-none"
+        rows={3}
+        value={value}
+        onChange={e => setValue(e.target.value)}
+        onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); save(); } if (e.key === "Escape") setEditing(false); }}
+        placeholder="Add a note…"
+      />
+      <div className="flex flex-col gap-1 pt-0.5">
+        <button onClick={save} disabled={saving} className="p-1.5 rounded hover:bg-gray-700 text-emerald-400" title="Save"><CheckCircle2 size={14} /></button>
+        <button onClick={() => setEditing(false)} className="p-1.5 rounded hover:bg-gray-700 text-gray-500" title="Cancel"><X size={14} /></button>
+      </div>
+    </div>
+  );
+
+  return (
+    <button onClick={start} className="flex items-center gap-2 text-left group w-full">
+      {saved
+        ? <span className="text-sm text-amber-300">{saved}</span>
+        : <span className="text-sm text-gray-600 group-hover:text-gray-400 italic">Click to add note…</span>
+      }
+      <Pencil size={12} className="text-gray-600 group-hover:text-gray-400 flex-shrink-0" />
+    </button>
+  );
 }
 
 export function WorkerDetail() {
@@ -97,7 +146,11 @@ export function WorkerDetail() {
         <Field label="Serial Number" value={worker.mdm.serial_number} mono />
         <Field label="KVM" value={worker.kvm} mono />
         {worker.loaner_assignee && <Field label="Loaner Assigned To" value={worker.loaner_assignee} />}
-        {worker.notes && <Field label="Notes" value={worker.notes} />}
+        {worker.notes && worker.notes !== worker.dashboard_notes && <Field label="Sheet Notes" value={worker.notes} />}
+        <div className="col-span-2 lg:col-span-3">
+          <div className="text-xs text-gray-500 mb-0.5">Notes</div>
+          <InlineNoteEditor hostname={worker.hostname} initial={worker.dashboard_notes} />
+        </div>
       </Section>
 
       <Section title="Taskcluster">

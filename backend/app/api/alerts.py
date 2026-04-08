@@ -36,6 +36,7 @@ def _alert_to_dict(a: Alert, worker: Worker | None = None) -> dict[str, Any]:
             "generation": worker.generation if worker else None,
             "worker_pool": worker.worker_pool if worker else None,
             "state": worker.effective_state if worker else None,
+            "dashboard_notes": worker.dashboard_notes if worker else None,
         },
     }
 

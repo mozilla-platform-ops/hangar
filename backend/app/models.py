@@ -25,6 +25,7 @@ class Worker(Base):
     sheet_kvm: Mapped[str | None] = mapped_column(String(255))
     sheet_loaner_assignee: Mapped[str | None] = mapped_column(String(100))
     sheet_notes: Mapped[str | None] = mapped_column(Text)
+    dashboard_notes: Mapped[str | None] = mapped_column(Text)  # editable from UI
 
     # From SimpleMDM
     mdm_id: Mapped[int | None] = mapped_column(Integer)

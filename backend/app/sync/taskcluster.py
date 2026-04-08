@@ -6,7 +6,7 @@ data than the REST API, including latestTask details.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import requests
@@ -143,8 +143,15 @@ def _generate_alerts(db: Session, hostname: str, worker: Worker) -> None:
             .first()
         )
 
-    # Quarantine alert
-    if worker.tc_quarantined:
+    # Quarantine alert — only for genuine near-term quarantines.
+    # TC uses year-3000+ quarantine dates as a "staging/parked" marker; those are not actionable.
+    two_years_from_now = now + timedelta(days=730)
+    is_real_quarantine = (
+        worker.tc_quarantined
+        and worker.tc_quarantine_until is not None
+        and worker.tc_quarantine_until < two_years_from_now
+    )
+    if is_real_quarantine:
         if not _active_alert("quarantined"):
             db.add(Alert(alert_type="quarantined", hostname=hostname, detail=f"Quarantined until {worker.tc_quarantine_until}"))
     else:
@@ -181,14 +188,17 @@ def _check_absent_workers(db: Session, seen_hostnames: set[str]) -> None:
     threshold_hours = settings.tc_missing_threshold_hours
 
     # Only macmini workers are expected to be in TC.
-    # Signing workers (mac-v3-signing, adhoc-mac, dep-mac, fx-mac, tb-mac, vpn-mac)
-    # never use TC — exclude them from missing_from_tc alert generation.
+    # Signing workers (mac-v3-signing, adhoc-mac, etc.) and macmini machines
+    # assigned to signing pools never use TC the same way — exclude them.
     candidates = (
         db.query(Worker)
         .filter(
             (Worker.puppet_role != None) | (Worker.tc_worker_pool_id != None)  # noqa: E711
         )
         .filter(Worker.hostname.like("macmini-%"))
+        .filter(
+            (Worker.worker_pool == None) | (~Worker.worker_pool.ilike("%signing%"))  # noqa: E711
+        )
         .all()
     )
 
@@ -222,8 +232,12 @@ def _check_absent_workers(db: Session, seen_hostnames: set[str]) -> None:
                         hostname=hostname,
                         detail=f"Not found in any TC pool. Last seen {hours_inactive:.0f}h ago ({worker.tc_last_active.date()})",
                     ))
+            else:
+                a = _active_alert("missing_from_tc")
+                if a:
+                    a.resolved_at = now
         else:
-            # Never seen in TC — only alert if Puppet knows about it (confirmed production)
+            # Never seen in TC — alert if Puppet knows about it (confirmed production worker)
             if worker.puppet_role and not _active_alert("missing_from_tc"):
                 db.add(Alert(
                     alert_type="missing_from_tc",

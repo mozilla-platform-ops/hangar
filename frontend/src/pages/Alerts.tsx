@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, CheckCircle2, Eye } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Eye, Pencil, X } from "lucide-react";
 import { api } from "../api";
 import type { Alert } from "../api";
 import { Badge } from "../components/Badge";
@@ -21,8 +21,77 @@ function timeAgo(iso: string | null) {
   return `${Math.round(hrs / 24)}d ago`;
 }
 
-function isSigningWorker(hostname: string) {
-  return !hostname.startsWith("macmini-");
+function NoteCell({ hostname, initialNote, onSaved }: { hostname: string; initialNote: string | null; onSaved: (note: string | null) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(initialNote || "");
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  function startEdit() {
+    setValue(initialNote || "");
+    setEditing(true);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  async function save() {
+    setSaving(true);
+    try {
+      const updated = await api.workers.updateNotes(hostname, value.trim() || null);
+      onSaved(updated.dashboard_notes);
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function onKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); save(); }
+    if (e.key === "Escape") { setEditing(false); }
+  }
+
+  if (editing) {
+    return (
+      <div className="flex items-start gap-1 min-w-[180px]">
+        <textarea
+          ref={inputRef}
+          className="flex-1 bg-gray-800 border border-brand-500 rounded px-2 py-1 text-xs text-white resize-none focus:outline-none"
+          rows={2}
+          value={value}
+          onChange={e => setValue(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder="Add a note… (Enter to save)"
+        />
+        <div className="flex flex-col gap-1">
+          <button onClick={save} disabled={saving} className="p-1 rounded hover:bg-gray-700 text-emerald-400 hover:text-emerald-300 disabled:opacity-50" title="Save">
+            <CheckCircle2 size={13} />
+          </button>
+          <button onClick={() => setEditing(false)} className="p-1 rounded hover:bg-gray-700 text-gray-500 hover:text-gray-300" title="Cancel">
+            <X size={13} />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={startEdit}
+      className="flex items-center gap-1.5 text-left group"
+      title="Edit note"
+    >
+      {initialNote
+        ? <span className="text-xs text-amber-300 max-w-[180px] line-clamp-2">{initialNote}</span>
+        : <span className="text-xs text-gray-600 group-hover:text-gray-400">add note…</span>
+      }
+      <Pencil size={11} className="text-gray-600 group-hover:text-gray-400 flex-shrink-0" />
+    </button>
+  );
+}
+
+function isSigningWorker(alert: Alert) {
+  if (!alert.hostname.startsWith("macmini-")) return true;
+  if (alert.worker?.worker_pool?.includes("signing")) return true;
+  return false;
 }
 
 export function Alerts() {
@@ -31,6 +100,8 @@ export function Alerts() {
   const [loading, setLoading] = useState(true);
   const [activeOnly, setActiveOnly] = useState(true);
   const [hideSigningWorkers, setHideSigningWorkers] = useState(true);
+  // hostname → dashboard_notes (local overrides after edits)
+  const [notes, setNotes] = useState<Record<string, string | null>>({});
   const navigate = useNavigate();
 
   async function load() {
@@ -39,6 +110,14 @@ export function Alerts() {
       const data = await api.alerts.list(activeOnly);
       setAlerts(data.alerts);
       setTotal(data.total);
+      // Pre-populate notes from worker data
+      const initialNotes: Record<string, string | null> = {};
+      for (const a of data.alerts) {
+        if (a.worker && "dashboard_notes" in a.worker) {
+          initialNotes[a.hostname] = (a.worker as any).dashboard_notes ?? null;
+        }
+      }
+      setNotes(initialNotes);
     } finally {
       setLoading(false);
     }
@@ -58,7 +137,7 @@ export function Alerts() {
   }
 
   const visibleAlerts = hideSigningWorkers
-    ? alerts.filter(a => !isSigningWorker(a.hostname))
+    ? alerts.filter(a => !isSigningWorker(a))
     : alerts;
 
   const byType = visibleAlerts.reduce<Record<string, number>>((acc, a) => {
@@ -118,7 +197,7 @@ export function Alerts() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-800">
-                {["Type", "Worker", "Pool", "Detail", "Since", "Actions"].map(h => (
+                {["Type", "Worker", "Pool", "Detail", "Notes", "Since", "Actions"].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">{h}</th>
                 ))}
               </tr>
@@ -146,6 +225,13 @@ export function Alerts() {
                       {alert.worker?.worker_pool?.replace(/^gecko-t-osx-\d+-/, "") || "—"}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-400">{alert.detail || "—"}</td>
+                    <td className="px-4 py-2">
+                      <NoteCell
+                        hostname={alert.hostname}
+                        initialNote={notes[alert.hostname] ?? alert.worker?.dashboard_notes ?? null}
+                        onSaved={note => setNotes(prev => ({ ...prev, [alert.hostname]: note }))}
+                      />
+                    </td>
                     <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{timeAgo(alert.created_at)}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">

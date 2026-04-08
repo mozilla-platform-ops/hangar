@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy import asc, desc, nullslast
 from sqlalchemy.orm import Session
 
@@ -24,7 +24,8 @@ def _worker_to_dict(w: Worker) -> dict[str, Any]:
         "state": w.effective_state,
         "kvm": w.sheet_kvm,
         "loaner_assignee": w.sheet_loaner_assignee,
-        "notes": w.sheet_notes,
+        "notes": w.dashboard_notes or w.sheet_notes,
+        "dashboard_notes": w.dashboard_notes,
         "mdm": {
             "id": w.mdm_id,
             "name": w.mdm_name,
@@ -115,6 +116,17 @@ def list_workers(
     order = nullslast(desc(sort_col)) if sort_dir == "desc" else nullslast(asc(sort_col))
     workers = q.order_by(order).offset(offset).limit(limit).all()
     return {"total": total, "workers": [_worker_to_dict(w) for w in workers]}
+
+
+@router.patch("/{hostname:path}/notes")
+def update_notes(hostname: str, db: Session = Depends(get_db), notes: str | None = Body(None, embed=True)) -> dict[str, Any]:
+    fqdn = hostname if "." in hostname else f"{hostname}.test.releng.mdc1.mozilla.com"
+    worker = db.get(Worker, fqdn)
+    if not worker:
+        raise HTTPException(status_code=404, detail=f"Worker {fqdn} not found")
+    worker.dashboard_notes = notes or None
+    db.commit()
+    return _worker_to_dict(worker)
 
 
 @router.get("/{hostname:path}")

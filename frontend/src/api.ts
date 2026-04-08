@@ -21,6 +21,16 @@ async function post<T>(path: string): Promise<T> {
   return res.json();
 }
 
+async function patch<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return res.json();
+}
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export interface WorkerMDM {
@@ -61,6 +71,7 @@ export interface Worker {
   kvm: string | null;
   loaner_assignee: string | null;
   notes: string | null;
+  dashboard_notes: string | null;
   mdm: WorkerMDM;
   tc: WorkerTC;
   sync: Record<string, string | null>;
@@ -85,6 +96,7 @@ export interface Alert {
     generation: string | null;
     worker_pool: string | null;
     state: string | null;
+    dashboard_notes: string | null;
   };
 }
 
@@ -126,6 +138,7 @@ export const api = {
   workers: {
     list: (params?: Parameters<typeof get>[1]) => get<WorkerListResponse>("/workers", params),
     get: (hostname: string) => get<Worker>(`/workers/${hostname}`),
+    updateNotes: (hostname: string, notes: string | null) => patch<Worker>(`/workers/${hostname}/notes`, { notes }),
   },
   alerts: {
     list: (activeOnly = true) => get<AlertListResponse>("/alerts", { active_only: activeOnly }),
