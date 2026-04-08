@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from "react-router-dom";
-import { LayoutDashboard, Monitor, AlertTriangle, BarChart2, RefreshCw, Cpu } from "lucide-react";
+import { LayoutDashboard, Monitor, AlertTriangle, BarChart2, RefreshCw, Cpu, Layers } from "lucide-react";
 import { clsx } from "clsx";
 import { useState } from "react";
 import { api } from "../api";
@@ -7,6 +7,7 @@ import { api } from "../api";
 const NAV = [
   { to: "/", icon: LayoutDashboard, label: "Overview" },
   { to: "/workers", icon: Monitor, label: "Workers" },
+  { to: "/pools", icon: Layers, label: "Pool Health" },
   { to: "/alerts", icon: AlertTriangle, label: "Alerts" },
   { to: "/consolidation", icon: BarChart2, label: "Consolidation" },
 ];

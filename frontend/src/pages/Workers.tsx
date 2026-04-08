@@ -10,6 +10,29 @@ import { api } from "../api";
 import type { Worker } from "../api";
 import { stateBadge, tcStatusBadge, enrollmentBadge } from "../components/Badge";
 
+type HealthStatus = "healthy" | "degraded" | "critical" | null;
+
+function workerHealth(w: Worker): HealthStatus {
+  if (w.state !== "production") return null;
+  if (w.tc.quarantined) return "critical";
+  const hrs = w.tc.last_active
+    ? (Date.now() - new Date(w.tc.last_active).getTime()) / 36e5
+    : Infinity;
+  if (hrs > 168) return "critical";
+  if (w.mdm.enrollment_status === "unenrolled" || hrs > 24) return "degraded";
+  return "healthy";
+}
+
+function HealthDot({ status }: { status: HealthStatus }) {
+  if (status === null) return <span className="w-1.5 h-1.5 rounded-full bg-gray-800 inline-block" />;
+  const styles: Record<string, string> = {
+    healthy:  "bg-emerald-400",
+    degraded: "bg-yellow-400",
+    critical: "bg-red-400 animate-pulse",
+  };
+  return <span className={`w-1.5 h-1.5 rounded-full inline-block ${styles[status]}`} />;
+}
+
 const PAGE_SIZE = 100;
 
 function timeAgo(iso: string | null) {
@@ -82,6 +105,15 @@ export function Workers() {
   const hasFilters = !!(search || generation || state || pool);
 
   const columns: ColumnDef<Worker>[] = [
+    {
+      id: "health",
+      header: "",
+      cell: ({ row }) => (
+        <div className="flex items-center justify-center w-4">
+          <HealthDot status={workerHealth(row.original)} />
+        </div>
+      ),
+    },
     {
       accessorKey: "hostname",
       header: "Hostname",

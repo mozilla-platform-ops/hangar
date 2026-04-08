@@ -17,6 +17,8 @@ router = APIRouter(prefix="/fleet", tags=["fleet"])
 @router.get("/summary")
 def fleet_summary(db: Session = Depends(get_db)) -> dict[str, Any]:
     workers = db.query(Worker).all()
+    now = datetime.utcnow()
+    threshold_24h = now - timedelta(hours=24)
 
     # Counts by generation
     by_generation: dict[str, int] = {}
@@ -25,6 +27,9 @@ def fleet_summary(db: Session = Depends(get_db)) -> dict[str, Any]:
     by_os: dict[str, int] = {}
 
     mdm_unenrolled = 0
+    branch_by_branch: dict[str, int] = {}
+    branch_by_pool: dict[str, int] = {}
+    branch_total = 0
 
     for w in workers:
         gen = w.generation or "unknown"
@@ -41,6 +46,11 @@ def fleet_summary(db: Session = Depends(get_db)) -> dict[str, Any]:
 
         if w.mdm_enrollment_status == "unenrolled":
             mdm_unenrolled += 1
+
+        if w.branch:
+            branch_total += 1
+            branch_by_branch[w.branch] = branch_by_branch.get(w.branch, 0) + 1
+            branch_by_pool[pool] = branch_by_pool.get(pool, 0) + 1
 
     # Read alert counts directly from the alerts table — single source of truth
     def _active_alert_count(alert_type: str) -> int:
@@ -78,8 +88,94 @@ def fleet_summary(db: Session = Depends(get_db)) -> dict[str, Any]:
             "missing_from_tc": missing_from_tc,
             "mdm_unenrolled": mdm_unenrolled,
         },
+        "branch_overrides": {
+            "total": branch_total,
+            "by_branch": branch_by_branch,
+            "by_pool": branch_by_pool,
+        },
         "sync_status": sync_status,
     }
+
+
+@router.get("/pools")
+def pool_health(db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Per-pool health metrics with staleness breakdown."""
+    now = datetime.utcnow()
+    t_24h  = now - timedelta(hours=24)
+    t_7d   = now - timedelta(days=7)
+    t_30d  = now - timedelta(days=30)
+
+    workers = db.query(Worker).all()
+
+    pools: dict[str, dict] = {}
+
+    for w in workers:
+        pool = w.worker_pool or "unknown"
+        if pool not in pools:
+            pools[pool] = {
+                "name": pool,
+                "generation": w.generation,
+                "total": 0,
+                "production": 0,
+                "quarantined": 0,
+                "mdm_unenrolled": 0,
+                "active_24h": 0,
+                "stale_1_7d": 0,
+                "stale_7_30d": 0,
+                "stale_30d_plus": 0,
+                "never_seen": 0,
+                "branch_override_count": 0,
+                "healthy": 0,
+            }
+
+        p = pools[pool]
+        p["total"] += 1
+
+        state = w.effective_state
+        is_production = state == "production"
+        if is_production:
+            p["production"] += 1
+
+        if w.tc_quarantined:
+            p["quarantined"] += 1
+
+        if w.mdm_enrollment_status == "unenrolled":
+            p["mdm_unenrolled"] += 1
+
+        if w.branch:
+            p["branch_override_count"] += 1
+
+        # Staleness bucket
+        la = w.tc_last_active
+        if la is None:
+            p["never_seen"] += 1
+        elif la >= t_24h:
+            p["active_24h"] += 1
+        elif la >= t_7d:
+            p["stale_1_7d"] += 1
+        elif la >= t_30d:
+            p["stale_7_30d"] += 1
+        else:
+            p["stale_30d_plus"] += 1
+
+        # Fully healthy: production + enrolled + not quarantined + active <24h
+        if (
+            is_production
+            and w.mdm_enrollment_status == "enrolled"
+            and not w.tc_quarantined
+            and la is not None
+            and la >= t_24h
+        ):
+            p["healthy"] += 1
+
+    result = []
+    for p in pools.values():
+        prod = p["production"]
+        p["health_score"] = round(p["healthy"] / prod, 3) if prod > 0 else 0.0
+        result.append(p)
+
+    result.sort(key=lambda x: x["total"], reverse=True)
+    return {"pools": result}
 
 
 @router.get("/consolidation")

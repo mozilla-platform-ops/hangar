@@ -117,7 +117,29 @@ export interface FleetSummary {
   by_pool: Record<string, number>;
   by_os: Record<string, number>;
   alerts: { quarantined: number; missing_from_tc: number; mdm_unenrolled: number };
+  branch_overrides: { total: number; by_branch: Record<string, number>; by_pool: Record<string, number> };
   sync_status: Record<string, SyncStatus>;
+}
+
+export interface PoolHealth {
+  name: string;
+  generation: string | null;
+  total: number;
+  production: number;
+  quarantined: number;
+  mdm_unenrolled: number;
+  active_24h: number;
+  stale_1_7d: number;
+  stale_7_30d: number;
+  stale_30d_plus: number;
+  never_seen: number;
+  branch_override_count: number;
+  healthy: number;
+  health_score: number;
+}
+
+export interface PoolsResponse {
+  pools: PoolHealth[];
 }
 
 export interface ConsolidationData {
@@ -133,6 +155,7 @@ export interface ConsolidationData {
 export const api = {
   fleet: {
     summary: () => get<FleetSummary>("/fleet/summary"),
+    pools: () => get<PoolsResponse>("/fleet/pools"),
     consolidation: () => get<ConsolidationData>("/fleet/consolidation"),
   },
   workers: {
