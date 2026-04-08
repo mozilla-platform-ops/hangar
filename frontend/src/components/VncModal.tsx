@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-// @ts-expect-error — noVNC ships no TypeScript declarations
-import RFB from "@novnc/novnc/lib/rfb.js";
+// noVNC is CJS and requires a dynamic import for correct Vite interop
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type RFBType = any;
 import { X, Monitor } from "lucide-react";
 
 interface Props {
@@ -17,7 +18,7 @@ export function VncModal({ hostname, onClose }: Props) {
   const [errorMsg, setErrorMsg] = useState("");
   const [scale, setScale] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
-  const rfbRef = useRef<InstanceType<typeof RFB> | null>(null);
+  const rfbRef = useRef<RFBType>(null);
   const phaseRef = useRef(phase);
   useEffect(() => { phaseRef.current = phase; }, [phase]);
 
@@ -36,10 +37,29 @@ export function VncModal({ hostname, onClose }: Props) {
     const url = `${proto}//${window.location.host}/api/workers/${hostname}/vnc`;
 
     if (!containerRef.current) return;
+    const container = containerRef.current;
+    const pw = password;
 
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    import("@novnc/novnc/lib/rfb.js").then((module: { default: RFBType }) => {
+      const RFB = module.default;
+      try {
+        connectWithRFB(RFB, container, url, pw);
+      } catch (err) {
+        setPhase("error");
+        setErrorMsg(String(err));
+      }
+    }).catch(err => {
+      setPhase("error");
+      setErrorMsg(`Failed to load noVNC: ${err}`);
+    });
+  }
+
+  function connectWithRFB(RFB: RFBType, container: HTMLDivElement, url: string, pw: string) {
     try {
-      const rfb = new RFB(containerRef.current, url, {
-        credentials: password ? { password } : undefined,
+      const rfb = new RFB(container, url, {
+        credentials: pw ? { password: pw } : undefined,
       });
 
       rfb.scaleViewport = scale;
@@ -73,6 +93,8 @@ export function VncModal({ hostname, onClose }: Props) {
       setErrorMsg(String(err));
     }
   }
+
+
 
   return (
     <div

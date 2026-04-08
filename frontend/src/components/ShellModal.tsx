@@ -168,13 +168,15 @@ export function ShellModal({ hostname, onClose }: Props) {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1">Password / passphrase</label>
+                  <label className="block text-xs text-gray-400 mb-1">
+                    Password <span className="text-gray-600">(blank = use SSH key)</span>
+                  </label>
                   <input
                     type="password"
                     className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-brand-500"
                     value={password}
                     onChange={e => setPassword(e.target.value)}
-                    placeholder="leave blank for key auth"
+                    placeholder="usually not needed"
                   />
                 </div>
               </div>
