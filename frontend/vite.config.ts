@@ -7,6 +7,9 @@ export default defineConfig({
   resolve: {
     alias: { "@": path.resolve(__dirname, "./src") },
   },
+  optimizeDeps: {
+    include: ["@novnc/novnc/lib/rfb.js"],
+  },
   server: {
     proxy: {
       "/api": { target: "http://localhost:8000", changeOrigin: true, ws: true },

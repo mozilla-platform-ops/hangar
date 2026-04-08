@@ -42,8 +42,9 @@ export function VncModal({ hostname, onClose }: Props) {
 
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
-    import("@novnc/novnc/lib/rfb.js").then((module: { default: RFBType }) => {
-      const RFB = module.default;
+    import("@novnc/novnc/lib/rfb.js").then((module: { default?: RFBType }) => {
+      // Vite CJS interop: default export may be on .default or on the module itself
+      const RFB = module.default ?? module;
       try {
         connectWithRFB(RFB, container, url, pw);
       } catch (err) {
