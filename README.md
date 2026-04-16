@@ -1,14 +1,14 @@
-# Hangar
+# ✈️ Hangar
 
 **The RelOps Fleet Dashboard** — one place to see everything, fix anything, and lose no more sleep over mystery workers.
 
 Hangar pulls data from Taskcluster, SimpleMDM, Puppet, and Google Sheets and stitches it into a single live view of your entire test infrastructure. Pool health, hardware generations, task failures, quarantined machines, missing workers — all in one dark-themed dashboard with web SSH and VNC built right in. No more tab soup.
 
-> Currently tracking Mozilla's CI fleet. Built to grow with the rest of the infrastructure.
+> 🚧 Currently tracking Mozilla's CI fleet. Built to grow with the rest of the infrastructure.
 
 ---
 
-## Stack
+## 🛠️ Stack
 
 | Layer | Technology |
 |---|---|
@@ -19,7 +19,7 @@ Hangar pulls data from Taskcluster, SimpleMDM, Puppet, and Google Sheets and sti
 
 ---
 
-## Quick Start
+## 🚀 Quick Start
 
 ```bash
 # 1. Configure environment
@@ -58,7 +58,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 ---
 
-## Environment Variables
+## 🔑 Environment Variables
 
 All variables are optional unless marked required.
 
@@ -82,7 +82,7 @@ All variables are optional unless marked required.
 
 ---
 
-## Architecture
+## 🏗️ Architecture
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -119,29 +119,29 @@ All variables are optional unless marked required.
 
 ---
 
-## Pages
+## 📺 Pages
 
-### Overview
+### 🗺️ Overview
 Your morning briefing. Fleet-wide summary stats, sync health, top-10 failing machines and tests over the last 7 days, generation breakdown chart, workers-by-pool bar chart.
 
-### Workers
+### 🖥️ Workers
 The full roster. Filterable and sortable across generation, state, pool, and MDM/TC status. Search by hostname or serial number. Up to 2,000 rows.
 
-### Worker Detail
+### 🔍 Worker Detail
 Everything Hangar knows about a single worker — Puppet role, sheet state, MDM enrollment, TC history. Edit notes, pop open a terminal, or launch VNC without leaving the page.
 
-### Alerts
+### 🚨 Alerts
 The stuff that needs your attention. Types: `missing_from_tc`, `quarantined`, `mdm_unenrolled`, `pool_mismatch`. Add notes, acknowledge, resolve.
 
-### Pool Health
+### 🏊 Pool Health
 Per-pool health scores, staleness breakdowns (active <24 h / 1–7 d / 7–30 d / 30 d+ / never seen), and job source distribution. Batch SSH operations: set/clear branch overrides, restart workers, run Puppet.
 
-### Consolidation
+### 📦 Consolidation
 Side-by-side hardware generation comparison — state breakdowns, inactive machines, and retirement candidates.
 
 ---
 
-## Database Schema
+## 🗄️ Database Schema
 
 ```
 workers          — one row per hostname, columns from all four sources
@@ -156,7 +156,7 @@ failure_events   — TC task failures indexed by hostname and task name
 
 ---
 
-## API Reference
+## 📡 API Reference
 
 ```
 GET    /api/workers                      list + filter + search + sort
@@ -186,7 +186,7 @@ GET    /api/health                      liveness check
 
 ---
 
-## Project Structure
+## 📁 Project Structure
 
 ```
 hangar/
@@ -234,7 +234,7 @@ hangar/
 
 ---
 
-## Keyboard Shortcuts
+## ⌨️ Keyboard Shortcuts
 
 | Shortcut | Action |
 |---|---|
