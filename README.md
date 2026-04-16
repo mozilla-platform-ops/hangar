@@ -1,8 +1,10 @@
 # Hangar
 
-**RelOps Fleet Dashboard** — monitor, manage, and consolidate Mozilla's macOS test infrastructure.
+**The RelOps Fleet Dashboard** — one place to see everything, fix anything, and lose no more sleep over mystery workers.
 
-Aggregates data from four sources (Taskcluster, SimpleMDM, Puppet, Google Sheets) into a single view of 400+ macOS workers. Surfaces pool health, hardware consolidation progress, task failures, and alerts in a dark-themed React dashboard with web SSH and VNC access.
+Hangar pulls data from Taskcluster, SimpleMDM, Puppet, and Google Sheets and stitches it into a single live view of your entire test infrastructure. Pool health, hardware generations, task failures, quarantined machines, missing workers — all in one dark-themed dashboard with web SSH and VNC built right in. No more tab soup.
+
+> Currently tracking Mozilla's CI fleet. Built to grow with the rest of the infrastructure.
 
 ---
 
@@ -120,22 +122,22 @@ All variables are optional unless marked required.
 ## Pages
 
 ### Overview
-Fleet-wide summary stats (total by generation, quarantined, missing, MDM unenrolled), sync health, top-10 failing machines and tests over the last 7 days, generation pie chart, workers-by-pool bar chart.
+Your morning briefing. Fleet-wide summary stats, sync health, top-10 failing machines and tests over the last 7 days, generation breakdown chart, workers-by-pool bar chart.
 
 ### Workers
-Filterable, sortable table of all workers. Filter by generation (r8/m2/m4), TC/MDM state, pool. Search by hostname or serial number. Up to 2,000 rows.
+The full roster. Filterable and sortable across generation, state, pool, and MDM/TC status. Search by hostname or serial number. Up to 2,000 rows.
 
 ### Worker Detail
-Complete worker record from all four data sources. Editable dashboard notes. One-click web SSH terminal and VNC viewer. Branch override controls.
+Everything Hangar knows about a single worker — Puppet role, sheet state, MDM enrollment, TC history. Edit notes, pop open a terminal, or launch VNC without leaving the page.
 
 ### Alerts
-Active alert queue. Types: `missing_from_tc`, `quarantined`, `mdm_unenrolled`, `pool_mismatch`. Per-alert notes, acknowledge, resolve.
+The stuff that needs your attention. Types: `missing_from_tc`, `quarantined`, `mdm_unenrolled`, `pool_mismatch`. Add notes, acknowledge, resolve.
 
 ### Pool Health
-Per-pool metrics: production count, quarantined, MDM unenrolled, and a staleness breakdown (active <24 h / 1–7 d / 7–30 d / 30 d+ / never seen) rendered as a stacked bar. Health score = `healthy / production`. Batch SSH operations: set/clear branch override, restart, update Puppet. Job source breakdown (try / autoland / release / etc.).
+Per-pool health scores, staleness breakdowns (active <24 h / 1–7 d / 7–30 d / 30 d+ / never seen), and job source distribution. Batch SSH operations: set/clear branch overrides, restart workers, run Puppet.
 
 ### Consolidation
-r8 (Intel) vs m4 (Apple Silicon) side-by-side: state breakdown, inactive machines, retirement candidates.
+Side-by-side hardware generation comparison — state breakdowns, inactive machines, and retirement candidates.
 
 ---
 
@@ -167,7 +169,7 @@ GET    /api/fleet/pools                 per-pool health
 GET    /api/fleet/pending-counts        TC pending tasks per pool
 GET    /api/fleet/pool-sources          running task project breakdown
 GET    /api/fleet/failures?days=7       top failing machines + tests
-GET    /api/fleet/consolidation         r8 vs m4 analysis
+GET    /api/fleet/consolidation         hardware generation analysis
 
 GET    /api/alerts                      list (filter: type, active_only)
 PATCH  /api/alerts/{id}/acknowledge
