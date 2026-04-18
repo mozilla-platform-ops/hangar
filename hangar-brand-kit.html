@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hangar — Brand Kit</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap');
+
+  :root {
+    --midnight: #042C53;
+    --primary: #185FA5;
+    --sky: #378ADD;
+    --lift: #85B7EB;
+    --haze: #B5D4F4;
+    --cloud: #E6F1FB;
+    --type-dark: #2C2C2A;
+    --type-mid: #5F5E5A;
+    --type-light: #B4B2A9;
+    --online: #639922;
+    --online-bg: #EAF3DE;
+    --warn: #BA7517;
+    --warn-bg: #FAEEDA;
+    --crit: #A32D2D;
+    --crit-bg: #FCEBEB;
+    --idle: #5F5E5A;
+    --idle-bg: #F1EFE8;
+    --border: rgba(0,0,0,0.1);
+    --radius: 12px;
+    --radius-sm: 8px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: #f5f4f0;
+    color: var(--type-dark);
+    padding: 48px 32px;
+    min-height: 100vh;
+  }
+
+  /* ── Page header ── */
+  .page-header {
+    max-width: 900px;
+    margin: 0 auto 56px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .page-title { font-size: 13px; font-weight: 500; color: var(--type-mid); letter-spacing: 0.1em; text-transform: uppercase; }
+  .page-version { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--type-light); }
+
+  /* ── Sections ── */
+  .kit { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 56px; }
+
+  .section-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--type-light);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 0.5px solid var(--border);
+  }
+
+  /* ── Cards ── */
+  .card {
+    background: #fff;
+    border: 0.5px solid var(--border);
+    border-radius: var(--radius);
+    padding: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .card-dark { background: var(--midnight); border-color: var(--primary); }
+  .card-primary { background: var(--primary); border-color: var(--midnight); }
+
+  .row { display: flex; gap: 16px; flex-wrap: wrap; }
+  .row .card, .row .card-dark, .row .card-primary { flex: 1; min-width: 200px; }
+
+  /* ── Primary mark ── */
+  .mark-svg { width: 100%; max-width: 420px; }
+
+  /* ── Icons ── */
+  .icon-grid { display: flex; gap: 16px; flex-wrap: wrap; }
+  .icon-cell {
+    background: #fff;
+    border: 0.5px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px 28px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 120px;
+  }
+  .icon-cell.dark { background: var(--midnight); border-color: var(--primary); }
+  .icon-cell.primary { background: var(--primary); border-color: var(--midnight); }
+  .icon-label { font-size: 11px; color: var(--type-light); }
+  .icon-label.inv { color: var(--haze); }
+
+  /* ── Palette ── */
+  .swatches { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .swatch {
+    height: 64px;
+    border-radius: var(--radius-sm);
+    flex: 1;
+    min-width: 64px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 8px 10px;
+  }
+  .swatch-name { font-size: 10px; font-weight: 500; line-height: 1.2; }
+  .swatch-hex { font-family: 'DM Mono', monospace; font-size: 9px; opacity: 0.8; }
+
+  /* ── Typography ── */
+  .type-stack { display: flex; flex-direction: column; gap: 20px; }
+  .type-row { display: flex; align-items: baseline; gap: 20px; }
+  .type-meta { font-size: 11px; color: var(--type-light); white-space: nowrap; }
+
+  /* ── Badges ── */
+  .badge-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .badge {
+    font-size: 11px;
+    font-weight: 500;
+    padding: 4px 12px;
+    border-radius: 20px;
+    letter-spacing: 0.02em;
+  }
+
+  /* ── Lockups ── */
+  .lockup { display: flex; align-items: center; gap: 16px; }
+  .lockup-text-primary { font-size: 20px; font-weight: 500; letter-spacing: -0.3px; }
+  .lockup-text-sub { font-size: 11px; letter-spacing: 0.05em; margin-top: 2px; }
+
+  /* ── Motion hint on wing ── */
+  .wing-animate path { transition: opacity 0.3s; }
+  .wing-animate:hover path:last-child { opacity: 0.6; }
+
+  /* ── Usage notes ── */
+  .usage {
+    background: var(--cloud);
+    border: 0.5px solid var(--haze);
+    border-radius: var(--radius);
+    padding: 20px 24px;
+  }
+  .usage h4 { font-size: 13px; font-weight: 500; color: var(--primary); margin-bottom: 10px; }
+  .usage ul { font-size: 13px; color: var(--type-dark); line-height: 1.9; padding-left: 16px; }
+  .usage code {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    background: var(--haze);
+    color: var(--midnight);
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <div>
+    <div class="page-title">Hangar — Brand Kit</div>
+    <div style="font-size:12px; color:var(--type-mid); margin-top:4px;">Wing silhouette identity system · Mozilla CI</div>
+  </div>
+  <div class="page-version">v1.0 · 2026</div>
+</div>
+
+<div class="kit">
+
+  <!-- PRIMARY MARK -->
+  <section>
+    <div class="section-label">Primary mark</div>
+    <div class="row">
+
+      <div class="card">
+        <svg class="mark-svg wing-animate" viewBox="0 0 420 100" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12,68 Q55,16 220,32 Q168,39 160,68 Z" fill="#185FA5"/>
+          <path d="M12,68 Q55,22 220,32 Q182,28 172,48 Z" fill="#378ADD"/>
+          <text x="228" y="64" font-family="'DM Sans', sans-serif" font-size="50" font-weight="500" fill="#185FA5">H</text>
+          <text x="266" y="64" font-family="'DM Sans', sans-serif" font-size="50" font-weight="300" fill="#2C2C2A">ANGAR</text>
+          <line x1="266" y1="74" x2="412" y2="74" stroke="#B5D4F4" stroke-width="1.5"/>
+          <text x="266" y="89" font-family="'DM Mono', monospace" font-size="11" fill="#378ADD" letter-spacing="3">CI WORKER MANAGER</text>
+        </svg>
+      </div>
+
+      <div class="card card-dark">
+        <svg class="mark-svg wing-animate" viewBox="0 0 420 100" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12,68 Q55,16 220,32 Q168,39 160,68 Z" fill="#378ADD"/>
+          <path d="M12,68 Q55,22 220,32 Q182,28 172,48 Z" fill="#85B7EB"/>
+          <text x="228" y="64" font-family="'DM Sans', sans-serif" font-size="50" font-weight="500" fill="#85B7EB">H</text>
+          <text x="266" y="64" font-family="'DM Sans', sans-serif" font-size="50" font-weight="300" fill="#E6F1FB">ANGAR</text>
+          <line x1="266" y1="74" x2="412" y2="74" stroke="#185FA5" stroke-width="1.5"/>
+          <text x="266" y="89" font-family="'DM Mono', monospace" font-size="11" fill="#378ADD" letter-spacing="3">CI WORKER MANAGER</text>
+        </svg>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ICON VARIANTS -->
+  <section>
+    <div class="section-label">Icon variants</div>
+    <div class="icon-grid">
+
+      <div class="icon-cell">
+        <svg viewBox="0 0 72 48" width="72" height="48" xmlns="http://www.w3.org/2000/svg">
+          <path d="M4,40 Q22,8 68,20 Q48,25 44,40 Z" fill="#185FA5"/>
+          <path d="M4,40 Q22,12 68,20 Q54,17 50,30 Z" fill="#378ADD"/>
+        </svg>
+        <span class="icon-label">72 × 48</span>
+      </div>
+
+      <div class="icon-cell">
+        <svg viewBox="0 0 48 32" width="48" height="32" xmlns="http://www.w3.org/2000/svg">
+          <path d="M3,26 Q14,5 45,13 Q31,17 29,26 Z" fill="#185FA5"/>
+          <path d="M3,26 Q14,8 45,13 Q36,11 34,20 Z" fill="#378ADD"/>
+        </svg>
+        <span class="icon-label">48 × 32</span>
+      </div>
+
+      <div class="icon-cell">
+        <svg viewBox="0 0 32 22" width="32" height="22" xmlns="http://www.w3.org/2000/svg">
+          <path d="M2,18 Q9,3 30,9 Q21,12 20,18 Z" fill="#185FA5"/>
+          <path d="M2,18 Q9,5 30,9 Q24,7 23,14 Z" fill="#378ADD"/>
+        </svg>
+        <span class="icon-label">32 × 22</span>
+      </div>
+
+      <div class="icon-cell dark">
+        <svg viewBox="0 0 72 48" width="72" height="48" xmlns="http://www.w3.org/2000/svg">
+          <path d="M4,40 Q22,8 68,20 Q48,25 44,40 Z" fill="#378ADD"/>
+          <path d="M4,40 Q22,12 68,20 Q54,17 50,30 Z" fill="#85B7EB"/>
+        </svg>
+        <span class="icon-label inv">dark</span>
+      </div>
+
+      <div class="icon-cell primary">
+        <svg viewBox="0 0 72 48" width="72" height="48" xmlns="http://www.w3.org/2000/svg">
+          <path d="M4,40 Q22,8 68,20 Q48,25 44,40 Z" fill="#E6F1FB"/>
+          <path d="M4,40 Q22,12 68,20 Q54,17 50,30 Z" fill="#B5D4F4"/>
+        </svg>
+        <span class="icon-label inv">on primary</span>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- COLOR PALETTE -->
+  <section>
+    <div class="section-label">Color palette</div>
+    <div class="swatches">
+      <div class="swatch" style="background:#042C53;">
+        <span class="swatch-name" style="color:#B5D4F4;">Midnight</span>
+        <span class="swatch-hex" style="color:#85B7EB;">#042C53</span>
+      </div>
+      <div class="swatch" style="background:#185FA5;">
+        <span class="swatch-name" style="color:#E6F1FB;">Primary</span>
+        <span class="swatch-hex" style="color:#B5D4F4;">#185FA5</span>
+      </div>
+      <div class="swatch" style="background:#378ADD;">
+        <span class="swatch-name" style="color:#042C53;">Sky</span>
+        <span class="swatch-hex" style="color:#042C53;">#378ADD</span>
+      </div>
+      <div class="swatch" style="background:#85B7EB;">
+        <span class="swatch-name" style="color:#0C447C;">Lift</span>
+        <span class="swatch-hex" style="color:#0C447C;">#85B7EB</span>
+      </div>
+      <div class="swatch" style="background:#B5D4F4;">
+        <span class="swatch-name" style="color:#185FA5;">Haze</span>
+        <span class="swatch-hex" style="color:#185FA5;">#B5D4F4</span>
+      </div>
+      <div class="swatch" style="background:#E6F1FB; border:0.5px solid #B5D4F4;">
+        <span class="swatch-name" style="color:#185FA5;">Cloud</span>
+        <span class="swatch-hex" style="color:#185FA5;">#E6F1FB</span>
+      </div>
+    </div>
+    <div class="swatches">
+      <div class="swatch" style="background:#639922;">
+        <span class="swatch-name" style="color:#EAF3DE;">Online</span>
+        <span class="swatch-hex" style="color:#EAF3DE;">#639922</span>
+      </div>
+      <div class="swatch" style="background:#BA7517;">
+        <span class="swatch-name" style="color:#FAEEDA;">Warning</span>
+        <span class="swatch-hex" style="color:#FAEEDA;">#BA7517</span>
+      </div>
+      <div class="swatch" style="background:#A32D2D;">
+        <span class="swatch-name" style="color:#FCEBEB;">Critical</span>
+        <span class="swatch-hex" style="color:#FCEBEB;">#A32D2D</span>
+      </div>
+      <div class="swatch" style="background:#5F5E5A;">
+        <span class="swatch-name" style="color:#F1EFE8;">Idle</span>
+        <span class="swatch-hex" style="color:#F1EFE8;">#5F5E5A</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- TYPOGRAPHY -->
+  <section>
+    <div class="section-label">Typography</div>
+    <div class="card" style="justify-content:flex-start;">
+      <div class="type-stack" style="width:100%;">
+        <div class="type-row">
+          <span style="font-size:36px; font-weight:500; color:var(--type-dark); letter-spacing:-0.5px;">Hangar</span>
+          <span class="type-meta">DM Sans · 36px · 500 · Display</span>
+        </div>
+        <div class="type-row">
+          <span style="font-size:20px; font-weight:400; color:var(--type-dark);">Mozilla CI worker fleet manager</span>
+          <span class="type-meta">DM Sans · 20px · 400 · Heading</span>
+        </div>
+        <div class="type-row">
+          <span style="font-size:15px; font-weight:400; color:var(--type-mid); line-height:1.6;">Monitor and manage your CI worker pools across macOS, Linux, and Windows platforms from a single interface.</span>
+          <span class="type-meta" style="align-self:flex-start;">Body · 15px</span>
+        </div>
+        <div class="type-row">
+          <code style="font-family:'DM Mono',monospace; font-size:13px; color:var(--primary); background:var(--cloud); padding:4px 10px; border-radius:4px;">gecko-t-osx-1500-m4</code>
+          <span class="type-meta">DM Mono · pool IDs, worker names</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STATUS BADGES -->
+  <section>
+    <div class="section-label">Status badges</div>
+    <div class="card" style="justify-content:flex-start;">
+      <div class="badge-row">
+        <span class="badge" style="background:#EAF3DE; color:#27500A;">online</span>
+        <span class="badge" style="background:#FCEBEB; color:#791F1F;">critical</span>
+        <span class="badge" style="background:#FAEEDA; color:#633806;">warning</span>
+        <span class="badge" style="background:#F1EFE8; color:#444441;">idle</span>
+        <span class="badge" style="background:#E6F1FB; color:#0C447C;">provisioning</span>
+        <span class="badge" style="background:#2C2C2A; color:#D3D1C7;">quarantined</span>
+        <span class="badge" style="background:#B5D4F4; color:#0C447C;">rebooting</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- COMPACT LOCKUPS -->
+  <section>
+    <div class="section-label">Compact lockups</div>
+    <div class="row">
+
+      <div class="card" style="justify-content:flex-start;">
+        <div class="lockup">
+          <svg viewBox="0 0 48 32" width="48" height="32" xmlns="http://www.w3.org/2000/svg">
+            <path d="M3,26 Q14,5 45,13 Q31,17 29,26 Z" fill="#185FA5"/>
+            <path d="M3,26 Q14,8 45,13 Q36,11 34,20 Z" fill="#378ADD"/>
+          </svg>
+          <div>
+            <div class="lockup-text-primary" style="color:var(--primary);">Hangar</div>
+            <div class="lockup-text-sub" style="color:var(--type-light);">CI worker manager</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card card-dark" style="justify-content:flex-start;">
+        <div class="lockup">
+          <svg viewBox="0 0 48 32" width="48" height="32" xmlns="http://www.w3.org/2000/svg">
+            <path d="M3,26 Q14,5 45,13 Q31,17 29,26 Z" fill="#378ADD"/>
+            <path d="M3,26 Q14,8 45,13 Q36,11 34,20 Z" fill="#85B7EB"/>
+          </svg>
+          <div>
+            <div class="lockup-text-primary" style="color:#85B7EB;">Hangar</div>
+            <div class="lockup-text-sub" style="color:#378ADD;">CI worker manager</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- CSS VARIABLES FOR CLAUDE CODE -->
+  <section>
+    <div class="section-label">CSS tokens for Claude Code</div>
+    <div class="usage">
+      <h4>Drop these into your app's root stylesheet</h4>
+      <pre style="font-family:'DM Mono',monospace; font-size:12px; color:#042C53; line-height:2; margin-top:4px; white-space:pre-wrap;">:root {
+  /* Brand */
+  --hgr-midnight:  #042C53;
+  --hgr-primary:   #185FA5;
+  --hgr-sky:       #378ADD;
+  --hgr-lift:      #85B7EB;
+  --hgr-haze:      #B5D4F4;
+  --hgr-cloud:     #E6F1FB;
+
+  /* Status */
+  --hgr-online:    #639922;
+  --hgr-warn:      #BA7517;
+  --hgr-crit:      #A32D2D;
+  --hgr-idle:      #5F5E5A;
+
+  /* Typography */
+  --hgr-font-display: 'DM Sans', sans-serif;
+  --hgr-font-mono:    'DM Mono', monospace;
+}</pre>
+    </div>
+  </section>
+
+  <!-- FONT IMPORT -->
+  <section>
+    <div class="section-label">Google Fonts import</div>
+    <div class="usage">
+      <h4>Add to your HTML <code>&lt;head&gt;</code> or CSS</h4>
+      <pre style="font-family:'DM Mono',monospace; font-size:12px; color:#042C53; line-height:1.8; margin-top:4px; white-space:pre-wrap;">&lt;link rel="preconnect" href="https://fonts.googleapis.com"&gt;
+&lt;link rel="preconnect" href="https://fonts.gstatic.com" crossorigin&gt;
+&lt;link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&amp;family=DM+Sans:wght@300;400;500&amp;display=swap" rel="stylesheet"&gt;
+
+/* or via CSS */
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&amp;family=DM+Sans:wght@300;400;500&amp;display=swap');</pre>
+    </div>
+  </section>
+
+</div>
+
+</body>
+</html>
