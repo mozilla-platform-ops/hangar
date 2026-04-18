@@ -47,6 +47,12 @@ resource "google_project_iam_member" "cloudbuild_sa_user" {
   member  = "serviceAccount:${data.google_project.project.number}@cloudbuild.gserviceaccount.com"
 }
 
+resource "google_project_iam_member" "cloudbuild_ar_writer" {
+  project = var.project_id
+  role    = "roles/artifactregistry.writer"
+  member  = "serviceAccount:${data.google_project.project.number}@cloudbuild.gserviceaccount.com"
+}
+
 data "google_project" "project" {
   project_id = var.project_id
 }
