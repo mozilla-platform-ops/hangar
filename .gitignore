@@ -1,0 +1,31 @@
+# Environment / secrets
+.env
+.env.local
+*.env
+credentials.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+*.egg
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Built frontend (served by backend in prod)
+backend/static/
+
+# Claude Code
+.claude/
+
+# macOS
+.DS_Store
