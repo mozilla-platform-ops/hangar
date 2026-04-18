@@ -101,7 +101,6 @@ resource "google_compute_backend_service" "hangar" {
   name                  = "hangar-backend"
   protocol              = "HTTPS"
   load_balancing_scheme = "EXTERNAL_MANAGED"
-  timeout_sec           = 3600 # 1h — needed for long-running SSH WebSocket sessions
   security_policy       = google_compute_security_policy.hangar.id
 
   backend {

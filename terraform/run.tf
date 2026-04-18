@@ -2,7 +2,7 @@ locals {
   image = (
     var.cloud_run_image != ""
     ? var.cloud_run_image
-    : "${var.region}-docker.pkg.dev/${var.project_id}/hangar/backend:latest"
+    : "us-docker.pkg.dev/cloudrun/container/hello"
   )
 }
 
@@ -139,25 +139,8 @@ resource "google_cloud_run_v2_service" "hangar" {
         mount_path = "/run/secrets/google"
       }
 
-      liveness_probe {
-        http_get {
-          path = "/api/health"
-          port = 8000
-        }
-        initial_delay_seconds = 15
-        period_seconds        = 30
-        failure_threshold     = 3
-      }
-
-      startup_probe {
-        http_get {
-          path = "/api/health"
-          port = 8000
-        }
-        initial_delay_seconds = 10
-        period_seconds        = 5
-        failure_threshold     = 10
-      }
+      # Health probes are configured via Cloud Build after the real image is deployed.
+      # Cloud Run uses default TCP health checking in the interim.
     }
 
     volumes {

@@ -24,6 +24,12 @@ frontend/dist/
 # Built frontend (served by backend in prod)
 backend/static/
 
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/*.tfvars
+
 # Claude Code
 .claude/
 

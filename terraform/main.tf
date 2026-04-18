@@ -41,7 +41,6 @@ resource "google_project_service" "apis" {
     "iap.googleapis.com",
     "compute.googleapis.com",
     "cloudbuild.googleapis.com",
-    "cloudarmor.googleapis.com",
   ])
 
   service            = each.value

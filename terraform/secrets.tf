@@ -32,8 +32,5 @@ resource "google_secret_manager_secret" "hangar" {
 # Populate db-url from the Cloud SQL instance (convenience — avoids chicken-and-egg)
 resource "google_secret_manager_secret_version" "db_url" {
   secret = google_secret_manager_secret.hangar["hangar-db-url"].id
-  secret_data = (
-    "postgresql://hangar:${var.db_password}@${google_sql_database_instance.hangar.private_ip_address}/relops"
-    + "?sslmode=require"
-  )
+  secret_data = "postgresql://hangar:${var.db_password}@${google_sql_database_instance.hangar.private_ip_address}/relops?sslmode=require"
 }
