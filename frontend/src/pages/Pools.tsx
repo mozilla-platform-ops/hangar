@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Pin, AlertTriangle, GitBranch, Users } from "lucide-react";
+import { Pin, AlertTriangle, GitBranch, Users, Loader } from "lucide-react";
 import { api } from "../api";
 import type { PoolHealth } from "../api";
 
@@ -15,6 +15,30 @@ const GEN_COLOR: Record<string, string> = {
   r8: "text-indigo-400",
   m2: "text-cyan-400",
   m4: "text-emerald-400",
+};
+
+const SOURCE_COLOR: Record<string, string> = {
+  try:             "bg-violet-500",
+  autoland:        "bg-blue-500",
+  "mozilla-central": "bg-sky-500",
+  release:         "bg-amber-500",
+  other:           "bg-gray-600",
+};
+
+const SOURCE_TEXT_COLOR: Record<string, string> = {
+  try:             "text-violet-400",
+  autoland:        "text-blue-400",
+  "mozilla-central": "text-sky-400",
+  release:         "text-amber-400",
+  other:           "text-gray-500",
+};
+
+const SOURCE_LABEL: Record<string, string> = {
+  try:             "Try",
+  autoland:        "Autoland",
+  "mozilla-central": "m-c",
+  release:         "Release",
+  other:           "Other",
 };
 
 function healthColor(score: number): string {
@@ -55,6 +79,29 @@ function ActivityBar({ pool, height = "h-2" }: { pool: PoolHealth; height?: stri
   );
 }
 
+/** Stacked bar showing running task sources */
+function SourceBar({ sources, height = "h-2" }: { sources: Record<string, number>; height?: string }) {
+  const total = Object.values(sources).reduce((s, n) => s + n, 0) || 1;
+  const entries = Object.entries(sources).sort((a, b) => b[1] - a[1]);
+  if (entries.length === 0) return null;
+  return (
+    <div
+      className={`flex w-full rounded-full overflow-hidden gap-px ${height}`}
+      title={entries.map(([k, v]) => `${SOURCE_LABEL[k] ?? k}: ${v}`).join(" · ")}
+    >
+      {entries.map(([key, value]) =>
+        value > 0 ? (
+          <div
+            key={key}
+            className={SOURCE_COLOR[key] ?? "bg-gray-600"}
+            style={{ width: `${(value / total) * 100}%`, minWidth: 2 }}
+          />
+        ) : null
+      )}
+    </div>
+  );
+}
+
 /** Health score ring for pinned cards */
 function HealthRing({ score }: { score: number }) {
   const pct = Math.round(score * 100);
@@ -82,10 +129,10 @@ function HealthRing({ score }: { score: number }) {
   );
 }
 
-function PinnedCard({ pool }: { pool: PoolHealth }) {
+function PinnedCard({ pool, pending }: { pool: PoolHealth; pending: number | null | undefined }) {
   const navigate = useNavigate();
-  const shortName = pool.name;
   const issues = pool.quarantined + pool.mdm_unenrolled;
+  const totalRunning = Object.values(pool.running_sources).reduce((s, n) => s + n, 0);
   return (
     <div
       className="card p-5 flex flex-col gap-4 cursor-pointer hover:border-gray-700 transition-all"
@@ -97,7 +144,7 @@ function PinnedCard({ pool }: { pool: PoolHealth }) {
             <Pin size={10} className="text-brand-400 flex-shrink-0" />
             <span className="text-[10px] text-brand-400 font-medium uppercase tracking-wider">Priority Pool</span>
           </div>
-          <div className="text-sm font-mono font-semibold text-white truncate">{shortName}</div>
+          <div className="text-sm font-mono font-semibold text-white truncate">{pool.name}</div>
           <div className={`text-xs font-mono mt-0.5 ${GEN_COLOR[pool.generation || ""] || "text-gray-500"}`}>
             {pool.generation || "unknown"}
           </div>
@@ -107,7 +154,7 @@ function PinnedCard({ pool }: { pool: PoolHealth }) {
 
       <ActivityBar pool={pool} height="h-2.5" />
 
-      <div className="grid grid-cols-3 gap-2 text-center">
+      <div className="grid grid-cols-4 gap-2 text-center">
         <div>
           <div className="text-lg font-bold text-white tabular-nums">{pool.production}</div>
           <div className="text-[10px] text-gray-600 uppercase tracking-wider">Prod</div>
@@ -124,7 +171,45 @@ function PinnedCard({ pool }: { pool: PoolHealth }) {
           </div>
           <div className="text-[10px] text-gray-600 uppercase tracking-wider">Issues</div>
         </div>
+        <div>
+          <div className={`text-lg font-bold tabular-nums ${pending != null && pending > 0 ? "text-yellow-400" : "text-gray-600"}`}>
+            {pending == null ? "–" : pending}
+          </div>
+          <div className="text-[10px] text-gray-600 uppercase tracking-wider">Pending</div>
+        </div>
       </div>
+
+      {/* Running task source breakdown */}
+      {totalRunning > 0 && (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-gray-600 uppercase tracking-wider">Running ({totalRunning})</span>
+          </div>
+          <SourceBar sources={pool.running_sources} height="h-2" />
+          <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+            {Object.entries(pool.running_sources)
+              .sort((a, b) => b[1] - a[1])
+              .map(([key, value]) => (
+                <span key={key} className={`text-[10px] tabular-nums ${SOURCE_TEXT_COLOR[key] ?? "text-gray-500"}`}>
+                  {SOURCE_LABEL[key] ?? key}: {value}
+                </span>
+              ))}
+          </div>
+        </div>
+      )}
+
+      {/* Top pushers */}
+      {pool.top_owners.length > 0 && (
+        <div className="space-y-1 pt-1 border-t border-gray-800/60">
+          <span className="text-[10px] text-gray-600 uppercase tracking-wider">Top pushers</span>
+          {pool.top_owners.slice(0, 3).map(o => (
+            <div key={o.email} className="flex items-center justify-between gap-2">
+              <span className="text-[10px] text-gray-400 font-mono truncate">{o.email}</span>
+              <span className="text-[10px] text-gray-600 tabular-nums flex-shrink-0">{o.count}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {(pool.quarantined > 0 || pool.mdm_unenrolled > 0 || pool.branch_override_count > 0) && (
         <div className="flex flex-wrap gap-1.5 pt-1 border-t border-gray-800/60">
@@ -152,6 +237,8 @@ function PinnedCard({ pool }: { pool: PoolHealth }) {
 export function Pools() {
   const navigate = useNavigate();
   const [pools, setPools] = useState<PoolHealth[]>([]);
+  const [pendingCounts, setPendingCounts] = useState<Record<string, number | null>>({});
+  const [pendingLoading, setPendingLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -160,6 +247,11 @@ export function Pools() {
       .then(d => setPools(d.pools))
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
+
+    api.fleet.pendingCounts()
+      .then(d => setPendingCounts(d.pending_counts))
+      .catch(() => {/* non-fatal */})
+      .finally(() => setPendingLoading(false));
   }, []);
 
   if (error) return <div className="p-8 text-red-400 text-sm">{error}</div>;
@@ -174,6 +266,7 @@ export function Pools() {
   const totalWorkers = pools.reduce((s, p) => s + p.total, 0);
   const totalIssues = pools.reduce((s, p) => s + p.quarantined + p.mdm_unenrolled, 0);
   const totalBranch = pools.reduce((s, p) => s + p.branch_override_count, 0);
+  const totalPending = Object.values(pendingCounts).reduce<number>((s, n) => s + (n ?? 0), 0);
 
   return (
     <div className="p-8 space-y-8 max-w-7xl">
@@ -186,6 +279,12 @@ export function Pools() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {totalPending > 0 && (
+            <div className="flex items-center gap-1.5 text-xs text-yellow-400 bg-yellow-950/40 border border-yellow-900/50 px-3 py-1.5 rounded-lg">
+              {pendingLoading ? <Loader size={12} className="animate-spin" /> : null}
+              {totalPending.toLocaleString()} pending tasks
+            </div>
+          )}
           {totalIssues > 0 && (
             <div className="flex items-center gap-1.5 text-xs text-red-400 bg-red-950/40 border border-red-900/50 px-3 py-1.5 rounded-lg">
               <AlertTriangle size={12} /> {totalIssues} issue{totalIssues !== 1 ? "s" : ""} across fleet
@@ -207,7 +306,9 @@ export function Pools() {
             <span className="text-xs font-semibold text-brand-400 uppercase tracking-wider">Priority Pools</span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {pinnedData.map(pool => <PinnedCard key={pool.name} pool={pool} />)}
+            {pinnedData.map(pool => (
+              <PinnedCard key={pool.name} pool={pool} pending={pendingCounts[pool.name]} />
+            ))}
           </div>
         </div>
       )}
@@ -221,7 +322,7 @@ export function Pools() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-800/80">
-                {["Pool", "Gen", "Health", "Activity", "Total", "Prod", "Active", "Stale", "Issues", "Branch"].map(h => (
+                {["Pool", "Gen", "Health", "Activity", "Total", "Prod", "Active", "Stale", "Pending", "Sources", "Issues", "Branch"].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-[11px] font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">
                     {h}
                   </th>
@@ -231,9 +332,10 @@ export function Pools() {
             <tbody>
               {pools.map(pool => {
                 const isPinned = PINNED_POOLS.includes(pool.name);
-                const shortName = pool.name;
                 const issues = pool.quarantined + pool.mdm_unenrolled;
                 const stale = pool.stale_1_7d + pool.stale_7_30d + pool.stale_30d_plus + pool.never_seen;
+                const pending = pendingCounts[pool.name];
+                const totalRunning = Object.values(pool.running_sources).reduce((s, n) => s + n, 0);
                 return (
                   <tr
                     key={pool.name}
@@ -243,7 +345,7 @@ export function Pools() {
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-1.5">
                         {isPinned && <Pin size={9} className="text-brand-500 flex-shrink-0" />}
-                        <span className="text-xs font-mono text-gray-300">{shortName}</span>
+                        <span className="text-xs font-mono text-gray-300">{pool.name}</span>
                       </div>
                     </td>
                     <td className="px-4 py-2.5">
@@ -280,6 +382,34 @@ export function Pools() {
                       </span>
                     </td>
                     <td className="px-4 py-2.5">
+                      {pending != null ? (
+                        <span className={`text-xs tabular-nums ${pending > 0 ? "text-yellow-400" : "text-gray-600"}`}>
+                          {pending || "—"}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-700">–</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 min-w-[90px]">
+                      {totalRunning > 0 ? (
+                        <div className="space-y-1">
+                          <SourceBar sources={pool.running_sources} height="h-1.5" />
+                          <div className="flex flex-wrap gap-x-2">
+                            {Object.entries(pool.running_sources)
+                              .sort((a, b) => b[1] - a[1])
+                              .slice(0, 2)
+                              .map(([key, value]) => (
+                                <span key={key} className={`text-[9px] tabular-nums ${SOURCE_TEXT_COLOR[key] ?? "text-gray-500"}`}>
+                                  {SOURCE_LABEL[key] ?? key} {value}
+                                </span>
+                              ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-gray-700">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5">
                       {issues > 0 ? (
                         <span className="flex items-center gap-1 text-xs text-red-400 tabular-nums">
                           <AlertTriangle size={10} /> {issues}
@@ -303,20 +433,31 @@ export function Pools() {
             </tbody>
           </table>
 
-          {/* Activity legend */}
-          <div className="px-4 py-3 border-t border-gray-800/60 flex items-center gap-5">
-            <span className="text-[10px] text-gray-600 uppercase tracking-wider">Activity bar:</span>
-            {[
-              { color: "bg-emerald-500", label: "active <24h" },
-              { color: "bg-yellow-500",  label: "1–7d" },
-              { color: "bg-orange-500",  label: "7–30d" },
-              { color: "bg-red-700",     label: ">30d / never seen" },
-            ].map(s => (
-              <div key={s.label} className="flex items-center gap-1.5">
-                <span className={`w-2 h-2 rounded-sm ${s.color}`} />
-                <span className="text-[10px] text-gray-500">{s.label}</span>
-              </div>
-            ))}
+          {/* Legend */}
+          <div className="px-4 py-3 border-t border-gray-800/60 flex flex-wrap items-center gap-x-6 gap-y-2">
+            <div className="flex items-center gap-3">
+              <span className="text-[10px] text-gray-600 uppercase tracking-wider">Activity:</span>
+              {[
+                { color: "bg-emerald-500", label: "active <24h" },
+                { color: "bg-yellow-500",  label: "1–7d" },
+                { color: "bg-orange-500",  label: "7–30d" },
+                { color: "bg-red-700",     label: ">30d / never" },
+              ].map(s => (
+                <div key={s.label} className="flex items-center gap-1.5">
+                  <span className={`w-2 h-2 rounded-sm ${s.color}`} />
+                  <span className="text-[10px] text-gray-500">{s.label}</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-[10px] text-gray-600 uppercase tracking-wider">Sources:</span>
+              {Object.entries(SOURCE_LABEL).map(([key, label]) => (
+                <div key={key} className="flex items-center gap-1.5">
+                  <span className={`w-2 h-2 rounded-sm ${SOURCE_COLOR[key]}`} />
+                  <span className="text-[10px] text-gray-500">{label}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>

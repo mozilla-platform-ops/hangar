@@ -52,6 +52,8 @@ class Worker(Base):
     tc_first_claim: Mapped[datetime | None] = mapped_column(DateTime)
     tc_latest_task_id: Mapped[str | None] = mapped_column(String(100))
     tc_latest_task_state: Mapped[str | None] = mapped_column(String(50))
+    tc_latest_task_owner: Mapped[str | None] = mapped_column(String(255))
+    tc_latest_task_routes: Mapped[str | None] = mapped_column(Text)  # JSON list of route strings
     tc_worker_pool_id: Mapped[str | None] = mapped_column(String(255))
 
     @property

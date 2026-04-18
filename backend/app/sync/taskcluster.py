@@ -5,6 +5,7 @@ data than the REST API, including latestTask details.
 """
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timedelta
 from typing import Any
@@ -55,7 +56,10 @@ query ViewWorkers($provisionerId: String!, $workerType: String!, $workersConnect
       node {
         workerId
         workerGroup
-        latestTask { run { taskId runId started resolved state } }
+        latestTask {
+          run { taskId runId started resolved state }
+          task { metadata { owner } routes }
+        }
         firstClaim
         quarantineUntil
         lastDateActive
@@ -288,9 +292,14 @@ def run_sync(db: Session) -> int:
                 if not worker.worker_pool and worker.tc_worker_pool_id:
                     worker.worker_pool = worker.tc_worker_pool_id.split("/")[-1]
 
-                latest_task = (node.get("latestTask") or {}).get("run") or {}
+                latest_task_node = node.get("latestTask") or {}
+                latest_task = latest_task_node.get("run") or {}
                 worker.tc_latest_task_id = latest_task.get("taskId")
                 worker.tc_latest_task_state = latest_task.get("state")
+                task_detail = latest_task_node.get("task") or {}
+                worker.tc_latest_task_owner = (task_detail.get("metadata") or {}).get("owner")
+                routes = task_detail.get("routes") or []
+                worker.tc_latest_task_routes = json.dumps(routes) if routes else None
 
                 if not worker.generation:
                     worker.generation = (

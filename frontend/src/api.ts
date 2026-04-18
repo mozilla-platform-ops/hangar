@@ -136,10 +136,16 @@ export interface PoolHealth {
   branch_override_count: number;
   healthy: number;
   health_score: number;
+  running_sources: Record<string, number>;
+  top_owners: Array<{ email: string; count: number }>;
 }
 
 export interface PoolsResponse {
   pools: PoolHealth[];
+}
+
+export interface PendingCountsResponse {
+  pending_counts: Record<string, number | null>;
 }
 
 export interface ConsolidationData {
@@ -156,6 +162,7 @@ export const api = {
   fleet: {
     summary: () => get<FleetSummary>("/fleet/summary"),
     pools: () => get<PoolsResponse>("/fleet/pools"),
+    pendingCounts: () => get<PendingCountsResponse>("/fleet/pending-counts"),
     consolidation: () => get<ConsolidationData>("/fleet/consolidation"),
   },
   workers: {

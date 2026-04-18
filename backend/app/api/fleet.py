@@ -1,19 +1,45 @@
 """Fleet summary and consolidation endpoints."""
 from __future__ import annotations
 
+import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from typing import Any
 
+import requests
 from fastapi import APIRouter, Depends
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..database import get_db
 from ..models import Alert, SyncLog, Worker
+from ..sync.taskcluster import MAC_WORKER_POOLS
 
 router = APIRouter(prefix="/fleet", tags=["fleet"])
 
 DEFAULT_BRANCH = "master"
+
+
+def _classify_source(routes_json: str | None) -> str:
+    if not routes_json:
+        return "other"
+    try:
+        routes = json.loads(routes_json)
+    except (ValueError, TypeError):
+        return "other"
+    joined = " ".join(routes)
+    if ".try." in joined:
+        return "try"
+    if ".autoland." in joined or ".integration." in joined:
+        return "autoland"
+    if ".releases." in joined or ".release." in joined:
+        return "release"
+    if ".mozilla-central." in joined:
+        return "mozilla-central"
+    if ".mozilla-beta." in joined or ".mozilla-esr" in joined:
+        return "release"
+    return "other"
 
 
 def _is_branch_override(branch: str | None) -> bool:
@@ -138,6 +164,8 @@ def pool_health(db: Session = Depends(get_db)) -> dict[str, Any]:
                 "never_seen": 0,
                 "branch_override_count": 0,
                 "healthy": 0,
+                "running_sources": {},
+                "_owners": {},
             }
 
         p = pools[pool]
@@ -156,6 +184,13 @@ def pool_health(db: Session = Depends(get_db)) -> dict[str, Any]:
 
         if _is_branch_override(w.branch):
             p["branch_override_count"] += 1
+
+        # Running task source + owner tracking
+        if w.tc_latest_task_state == "running":
+            source = _classify_source(w.tc_latest_task_routes)
+            p["running_sources"][source] = p["running_sources"].get(source, 0) + 1
+            if w.tc_latest_task_owner:
+                p["_owners"][w.tc_latest_task_owner] = p["_owners"].get(w.tc_latest_task_owner, 0) + 1
 
         # Staleness bucket
         la = w.tc_last_active
@@ -184,10 +219,42 @@ def pool_health(db: Session = Depends(get_db)) -> dict[str, Any]:
     for p in pools.values():
         prod = p["production"]
         p["health_score"] = round(p["healthy"] / prod, 3) if prod > 0 else 0.0
+        p["top_owners"] = sorted(
+            [{"email": email, "count": cnt} for email, cnt in p["_owners"].items()],
+            key=lambda x: x["count"],
+            reverse=True,
+        )[:5]
+        del p["_owners"]
         result.append(p)
 
     result.sort(key=lambda x: x["total"], reverse=True)
     return {"pools": result}
+
+
+def _fetch_pending_count(provisioner_id: str, worker_type: str) -> tuple[str, int | None]:
+    try:
+        resp = requests.get(
+            f"{settings.tc_root_url}/api/queue/v1/pending/{provisioner_id}/{worker_type}",
+            timeout=5,
+            headers={"User-Agent": "relops-dashboard/1.0"},
+        )
+        if resp.ok:
+            return worker_type, resp.json().get("pendingTasks", 0)
+    except Exception:
+        pass
+    return worker_type, None
+
+
+@router.get("/pending-counts")
+def pending_counts() -> dict[str, Any]:
+    """Live pending task counts from TC Queue API for all monitored pools."""
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        futures = {ex.submit(_fetch_pending_count, p, w): w for p, w in MAC_WORKER_POOLS}
+        results: dict[str, int | None] = {}
+        for fut in as_completed(futures):
+            worker_type, count = fut.result()
+            results[worker_type] = count
+    return {"pending_counts": results}
 
 
 @router.get("/consolidation")
