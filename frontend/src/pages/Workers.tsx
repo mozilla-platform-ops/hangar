@@ -54,6 +54,11 @@ export function Workers() {
   const [error, setError] = useState("");
   const [sorting, setSorting] = useState<SortingState>([]);
   const [page, setPage] = useState(0);
+  const [poolOptions, setPoolOptions] = useState<string[]>([]);
+
+  useEffect(() => {
+    api.fleet.pools().then(d => setPoolOptions(d.pools.map((p: { name: string }) => p.name).sort()));
+  }, []);
 
   const search = searchParams.get("search") || "";
   const generation = searchParams.get("generation") || "";
@@ -213,6 +218,50 @@ export function Workers() {
         </div>
       </div>
 
+      {/* Quick pool filters */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] text-gray-600 uppercase tracking-wider font-semibold">Prod</span>
+          {[
+            { name: "gecko-t-osx-1400-r8", short: "1400-r8" },
+            { name: "gecko-t-osx-1015-r8", short: "1015-r8" },
+            { name: "gecko-t-osx-1500-m4", short: "1500-m4" },
+          ].map(p => (
+            <button
+              key={p.name}
+              onClick={() => setFilter("worker_pool", pool === p.name ? "" : p.name)}
+              className={`text-xs font-mono px-2.5 py-1 rounded-md border transition-all ${
+                pool === p.name
+                  ? "bg-brand-500/20 border-brand-500/60 text-brand-300"
+                  : "bg-gray-800/60 border-gray-700/50 text-gray-400 hover:text-gray-200 hover:border-gray-600"
+              }`}
+            >
+              {p.short}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] text-gray-600 uppercase tracking-wider font-semibold">Staging</span>
+          {[
+            { name: "gecko-t-osx-1400-r8-staging", short: "1400-r8" },
+            { name: "gecko-t-osx-1015-r8-staging", short: "1015-r8" },
+            { name: "gecko-t-osx-1500-m4-staging", short: "1500-m4" },
+          ].map(p => (
+            <button
+              key={p.name}
+              onClick={() => setFilter("worker_pool", pool === p.name ? "" : p.name)}
+              className={`text-xs font-mono px-2.5 py-1 rounded-md border transition-all ${
+                pool === p.name
+                  ? "bg-blue-500/20 border-blue-500/60 text-blue-300"
+                  : "bg-gray-800/60 border-gray-700/50 text-gray-400 hover:text-gray-200 hover:border-gray-600"
+              }`}
+            >
+              {p.short}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Filters */}
       <div className="flex flex-wrap gap-2 items-center">
         <div className="relative flex-1 min-w-52">
@@ -238,6 +287,14 @@ export function Workers() {
             {opts.map(o => <option key={o} value={o}>{o}</option>)}
           </select>
         ))}
+        <select
+          className="bg-gray-900/80 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-brand-500/60 focus:border-brand-500/40 transition-all max-w-[220px]"
+          value={pool}
+          onChange={e => setFilter("worker_pool", e.target.value)}
+        >
+          <option value="">All Pools</option>
+          {poolOptions.map(p => <option key={p} value={p}>{p}</option>)}
+        </select>
         {hasFilters && (
           <button
             className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-200 bg-gray-800/60 hover:bg-gray-800 px-3 py-2 rounded-lg transition-all border border-gray-700/50"
