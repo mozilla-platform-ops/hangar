@@ -111,27 +111,6 @@ export function Overview() {
         <StatCard icon={Activity} label="Active Alerts" value={totalAlerts} color="red" to="/alerts" />
       </div>
 
-      {/* Alert detail banner */}
-      {totalAlerts > 0 && (
-        <div className="rounded-xl bg-red-950/30 border border-red-900/50 px-5 py-3 flex items-center gap-4 flex-wrap">
-          <AlertTriangle size={15} className="text-red-400 flex-shrink-0" />
-          <div className="flex gap-5 text-sm text-red-300/90 flex-wrap">
-            {data.alerts.quarantined > 0 && (
-              <span><span className="font-semibold text-red-200">{data.alerts.quarantined}</span> quarantined</span>
-            )}
-            {data.alerts.missing_from_tc > 0 && (
-              <span><span className="font-semibold text-red-200">{data.alerts.missing_from_tc}</span> missing from TC</span>
-            )}
-            {data.alerts.mdm_unenrolled > 0 && (
-              <span><span className="font-semibold text-red-200">{data.alerts.mdm_unenrolled}</span> MDM unenrolled</span>
-            )}
-          </div>
-          <Link to="/alerts" className="ml-auto text-xs text-red-400 hover:text-red-200 font-medium">
-            View all →
-          </Link>
-        </div>
-      )}
-
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="card p-5">
