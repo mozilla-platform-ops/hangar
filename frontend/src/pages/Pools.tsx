@@ -269,6 +269,26 @@ function PinnedCard({ pool, pending, sources, onManage }: {
         <SourceBar sources={sources} />
       </div>
 
+      {sources && Object.keys(sources.by_user).length > 0 && (
+        <div>
+          <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-2">Top Submitters</div>
+          <div className="space-y-1">
+            {Object.entries(sources.by_user).slice(0, 4).map(([user, count], i) => {
+              const short = user.replace(/@.*$/, "");
+              const pct = Math.round((count / sources.sample_size) * 100);
+              return (
+                <div key={user} className="flex items-center gap-2">
+                  <span className="text-[10px] text-gray-700 tabular-nums w-3">{i + 1}</span>
+                  <span className="text-[10px] font-mono text-gray-400 truncate flex-1" title={user}>{short}</span>
+                  <span className="text-[10px] text-gray-600 tabular-nums">{pct}%</span>
+                  <span className="text-[10px] text-gray-700 tabular-nums">({count})</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {unavailable > 0 ? (
         <div className="pt-1 border-t border-gray-800/60">
           <div className="text-[10px] text-gray-600 mb-1.5">{unavailable} worker{unavailable !== 1 ? "s" : ""} unavailable</div>

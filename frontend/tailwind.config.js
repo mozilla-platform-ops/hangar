@@ -4,18 +4,20 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ["Inter", "system-ui", "sans-serif"],
-        mono: ["JetBrains Mono", "ui-monospace", "monospace"],
+        sans: ["DM Sans", "system-ui", "sans-serif"],
+        mono: ["DM Mono", "ui-monospace", "monospace"],
       },
       colors: {
         brand: {
-          50:  "#f0f4ff",
-          100: "#dbe4ff",
-          400: "#748ffc",
-          500: "#4c6ef5",
-          600: "#3b5bdb",
-          700: "#2f4ac2",
-          900: "#1a2a80",
+          50:  "#E6F1FB",
+          100: "#B5D4F4",
+          300: "#85B7EB",
+          400: "#5BAEE5",
+          500: "#378ADD",
+          600: "#185FA5",
+          700: "#0C447C",
+          800: "#083669",
+          900: "#042C53",
         },
       },
       animation: {

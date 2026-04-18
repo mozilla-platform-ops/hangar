@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from "react-router-dom";
-import { LayoutDashboard, Monitor, AlertTriangle, BarChart2, RefreshCw, Cpu, Layers } from "lucide-react";
+import { LayoutDashboard, Monitor, AlertTriangle, BarChart2, RefreshCw, Layers } from "lucide-react";
 import { clsx } from "clsx";
 import { useState } from "react";
 import { api } from "../api";
@@ -39,12 +39,13 @@ export function Layout() {
         {/* Brand */}
         <div className="px-4 py-5 border-b border-gray-800/60">
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-brand-600/20 border border-brand-500/30 flex items-center justify-center flex-shrink-0">
-              <Cpu size={14} className="text-brand-400" />
-            </div>
+            <svg viewBox="0 0 48 32" width="36" height="24" xmlns="http://www.w3.org/2000/svg" className="flex-shrink-0">
+              <path d="M3,26 Q14,5 45,13 Q31,17 29,26 Z" fill="#378ADD"/>
+              <path d="M3,26 Q14,8 45,13 Q36,11 34,20 Z" fill="#85B7EB"/>
+            </svg>
             <div>
-              <div className="text-[10px] font-semibold text-brand-400/80 uppercase tracking-[0.2em] leading-none">RelOps</div>
-              <div className="text-sm font-semibold text-white leading-tight mt-0.5">Fleet Dashboard</div>
+              <div className="text-base font-medium text-brand-500 leading-none tracking-tight">Hangar</div>
+              <div className="text-[10px] font-mono text-gray-600 leading-none mt-1 tracking-wide">CI FLEET MANAGER</div>
             </div>
           </div>
         </div>
