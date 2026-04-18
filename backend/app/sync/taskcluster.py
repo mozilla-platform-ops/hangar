@@ -14,11 +14,36 @@ import requests
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..models import Alert, SyncLog, Worker
+from ..models import Alert, FailureEvent, SyncLog, Worker
 
 log = logging.getLogger(__name__)
 
 TC_GRAPHQL_URL = f"{settings.tc_root_url}/graphql"
+
+# In-memory cache of taskId → task name. Cleared when it exceeds 5 000 entries.
+_task_name_cache: dict[str, str] = {}
+
+
+def _fetch_task_name(task_id: str) -> str | None:
+    """Fetch metadata.name for a TC task via REST. Best-effort: returns None on any error."""
+    if task_id in _task_name_cache:
+        return _task_name_cache[task_id]
+    try:
+        resp = requests.get(
+            f"{settings.tc_root_url}/api/queue/v1/task/{task_id}",
+            timeout=3,
+            headers={"User-Agent": "relops-dashboard/1.0"},
+        )
+        if resp.ok:
+            name = resp.json().get("metadata", {}).get("name")
+            if name:
+                if len(_task_name_cache) > 5000:
+                    _task_name_cache.clear()
+                _task_name_cache[task_id] = name
+            return name
+    except Exception as exc:
+        log.debug("task name lookup failed %s: %s", task_id, exc)
+    return None
 
 # All macOS worker pools to monitor (provisioner_id, worker_type)
 MAC_WORKER_POOLS: list[tuple[str, str]] = [
@@ -57,7 +82,7 @@ query ViewWorkers($provisionerId: String!, $workerType: String!, $workersConnect
         workerId
         workerGroup
         latestTask {
-          run { taskId runId started resolved state }
+          run { taskId runId started resolved state reasonResolved }
           task { metadata { owner } routes }
         }
         firstClaim
@@ -294,12 +319,33 @@ def run_sync(db: Session) -> int:
 
                 latest_task_node = node.get("latestTask") or {}
                 latest_task = latest_task_node.get("run") or {}
-                worker.tc_latest_task_id = latest_task.get("taskId")
-                worker.tc_latest_task_state = latest_task.get("state")
+                new_task_id = latest_task.get("taskId")
+                new_task_state_raw = latest_task.get("state") or ""
+
+                prev_task_id = worker.tc_latest_task_id
+                worker.tc_latest_task_id = new_task_id
+                worker.tc_latest_task_state = new_task_state_raw
+
                 task_detail = latest_task_node.get("task") or {}
                 worker.tc_latest_task_owner = (task_detail.get("metadata") or {}).get("owner")
                 routes = task_detail.get("routes") or []
                 worker.tc_latest_task_routes = json.dumps(routes) if routes else None
+
+                # Record a FailureEvent when we first observe a new failed/exception task.
+                new_state = new_task_state_raw.lower()
+                if new_task_id and new_task_id != prev_task_id and new_state in ("failed", "exception"):
+                    task_name: str | None = None
+                    if new_state == "failed":
+                        task_name = _fetch_task_name(new_task_id)
+                    db.add(FailureEvent(
+                        task_id=new_task_id,
+                        task_name=task_name,
+                        hostname=hostname,
+                        worker_pool=worker.worker_pool,
+                        state=new_state,
+                        reason_resolved=latest_task.get("reasonResolved"),
+                        failed_at=datetime.utcnow(),
+                    ))
 
                 if not worker.generation:
                     worker.generation = (
@@ -314,6 +360,10 @@ def run_sync(db: Session) -> int:
 
         # Second pass: flag known production workers absent from TC entirely
         _check_absent_workers(db, seen_hostnames)
+
+        # Prune failure events older than 14 days
+        prune_cutoff = datetime.utcnow() - timedelta(days=14)
+        db.query(FailureEvent).filter(FailureEvent.failed_at < prune_cutoff).delete(synchronize_session=False)
 
         db.commit()
         log_entry.finished_at = datetime.utcnow()

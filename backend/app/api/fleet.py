@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..database import get_db
-from ..models import Alert, SyncLog, Worker
+from ..models import Alert, FailureEvent, SyncLog, Worker
 from ..sync.taskcluster import MAC_WORKER_POOLS
 
 router = APIRouter(prefix="/fleet", tags=["fleet"])
@@ -163,6 +163,7 @@ def pool_health(db: Session = Depends(get_db)) -> dict[str, Any]:
                 "stale_30d_plus": 0,
                 "never_seen": 0,
                 "branch_override_count": 0,
+                "running_tasks": 0,
                 "healthy": 0,
                 "running_sources": {},
                 "_owners": {},
@@ -184,6 +185,9 @@ def pool_health(db: Session = Depends(get_db)) -> dict[str, Any]:
 
         if _is_branch_override(w.branch):
             p["branch_override_count"] += 1
+
+        if (w.tc_latest_task_state or "").upper() == "RUNNING":
+            p["running_tasks"] += 1
 
         # Running task source + owner tracking
         if w.tc_latest_task_state == "running":
@@ -255,6 +259,124 @@ def pending_counts() -> dict[str, Any]:
             worker_type, count = fut.result()
             results[worker_type] = count
     return {"pending_counts": results}
+
+
+@router.get("/pool-sources")
+def pool_sources(pool: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Sample running tasks for a pool to determine job source (project/tree) breakdown."""
+    task_ids: list[str] = [
+        row[0] for row in db.query(Worker.tc_latest_task_id)
+        .filter(
+            Worker.worker_pool == pool,
+            Worker.tc_latest_task_id.isnot(None),
+        )
+        .filter(Worker.tc_latest_task_state.ilike("running"))
+        .limit(60)
+        .all()
+        if row[0]
+    ]
+
+    if not task_ids:
+        return {"pool": pool, "sample_size": 0, "by_project": {}, "by_user": {}}
+
+    def _scheduler_project(scheduler_id: str) -> str:
+        if "level-3" in scheduler_id:
+            return "autoland"
+        if "level-1" in scheduler_id:
+            return "try"
+        if "github" in scheduler_id:
+            return "github"
+        return "other"
+
+    def _fetch(task_id: str) -> dict[str, str]:
+        url = f"{settings.tc_root_url}/api/queue/v1/task/{task_id}"
+        try:
+            r = requests.get(url, timeout=4, headers={"User-Agent": "relops-dashboard/1.0"})
+            if r.ok:
+                d = r.json()
+                tags = d.get("tags") or {}
+                project = tags.get("project") or _scheduler_project(d.get("schedulerId", ""))
+                user = tags.get("createdForUser") or ""
+                return {"project": project, "user": user}
+        except Exception:
+            pass
+        return {"project": "unknown", "user": ""}
+
+    by_project: dict[str, int] = {}
+    by_user: dict[str, int] = {}
+
+    with ThreadPoolExecutor(max_workers=20) as ex:
+        for meta in [f.result() for f in [ex.submit(_fetch, tid) for tid in task_ids]]:
+            p = meta["project"] or "unknown"
+            by_project[p] = by_project.get(p, 0) + 1
+            if meta["user"]:
+                by_user[meta["user"]] = by_user.get(meta["user"], 0) + 1
+
+    return {
+        "pool": pool,
+        "sample_size": len(task_ids),
+        "by_project": dict(sorted(by_project.items(), key=lambda x: x[1], reverse=True)),
+        "by_user": dict(sorted(by_user.items(), key=lambda x: x[1], reverse=True)[:10]),
+    }
+
+
+@router.get("/failures")
+def failure_insights(days: int = 7, db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Top failing machines and test task types over the last N days."""
+    from sqlalchemy import desc
+    cutoff = datetime.utcnow() - timedelta(days=days)
+
+    machine_rows = (
+        db.query(
+            FailureEvent.hostname,
+            FailureEvent.worker_pool,
+            func.count(FailureEvent.id).label("cnt"),
+            func.max(FailureEvent.failed_at).label("last_at"),
+        )
+        .filter(FailureEvent.failed_at >= cutoff)
+        .group_by(FailureEvent.hostname, FailureEvent.worker_pool)
+        .order_by(desc("cnt"))
+        .limit(10)
+        .all()
+    )
+
+    test_rows = (
+        db.query(
+            FailureEvent.task_name,
+            func.count(FailureEvent.id).label("cnt"),
+            func.max(FailureEvent.failed_at).label("last_at"),
+        )
+        .filter(
+            FailureEvent.failed_at >= cutoff,
+            FailureEvent.state == "failed",
+            FailureEvent.task_name.isnot(None),
+        )
+        .group_by(FailureEvent.task_name)
+        .order_by(desc("cnt"))
+        .limit(10)
+        .all()
+    )
+
+    def _fmt(dt: datetime | None) -> str | None:
+        return dt.isoformat() if dt else None
+
+    return {
+        "machine_failures": [
+            {
+                "hostname": r.hostname,
+                "short_hostname": r.hostname.split(".")[0],
+                "worker_pool": r.worker_pool,
+                "count": r.cnt,
+                "last_at": _fmt(r.last_at),
+            }
+            for r in machine_rows
+        ],
+        "test_failures": [
+            {"task_name": r.task_name, "count": r.cnt, "last_at": _fmt(r.last_at)}
+            for r in test_rows
+        ],
+        "window_days": days,
+    }
 
 
 @router.get("/consolidation")

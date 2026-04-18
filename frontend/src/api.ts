@@ -15,9 +15,18 @@ async function get<T>(path: string, params?: Record<string, string | number | bo
   return res.json();
 }
 
-async function post<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, { method: "POST" });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+async function post<T>(path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers: body ? { "Content-Type": "application/json" } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    let msg = text;
+    try { msg = JSON.parse(text).detail ?? text; } catch { /* not json */ }
+    throw new Error(msg);
+  }
   return res.json();
 }
 
@@ -134,10 +143,36 @@ export interface PoolHealth {
   stale_30d_plus: number;
   never_seen: number;
   branch_override_count: number;
+  running_tasks: number;
   healthy: number;
   health_score: number;
   running_sources: Record<string, number>;
   top_owners: Array<{ email: string; count: number }>;
+}
+
+export interface PoolOpResult {
+  total: number;
+  succeeded: number;
+  failed: Array<{ hostname: string; ok: boolean; error: string | null }>;
+}
+
+export interface PoolSources {
+  pool: string;
+  sample_size: number;
+  by_project: Record<string, number>;
+  by_user: Record<string, number>;
+}
+
+export interface FailureInsights {
+  machine_failures: Array<{
+    hostname: string;
+    short_hostname: string;
+    worker_pool: string | null;
+    count: number;
+    last_at: string | null;
+  }>;
+  test_failures: Array<{ task_name: string; count: number; last_at: string | null }>;
+  window_days: number;
 }
 
 export interface PoolsResponse {
@@ -163,7 +198,15 @@ export const api = {
     summary: () => get<FleetSummary>("/fleet/summary"),
     pools: () => get<PoolsResponse>("/fleet/pools"),
     pendingCounts: () => get<PendingCountsResponse>("/fleet/pending-counts"),
+    poolSources: (pool: string) => get<PoolSources>("/fleet/pool-sources", { pool }),
+    failures: (days = 7) => get<FailureInsights>("/fleet/failures", { days }),
     consolidation: () => get<ConsolidationData>("/fleet/consolidation"),
+  },
+  pools: {
+    setBranch: (poolName: string, branch: string, repo?: string, email?: string) =>
+      post<PoolOpResult>(`/pools/${encodeURIComponent(poolName)}/set-branch`, { branch, repo, email }),
+    clearBranch: (poolName: string) =>
+      post<PoolOpResult>(`/pools/${encodeURIComponent(poolName)}/clear-branch`),
   },
   workers: {
     list: (params?: Parameters<typeof get>[1]) => get<WorkerListResponse>("/workers", params),

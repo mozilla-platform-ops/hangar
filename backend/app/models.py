@@ -95,3 +95,16 @@ class SyncLog(Base):
     records_updated: Mapped[int | None] = mapped_column(Integer)
     error: Mapped[str | None] = mapped_column(Text)
     success: Mapped[bool | None] = mapped_column(Boolean)
+
+
+class FailureEvent(Base):
+    __tablename__ = "failure_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    task_id: Mapped[str] = mapped_column(String(100), index=True)
+    task_name: Mapped[str | None] = mapped_column(Text)
+    hostname: Mapped[str] = mapped_column(String(255), index=True)
+    worker_pool: Mapped[str | None] = mapped_column(String(255))
+    state: Mapped[str] = mapped_column(String(20))           # "failed" | "exception"
+    reason_resolved: Mapped[str | None] = mapped_column(String(100))
+    failed_at: Mapped[datetime] = mapped_column(DateTime, index=True)

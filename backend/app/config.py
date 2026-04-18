@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     # Path to SSH known_hosts file for worker SSH terminal connections.
     # In Cloud Run this is the Secret Manager mount path.
     ssh_known_hosts_path: str = "/run/secrets/ssh_known_hosts"
+    # Path to the relops dashboard SSH private key (for pool batch operations).
+    ssh_dashboard_key_path: str = "/run/secrets/ssh/dashboard_key"
     # Set true only in local dev to skip SSH host key verification.
     ssh_insecure_skip_host_check: bool = False
 
