@@ -14,13 +14,33 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from pathlib import Path
 
 import asyncssh
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from ..config import settings
+
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/workers", tags=["shell"])
+
+
+def _resolve_known_hosts() -> str | None:
+    """Return a known_hosts source for asyncssh, or raise if misconfigured."""
+    path = Path(settings.ssh_known_hosts_path)
+    if path.exists():
+        return str(path)
+    if settings.ssh_insecure_skip_host_check:
+        log.warning(
+            "SSH host key checking disabled (SSH_INSECURE_SKIP_HOST_CHECK=true). "
+            "Set SSH_KNOWN_HOSTS_PATH for production."
+        )
+        return None
+    raise RuntimeError(
+        f"No SSH known_hosts file found at {settings.ssh_known_hosts_path!r}. "
+        "Populate the secret or set SSH_INSECURE_SKIP_HOST_CHECK=true for local dev."
+    )
 
 
 @router.websocket("/{hostname:path}/shell")
@@ -43,12 +63,19 @@ async def worker_shell(websocket: WebSocket, hostname: str) -> None:
 
     # Step 2: attempt SSH connection
     try:
+        known_hosts = _resolve_known_hosts()
+    except RuntimeError as e:
+        await websocket.send_text(json.dumps({"ok": False, "error": str(e)}))
+        await websocket.close()
+        return
+
+    try:
         conn = await asyncio.wait_for(
             asyncssh.connect(
                 fqdn,
                 username=username,
                 password=password,
-                known_hosts=None,   # internal fleet — skip host key check
+                known_hosts=known_hosts,
                 connect_timeout=15,
             ),
             timeout=20,

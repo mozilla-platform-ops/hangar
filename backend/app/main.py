@@ -4,25 +4,52 @@ from __future__ import annotations
 import logging
 import threading
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from pathlib import Path
+from fastapi.staticfiles import StaticFiles
 
 from .api.alerts import router as alerts_router
 from .api.fleet import router as fleet_router
 from .api.shell import router as shell_router
 from .api.workers import router as workers_router
+from .config import settings
 from .database import init_db
 from .sync.scheduler import run_all_sync, start_scheduler, stop_scheduler
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+def _configure_logging() -> None:
+    if settings.log_json:
+        try:
+            from pythonjsonlogger import jsonlogger
+
+            handler = logging.StreamHandler()
+            handler.setFormatter(
+                jsonlogger.JsonFormatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+            )
+            logging.root.handlers = [handler]
+            logging.root.setLevel(logging.INFO)
+            return
+        except ImportError:
+            pass
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+
+_configure_logging()
 log = logging.getLogger(__name__)
 
-STATIC_DIR = Path(__file__).parent.parent.parent / "frontend" / "dist"
+
+def _resolve_static_dir() -> Path:
+    if settings.static_dir:
+        return Path(settings.static_dir)
+    # Works when run from repo root (local dev) or when STATIC_DIR is set (Docker).
+    return Path(__file__).parent.parent.parent / "frontend" / "dist"
+
+
+STATIC_DIR = _resolve_static_dir()
 
 
 @asynccontextmanager
@@ -46,7 +73,7 @@ app = FastAPI(title="RelOps Fleet Dashboard", version="1.0.0", lifespan=lifespan
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins_list,
     allow_methods=["*"],
     allow_headers=["*"],
 )

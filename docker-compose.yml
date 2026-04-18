@@ -17,17 +17,22 @@ services:
 
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     ports:
       - "8000:8000"
     env_file: .env
     environment:
       DATABASE_URL: postgresql://relops:relops@db:5432/relops
+      STATIC_DIR: /app/frontend/dist
+      LOG_JSON: "false"
+      # Disable SSH host key checking for local dev. In production this is
+      # handled by the ssh_known_hosts Secret Manager secret.
+      SSH_INSECURE_SKIP_HOST_CHECK: "true"
     volumes:
-      - puppet_repo:/tmp/ronin_puppet
       - ./backend:/app
-      - ~/.ssh:/root/.ssh:ro
+      - ./frontend/dist:/app/frontend/dist
+      - puppet_repo:/tmp/ronin_puppet
     depends_on:
       db:
         condition: service_healthy
