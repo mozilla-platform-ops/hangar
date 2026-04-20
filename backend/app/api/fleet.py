@@ -410,6 +410,18 @@ def sync_logs(db: Session = Depends(get_db)) -> dict[str, Any]:
     }
 
 
+@router.post("/sync-tc-debug")
+def sync_tc_debug(db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Run TC sync synchronously and return result or full traceback."""
+    import traceback
+    try:
+        from ..sync import taskcluster
+        count = taskcluster.run_sync(db)
+        return {"success": True, "records": count}
+    except Exception as exc:
+        return {"success": False, "error": str(exc), "traceback": traceback.format_exc()}
+
+
 @router.get("/consolidation")
 def consolidation_analysis(db: Session = Depends(get_db)) -> dict[str, Any]:
     """Analyze r8 vs m4 capacity and retirement candidates."""
