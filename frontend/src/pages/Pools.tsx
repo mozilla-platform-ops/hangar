@@ -40,6 +40,14 @@ const PROJECT_TEXT: Record<string, string> = {
   unknown:           "text-gray-600",
 };
 
+function pendingColor(n: number | null | undefined, highThreshold = 500, midThreshold = 100): string {
+  if (n == null) return "text-gray-600";
+  if (n === 0)              return "text-emerald-400";
+  if (n <= midThreshold)    return "text-emerald-400";
+  if (n <= highThreshold)   return "text-yellow-400";
+  return "text-orange-300";
+}
+
 function healthColor(score: number): string {
   if (score >= 0.9) return "text-emerald-400";
   if (score >= 0.7) return "text-yellow-400";
@@ -245,7 +253,7 @@ function PinnedCard({ pool, pending, sources, onManage }: {
       {/* Queue depth + utilization */}
       <div className="grid grid-cols-2 gap-3 bg-gray-800/30 rounded-lg p-3 border border-gray-700/30">
         <div>
-          <div className={`text-2xl font-bold tabular-nums ${pending != null && pending > 500 ? "text-orange-300" : "text-white"}`}>
+          <div className={`text-2xl font-bold tabular-nums ${pendingColor(pending)}`}>
             {pending === null || pending === undefined ? "—" : pending.toLocaleString()}
           </div>
           <div className="text-[10px] text-gray-500 uppercase tracking-wider mt-0.5">pending tasks</div>
@@ -365,7 +373,7 @@ function PoolTable({ pools, pinnedPools, navigate, showLegend, onManage, pending
                 <td className="px-4 py-2.5 min-w-[100px]"><ActivityBar pool={pool} /></td>
                 <td className="px-4 py-2.5">
                   {p != null ? (
-                    <span className={`text-xs font-mono tabular-nums font-medium ${p > 500 ? "text-orange-300" : p > 0 ? "text-yellow-400" : "text-gray-600"}`}>
+                    <span className={`text-xs font-mono tabular-nums font-medium ${pendingColor(p)}`}>
                       {p.toLocaleString()}
                     </span>
                   ) : <span className="text-xs text-gray-700">—</span>}
@@ -571,7 +579,7 @@ export function Pools() {
                   <div className="font-mono text-xs text-white truncate">{p.name}</div>
                   <div className="grid grid-cols-2 gap-2 bg-gray-800/30 rounded-lg p-2.5 border border-gray-700/30">
                     <div>
-                      <div className={`text-xl font-bold tabular-nums ${p.pending > 200 ? "text-orange-300" : "text-white"}`}>
+                      <div className={`text-xl font-bold tabular-nums ${pendingColor(p.pending, 200, 50)}`}>
                         {p.pending.toLocaleString()}
                       </div>
                       <div className="text-[10px] text-gray-500 uppercase tracking-wider mt-0.5">pending</div>
@@ -630,7 +638,7 @@ export function Pools() {
                   </div>
                   <div className="grid grid-cols-2 gap-2 bg-gray-800/30 rounded-lg p-2.5 border border-gray-700/30">
                     <div>
-                      <div className={`text-xl font-bold tabular-nums ${p.pending > 50 ? "text-orange-300" : "text-white"}`}>
+                      <div className={`text-xl font-bold tabular-nums ${pendingColor(p.pending, 50, 10)}`}>
                         {p.pending.toLocaleString()}
                       </div>
                       <div className="text-[10px] text-gray-500 uppercase tracking-wider mt-0.5">pending</div>
