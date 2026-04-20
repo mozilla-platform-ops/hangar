@@ -241,6 +241,21 @@ export function Workers() {
           ))}
         </div>
         <div className="flex items-center gap-1.5">
+          <span className="text-[10px] text-gray-600 uppercase tracking-wider font-semibold">Linux</span>
+          {[
+            { name: "gecko-t-linux-talos-2404", short: "talos-2404" },
+            { name: "gecko-t-linux-talos-1804", short: "talos-1804" },
+            { name: "gecko-t-linux-netperf-2404", short: "netperf" },
+          ].map(p => (
+            <button key={p.name} onClick={() => setFilter("worker_pool", pool === p.name ? "" : p.name)}
+              className={`text-xs font-mono px-2.5 py-1 rounded-md border transition-all ${
+                pool === p.name
+                  ? "bg-teal-500/20 border-teal-500/60 text-teal-300"
+                  : "bg-gray-800/60 border-gray-700/50 text-gray-400 hover:text-gray-200 hover:border-gray-600"
+              }`}>{p.short}</button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1.5">
           <span className="text-[10px] text-gray-600 uppercase tracking-wider font-semibold">Staging</span>
           {[
             { name: "gecko-t-osx-1400-r8-staging", short: "1400-r8" },

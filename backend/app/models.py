@@ -14,7 +14,8 @@ class Worker(Base):
 
     hostname: Mapped[str] = mapped_column(String(255), primary_key=True)
     worker_id: Mapped[str | None] = mapped_column(String(255))
-    generation: Mapped[str | None] = mapped_column(String(20))  # r8 / m2 / m4
+    generation: Mapped[str | None] = mapped_column(String(20))  # r8 / m2 / m4 / 2404 / 1804
+    platform: Mapped[str | None] = mapped_column(String(20))   # mac / linux / windows
 
     # From Puppet inventory.d
     worker_pool: Mapped[str | None] = mapped_column(String(255))

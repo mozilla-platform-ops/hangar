@@ -83,6 +83,10 @@ async def _run_pool_op(workers: list[Worker], command: str, stdin_data: bytes | 
     return {"total": len(workers), "succeeded": len(results) - len(failed), "failed": failed}
 
 
+def _settings_path(platform: str | None) -> str:
+    return "/etc/puppet/ronin_settings" if platform == "linux" else "/opt/puppet_environments/ronin_settings"
+
+
 class SetBranchRequest(BaseModel):
     branch: str
     repo: str = "https://github.com/mozilla-platform-ops/ronin_puppet.git"
@@ -101,7 +105,22 @@ async def set_pool_branch(pool_name: str, body: SetBranchRequest, db: Session = 
         f"PUPPET_BRANCH='{body.branch}'\n"
         f"PUPPET_MAIL='{body.email}'\n"
     ).encode()
-    return await _run_pool_op(workers, "sudo tee /opt/puppet_environments/ronin_settings > /dev/null", stdin_data=content)
+
+    async def _set_one(w: Worker) -> dict:
+        path = _settings_path(w.platform)
+        rc, err = await _ssh_run(w.hostname, f"sudo tee {path} > /dev/null", stdin_data=content)
+        if rc == 0 and w.platform == "linux":
+            await _ssh_run(w.hostname, f"sudo chmod 640 {path}")
+        return {"hostname": w.hostname.split(".")[0], "ok": rc == 0, "error": err if rc != 0 else None}
+
+    sem = asyncio.Semaphore(_CONCURRENCY)
+    async def _one(w: Worker) -> dict:
+        async with sem:
+            return await _set_one(w)
+
+    results = await asyncio.gather(*[_one(w) for w in workers])
+    failed = [r for r in results if not r["ok"]]
+    return {"total": len(workers), "succeeded": len(results) - len(failed), "failed": failed}
 
 
 @router.post("/{pool_name}/clear-branch")
@@ -110,4 +129,16 @@ async def clear_pool_branch(pool_name: str, db: Session = Depends(get_db)) -> di
     if not workers:
         raise HTTPException(status_code=404, detail=f"Pool {pool_name!r} not found")
 
-    return await _run_pool_op(workers, "sudo rm -f /opt/puppet_environments/ronin_settings && echo ok")
+    async def _clear_one(w: Worker) -> dict:
+        path = _settings_path(w.platform)
+        rc, err = await _ssh_run(w.hostname, f"sudo rm -f {path} && echo ok")
+        return {"hostname": w.hostname.split(".")[0], "ok": rc == 0, "error": err if rc != 0 else None}
+
+    sem = asyncio.Semaphore(_CONCURRENCY)
+    async def _one(w: Worker) -> dict:
+        async with sem:
+            return await _clear_one(w)
+
+    results = await asyncio.gather(*[_one(w) for w in workers])
+    failed = [r for r in results if not r["ok"]]
+    return {"total": len(workers), "succeeded": len(results) - len(failed), "failed": failed}

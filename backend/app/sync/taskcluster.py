@@ -44,8 +44,9 @@ def _fetch_task_name(task_id: str) -> str | None:
         log.debug("task name lookup failed %s: %s", task_id, exc)
     return None
 
-# All macOS worker pools to monitor (provisioner_id, worker_type)
-MAC_WORKER_POOLS: list[tuple[str, str]] = [
+# All hardware worker pools to monitor (provisioner_id, worker_type)
+HW_WORKER_POOLS: list[tuple[str, str]] = [
+    # macOS
     ("releng-hardware", "gecko-t-osx-1400-r8"),
     ("releng-hardware", "gecko-t-osx-1400-r8-staging"),
     ("releng-hardware", "gecko-t-osx-1015-r8"),
@@ -66,7 +67,39 @@ MAC_WORKER_POOLS: list[tuple[str, str]] = [
     ("releng-hardware", "mozillavpn-b-3-osx"),
     ("releng-hardware", "nss-1-b-osx-1015"),
     ("releng-hardware", "nss-3-b-osx-1015"),
+    # Linux hardware
+    ("releng-hardware", "gecko-t-linux-talos-1804"),
+    ("releng-hardware", "gecko-t-linux-talos-2404"),
+    ("releng-hardware", "gecko-t-linux-netperf-1804"),
+    ("releng-hardware", "gecko-t-linux-netperf-2404"),
 ]
+
+# Keep old name as alias so fleet.py import doesn't break until updated
+MAC_WORKER_POOLS = HW_WORKER_POOLS
+
+
+def _detect_platform(worker_id: str, worker_pool_id: str | None) -> str:
+    combined = f"{worker_id} {worker_pool_id or ''}".lower()
+    if "linux" in combined or worker_id.startswith("t-linux"):
+        return "linux"
+    if "win" in combined or worker_id.startswith("nuc"):
+        return "windows"
+    return "mac"
+
+
+def _detect_generation(hostname: str, worker_pool: str | None) -> str | None:
+    pool = (worker_pool or "").lower()
+    if "2404" in pool:
+        return "2404"
+    if "1804" in pool:
+        return "1804"
+    if "m4" in hostname:
+        return "m4"
+    if "m2" in hostname:
+        return "m2"
+    if "r8" in hostname:
+        return "r8"
+    return None
 
 _GRAPHQL_QUERY = """
 query ViewWorkers($provisionerId: String!, $workerType: String!, $workersConnection: PageConnection) {
@@ -282,7 +315,7 @@ def run_sync(db: Session) -> int:
         total = 0
         seen_hostnames: set[str] = set()
 
-        for provisioner_id, worker_type in MAC_WORKER_POOLS:
+        for provisioner_id, worker_type in HW_WORKER_POOLS:
             log.info("Fetching TC workers: %s/%s", provisioner_id, worker_type)
             try:
                 workers = _fetch_pool_workers(provisioner_id, worker_type)
@@ -340,12 +373,10 @@ def run_sync(db: Session) -> int:
                         failed_at=datetime.utcnow(),
                     ))
 
+                if not worker.platform:
+                    worker.platform = _detect_platform(worker_id, node.get("workerPoolId"))
                 if not worker.generation:
-                    worker.generation = (
-                        "m4" if "m4" in hostname else
-                        "m2" if "m2" in hostname else
-                        "r8" if "r8" in hostname else None
-                    )
+                    worker.generation = _detect_generation(hostname, worker.worker_pool)
 
                 worker.last_synced_tc = datetime.utcnow()
                 _generate_alerts(db, hostname, worker)

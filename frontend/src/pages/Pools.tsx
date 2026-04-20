@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Pin, AlertTriangle, GitBranch, Users, Lock, Hammer, FlaskConical, ChevronDown, Settings2, X, CheckCircle2 } from "lucide-react";
+import { Pin, AlertTriangle, GitBranch, Users, Lock, Hammer, FlaskConical, ChevronDown, Settings2, X, CheckCircle2, Cloud, Terminal } from "lucide-react";
 import { api } from "../api";
-import type { PoolHealth, PoolOpResult, PoolSources } from "../api";
+import type { PoolHealth, PoolOpResult, PoolSources, CloudPool } from "../api";
 
 const PINNED_POOLS = [
   "gecko-t-osx-1400-r8",
@@ -11,9 +11,11 @@ const PINNED_POOLS = [
 ];
 
 const GEN_COLOR: Record<string, string> = {
-  r8: "text-indigo-400",
-  m2: "text-cyan-400",
-  m4: "text-emerald-400",
+  r8:   "text-indigo-400",
+  m2:   "text-cyan-400",
+  m4:   "text-emerald-400",
+  "2404": "text-teal-400",
+  "1804": "text-teal-600",
 };
 
 const PROJECT_COLORS: Record<string, string> = {
@@ -431,6 +433,7 @@ export function Pools() {
   const [managingPool, setManagingPool] = useState<PoolHealth | null>(null);
   const [pending, setPending] = useState<Record<string, number | null>>({});
   const [sources, setSources] = useState<Record<string, PoolSources>>({});
+  const [cloudPoolData, setCloudPoolData] = useState<CloudPool[]>([]);
   const toggleOther = useCallback(() => setShowOther(v => !v), []);
 
   useEffect(() => {
@@ -448,6 +451,9 @@ export function Pools() {
         .then(s => setSources(prev => ({ ...prev, [poolName]: s })))
         .catch(() => {});
     }
+    api.fleet.cloudPools()
+      .then(d => setCloudPoolData(d.pools))
+      .catch(() => {});
   }, []);
 
   if (error) return <div className="p-8 text-red-400 text-sm">{error}</div>;
@@ -459,10 +465,11 @@ export function Pools() {
 
   const pinnedData = PINNED_POOLS.map(name => pools.find(p => p.name === name)).filter(Boolean) as PoolHealth[];
 
-  const signingPools = pools.filter(p => p.name.includes("signing"));
-  const builderPools = pools.filter(p => !p.name.includes("signing") && p.name.includes("-b-"));
-  const testerPools  = pools.filter(p => !p.name.includes("signing") && !p.name.includes("-b-") && p.name.includes("-t-"));
-  const otherPools   = pools.filter(p => !p.name.includes("signing") && !p.name.includes("-b-") && !p.name.includes("-t-"));
+  const linuxHwPools = pools.filter(p => p.name.includes("linux"));
+  const signingPools = pools.filter(p => !p.name.includes("linux") && p.name.includes("signing"));
+  const builderPools = pools.filter(p => !p.name.includes("linux") && !p.name.includes("signing") && p.name.includes("-b-"));
+  const testerPools  = pools.filter(p => !p.name.includes("linux") && !p.name.includes("signing") && !p.name.includes("-b-") && p.name.includes("-t-"));
+  const otherPools   = pools.filter(p => !p.name.includes("linux") && !p.name.includes("signing") && !p.name.includes("-b-") && !p.name.includes("-t-"));
 
   const totalWorkers = pools.reduce((s, p) => s + p.total, 0);
   const totalIssues  = testerPools.reduce((s, p) => s + p.quarantined + p.mdm_unenrolled, 0);
@@ -532,6 +539,57 @@ export function Pools() {
             Signing workers operate differently — activity and health metrics may not reflect actual pool status.
           </p>
           <PoolTable pools={signingPools} pinnedPools={[]} navigate={navigate} showLegend={false} onManage={setManagingPool} pending={pending} />
+        </div>
+      )}
+
+      {linuxHwPools.length > 0 && (
+        <div>
+          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2">
+            <Terminal size={12} /> Linux Hardware Pools
+          </h2>
+          <p className="text-[11px] text-gray-600 mb-3">Physical Linux hardware in MDC1 — branch overrides via <span className="font-mono">/etc/puppet/ronin_settings</span>.</p>
+          <PoolTable pools={linuxHwPools} pinnedPools={[]} navigate={navigate} showLegend onManage={setManagingPool} pending={pending} />
+        </div>
+      )}
+
+      {cloudPoolData.length > 0 && (
+        <div>
+          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2">
+            <Cloud size={12} /> Cloud Linux Pools
+          </h2>
+          <p className="text-[11px] text-gray-600 mb-3">Ephemeral cloud workers — auto-scale to demand. Read-only load view.</p>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {cloudPoolData.map(p => {
+              const load = p.total > 0 ? Math.round((p.running / p.total) * 100) : 0;
+              const loadColor = load >= 90 ? "bg-orange-400" : load >= 60 ? "bg-yellow-400" : "bg-teal-400";
+              return (
+                <div key={p.name} className="card p-4 flex flex-col gap-3">
+                  <div className="font-mono text-xs text-white truncate">{p.name}</div>
+                  <div className="grid grid-cols-2 gap-2 bg-gray-800/30 rounded-lg p-2.5 border border-gray-700/30">
+                    <div>
+                      <div className={`text-xl font-bold tabular-nums ${p.pending > 200 ? "text-orange-300" : "text-white"}`}>
+                        {p.pending.toLocaleString()}
+                      </div>
+                      <div className="text-[10px] text-gray-500 uppercase tracking-wider mt-0.5">pending</div>
+                    </div>
+                    <div>
+                      <div className="text-xl font-bold tabular-nums text-white">
+                        {p.running}
+                        <span className="text-xs font-normal text-gray-500"> / {p.total}</span>
+                      </div>
+                      <div className="text-[10px] text-gray-500 uppercase tracking-wider mt-0.5">running</div>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="w-full bg-gray-700/60 rounded-full h-1.5 overflow-hidden">
+                      <div className={`h-1.5 rounded-full transition-all ${loadColor}`} style={{ width: `${Math.min(load, 100)}%` }} />
+                    </div>
+                    <div className="text-[10px] text-gray-600 mt-1">{load}% capacity utilized</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 

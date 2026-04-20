@@ -13,7 +13,16 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..database import get_db
 from ..models import Alert, FailureEvent, SyncLog, Worker
-from ..sync.taskcluster import MAC_WORKER_POOLS
+from ..sync.taskcluster import HW_WORKER_POOLS
+
+CLOUD_WORKER_POOLS: list[tuple[str, str]] = [
+    ("gecko-t", "t-linux-docker"),
+    ("gecko-t", "t-linux-docker-amd"),
+    ("gecko-t", "t-linux-docker-kvm"),
+    ("gecko-t", "t-linux-2204-wayland"),
+    ("gecko-t", "t-linux-2404-wayland-snap"),
+    ("gecko-t", "t-linux-xlarge-2204-wayland"),
+]
 
 router = APIRouter(prefix="/fleet", tags=["fleet"])
 
@@ -214,14 +223,48 @@ def _fetch_pending_count(provisioner_id: str, worker_type: str) -> tuple[str, in
 
 @router.get("/pending-counts")
 def pending_counts() -> dict[str, Any]:
-    """Live pending task counts from TC Queue API for all monitored pools."""
+    """Live pending task counts from TC Queue API for all monitored hardware pools."""
     with ThreadPoolExecutor(max_workers=10) as ex:
-        futures = {ex.submit(_fetch_pending_count, p, w): w for p, w in MAC_WORKER_POOLS}
+        futures = {ex.submit(_fetch_pending_count, p, w): w for p, w in HW_WORKER_POOLS}
         results: dict[str, int | None] = {}
         for fut in as_completed(futures):
             worker_type, count = fut.result()
             results[worker_type] = count
     return {"pending_counts": results}
+
+
+def _fetch_cloud_pool(provisioner: str, worker_type: str) -> dict[str, Any]:
+    pending = _fetch_pending_count(provisioner, worker_type)[1] or 0
+    running, total = 0, 0
+    try:
+        resp = requests.get(
+            f"{settings.tc_root_url}/api/queue/v1/provisioners/{provisioner}/worker-types/{worker_type}/workers?limit=1000",
+            timeout=8,
+            headers={"User-Agent": "relops-dashboard/1.0"},
+        )
+        if resp.ok:
+            workers = resp.json().get("workers", [])
+            total = len(workers)
+            running = sum(1 for w in workers if w.get("latestTask") is not None)
+    except Exception:
+        pass
+    return {
+        "name": worker_type,
+        "provisioner": provisioner,
+        "pending": pending,
+        "running": running,
+        "total": total,
+    }
+
+
+@router.get("/cloud-pools")
+def cloud_pools() -> dict[str, Any]:
+    """Live load stats for cloud Linux worker pools (no DB — all live from TC)."""
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        futures = [ex.submit(_fetch_cloud_pool, p, w) for p, w in CLOUD_WORKER_POOLS]
+        results = [f.result() for f in as_completed(futures)]
+    results.sort(key=lambda x: x["name"])
+    return {"pools": results}
 
 
 @router.get("/pool-sources")

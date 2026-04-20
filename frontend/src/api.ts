@@ -74,6 +74,7 @@ export interface Worker {
   hostname: string;
   worker_id: string | null;
   generation: string | null;
+  platform: string | null;
   worker_pool: string | null;
   puppet_role: string | null;
   state: string | null;
@@ -163,6 +164,18 @@ export interface PoolSources {
   by_user: Record<string, number>;
 }
 
+export interface CloudPool {
+  name: string;
+  provisioner: string;
+  pending: number;
+  running: number;
+  total: number;
+}
+
+export interface CloudPoolsResponse {
+  pools: CloudPool[];
+}
+
 export interface FailureInsights {
   machine_failures: Array<{
     hostname: string;
@@ -200,6 +213,7 @@ export const api = {
     pendingCounts: () => get<PendingCountsResponse>("/fleet/pending-counts"),
     poolSources: (pool: string) => get<PoolSources>("/fleet/pool-sources", { pool }),
     failures: (days = 7) => get<FailureInsights>("/fleet/failures", { days }),
+    cloudPools: () => get<CloudPoolsResponse>("/fleet/cloud-pools"),
     consolidation: () => get<ConsolidationData>("/fleet/consolidation"),
   },
   pools: {
