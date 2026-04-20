@@ -1,5 +1,5 @@
-import { NavLink, Outlet } from "react-router-dom";
-import { LayoutDashboard, Monitor, AlertTriangle, BarChart2, RefreshCw, Layers } from "lucide-react";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { LayoutDashboard, Monitor, AlertTriangle, BarChart2, RefreshCw, Layers, ChevronDown, Smartphone, Cloud, Terminal, Apple } from "lucide-react";
 import { clsx } from "clsx";
 import { useState } from "react";
 import { api } from "../api";
@@ -7,14 +7,25 @@ import { api } from "../api";
 const NAV = [
   { to: "/", icon: LayoutDashboard, label: "Overview" },
   { to: "/workers", icon: Monitor, label: "Workers" },
-  { to: "/pools", icon: Layers, label: "Pool Health" },
   { to: "/alerts", icon: AlertTriangle, label: "Alerts" },
   { to: "/consolidation", icon: BarChart2, label: "Consolidation" },
+];
+
+const POOL_SECTIONS = [
+  { section: "",        label: "Overview",  icon: Layers },
+  { section: "mac",     label: "macOS",     icon: Apple },
+  { section: "linux",   label: "Linux",     icon: Terminal },
+  { section: "cloud",   label: "Cloud",     icon: Cloud },
+  { section: "android", label: "Android",   icon: Smartphone },
 ];
 
 export function Layout() {
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState("");
+  const location = useLocation();
+  const navigate = useNavigate();
+  const onPools = location.pathname.startsWith("/pools");
+  const currentSection = new URLSearchParams(location.search).get("section") ?? "";
 
   async function triggerSync() {
     setSyncing(true);
@@ -52,29 +63,63 @@ export function Layout() {
 
         {/* Nav */}
         <nav className="flex-1 px-2 py-3 space-y-0.5">
-          {NAV.map(({ to, icon: Icon, label }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === "/"}
-              className={({ isActive }) =>
-                clsx(
-                  "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 relative",
-                  isActive
-                    ? "bg-brand-500/10 text-brand-300 border border-brand-500/20"
-                    : "text-gray-500 hover:text-gray-200 hover:bg-gray-800/60 border border-transparent"
-                )
-              }
-            >
-              {({ isActive }) => (
-                <>
-                  {isActive && (
-                    <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 bg-brand-400 rounded-full" />
-                  )}
-                  <Icon size={15} />
-                  {label}
-                </>
-              )}
+          {NAV.slice(0, 2).map(({ to, icon: Icon, label }) => (
+            <NavLink key={to} to={to} end={to === "/"}
+              className={({ isActive }) => clsx(
+                "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 relative",
+                isActive ? "bg-brand-500/10 text-brand-300 border border-brand-500/20"
+                         : "text-gray-500 hover:text-gray-200 hover:bg-gray-800/60 border border-transparent"
+              )}>
+              {({ isActive }) => (<>
+                {isActive && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 bg-brand-400 rounded-full" />}
+                <Icon size={15} />{label}
+              </>)}
+            </NavLink>
+          ))}
+
+          {/* Pool Health with sub-nav */}
+          <div>
+            <button onClick={() => navigate("/pools")}
+              className={clsx(
+                "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 relative",
+                onPools ? "bg-brand-500/10 text-brand-300 border border-brand-500/20"
+                        : "text-gray-500 hover:text-gray-200 hover:bg-gray-800/60 border border-transparent"
+              )}>
+              {onPools && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 bg-brand-400 rounded-full" />}
+              <Layers size={15} />
+              <span className="flex-1 text-left">Pool Health</span>
+              <ChevronDown size={11} className={clsx("transition-transform text-gray-600", onPools && "rotate-180")} />
+            </button>
+            {onPools && (
+              <div className="mt-0.5 ml-3 pl-3 border-l border-gray-800 space-y-0.5">
+                {POOL_SECTIONS.map(({ section, label, icon: Icon }) => {
+                  const isActive = currentSection === section;
+                  const to = section ? `/pools?section=${section}` : "/pools";
+                  return (
+                    <button key={section} onClick={() => navigate(to)}
+                      className={clsx(
+                        "w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all",
+                        isActive ? "bg-brand-500/10 text-brand-300" : "text-gray-600 hover:text-gray-300 hover:bg-gray-800/40"
+                      )}>
+                      <Icon size={11} />{label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {NAV.slice(2).map(({ to, icon: Icon, label }) => (
+            <NavLink key={to} to={to}
+              className={({ isActive }) => clsx(
+                "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 relative",
+                isActive ? "bg-brand-500/10 text-brand-300 border border-brand-500/20"
+                         : "text-gray-500 hover:text-gray-200 hover:bg-gray-800/60 border border-transparent"
+              )}>
+              {({ isActive }) => (<>
+                {isActive && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 bg-brand-400 rounded-full" />}
+                <Icon size={15} />{label}
+              </>)}
             </NavLink>
           ))}
         </nav>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Pin, AlertTriangle, GitBranch, Users, Lock, Hammer, FlaskConical, ChevronDown, Settings2, X, CheckCircle2, Cloud, Terminal, Smartphone } from "lucide-react";
 import { api } from "../api";
 import type { PoolHealth, PoolOpResult, PoolSources, CloudPool } from "../api";
@@ -434,6 +434,8 @@ function PoolTable({ pools, pinnedPools, navigate, showLegend, onManage, pending
 
 export function Pools() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const section = searchParams.get("section") ?? "";
   const [pools, setPools] = useState<PoolHealth[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -478,10 +480,16 @@ export function Pools() {
   const pinnedData = PINNED_POOLS.map(name => pools.find(p => p.name === name)).filter(Boolean) as PoolHealth[];
 
   const linuxHwPools = pools.filter(p => p.name.includes("linux"));
-  const signingPools = pools.filter(p => !p.name.includes("linux") && p.name.includes("signing"));
-  const builderPools = pools.filter(p => !p.name.includes("linux") && !p.name.includes("signing") && p.name.includes("-b-"));
-  const testerPools  = pools.filter(p => !p.name.includes("linux") && !p.name.includes("signing") && !p.name.includes("-b-") && p.name.includes("-t-"));
-  const otherPools   = pools.filter(p => !p.name.includes("linux") && !p.name.includes("signing") && !p.name.includes("-b-") && !p.name.includes("-t-"));
+  const macPools     = pools.filter(p => !p.name.includes("linux"));
+  const signingPools = macPools.filter(p => p.name.includes("signing"));
+  const builderPools = macPools.filter(p => !p.name.includes("signing") && p.name.includes("-b-"));
+  const testerPools  = macPools.filter(p => !p.name.includes("signing") && !p.name.includes("-b-") && p.name.includes("-t-"));
+  const otherPools   = macPools.filter(p => !p.name.includes("signing") && !p.name.includes("-b-") && !p.name.includes("-t-"));
+
+  const showMac     = section === "" || section === "mac";
+  const showLinux   = section === "" || section === "linux";
+  const showCloud   = section === "" || section === "cloud";
+  const showAndroid = section === "" || section === "android";
 
   const totalWorkers = pools.reduce((s, p) => s + p.total, 0);
   const totalIssues  = testerPools.reduce((s, p) => s + p.quarantined + p.mdm_unenrolled, 0);
@@ -508,7 +516,7 @@ export function Pools() {
         </div>
       </div>
 
-      {pinnedData.length > 0 && (
+      {showMac && pinnedData.length > 0 && (
         <div>
           <div className="flex items-center gap-2 mb-3">
             <Pin size={11} className="text-brand-400" />
@@ -523,7 +531,7 @@ export function Pools() {
         </div>
       )}
 
-      {testerPools.length > 0 && (
+      {showMac && testerPools.length > 0 && (
         <div>
           <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
             <FlaskConical size={12} /> Tester Pools
@@ -532,7 +540,7 @@ export function Pools() {
         </div>
       )}
 
-      {builderPools.length > 0 && (
+      {showMac && builderPools.length > 0 && (
         <div>
           <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2">
             <Hammer size={12} /> Builder Pools
@@ -542,7 +550,7 @@ export function Pools() {
         </div>
       )}
 
-      {signingPools.length > 0 && (
+      {showMac && signingPools.length > 0 && (
         <div>
           <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2">
             <Lock size={12} /> Signing Pools
@@ -554,7 +562,7 @@ export function Pools() {
         </div>
       )}
 
-      {linuxHwPools.length > 0 && (
+      {showLinux && linuxHwPools.length > 0 && (
         <div>
           <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2">
             <Terminal size={12} /> Linux Hardware Pools
@@ -564,7 +572,7 @@ export function Pools() {
         </div>
       )}
 
-      {cloudPoolData.length > 0 && (
+      {showCloud && cloudPoolData.length > 0 && (
         <div>
           <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2">
             <Cloud size={12} /> Cloud Linux Pools
@@ -605,7 +613,7 @@ export function Pools() {
         </div>
       )}
 
-      {androidPoolData.length > 0 && (
+      {showAndroid && androidPoolData.length > 0 && (
         <div>
           <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2">
             <Smartphone size={12} /> Android Hardware Pools
@@ -664,7 +672,7 @@ export function Pools() {
         </div>
       )}
 
-      {otherPools.length > 0 && (
+      {showMac && otherPools.length > 0 && (
         <div>
           <button onClick={toggleOther}
             className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase tracking-wider hover:text-gray-400 transition-colors mb-3">
