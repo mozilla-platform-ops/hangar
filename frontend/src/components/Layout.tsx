@@ -140,21 +140,20 @@ export function Layout() {
         </nav>
 
         {/* Sync */}
-        <div className="px-3 pb-4 border-t border-gray-800/60 pt-3 space-y-2">
+        <div className="px-3 pb-4 border-t border-gray-800/60 pt-3">
           <button
             onClick={triggerSync}
             disabled={syncing}
             className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-xs font-medium text-gray-500 hover:text-gray-200 hover:bg-gray-800/60 transition-all disabled:opacity-40 border border-transparent hover:border-gray-700/50"
           >
             <RefreshCw size={12} className={syncing ? "animate-spin" : ""} />
-            {syncing ? "Syncing…" : syncMsg || "Sync All Sources"}
-          </button>
-          {tcSync && (
-            <div className="flex items-center gap-2 px-3 py-1">
-              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${tcSync.last_success ? "bg-emerald-500" : "bg-gray-600"}`} />
-              <span className="text-[10px] text-gray-600">TC synced {timeAgo(tcSync.last_success)}</span>
+            <div className="flex flex-col items-start gap-0.5">
+              <span>{syncing ? "Syncing…" : syncMsg || "Sync All Sources"}</span>
+              {!syncing && !syncMsg && tcSync?.last_success && (
+                <span className="text-[10px] text-gray-700 font-normal">TC {timeAgo(tcSync.last_success)}</span>
+              )}
             </div>
-          )}
+          </button>
         </div>
       </aside>
 

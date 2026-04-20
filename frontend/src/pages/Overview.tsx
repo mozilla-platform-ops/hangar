@@ -5,17 +5,14 @@ import { PieChart, Pie, Cell, Tooltip, BarChart, Bar, XAxis, YAxis, ResponsiveCo
 import { api } from "../api";
 import type { FleetSummary, FailureInsights } from "../api";
 
-const PRIORITY_POOLS = [
-  { name: "gecko-t-osx-1400-r8", short: "1400-r8", color: "#6366f1", os: "macOS 14.7.5",  arch: "Intel · Sonoma" },
-  { name: "gecko-t-osx-1015-r8", short: "1015-r8", color: "#a78bfa", os: "macOS 10.15.7", arch: "Intel · Catalina" },
-  { name: "gecko-t-osx-1500-m4", short: "1500-m4", color: "#10b981", os: "macOS 15.3",    arch: "Apple Silicon" },
-];
-
-const STAGING_POOLS = [
-  { name: "gecko-t-osx-1400-r8-staging", short: "1400-r8", color: "#4338ca", os: "macOS 14.7.5",  arch: "Intel · Sonoma" },
-  { name: "gecko-t-osx-1015-r8-staging", short: "1015-r8", color: "#7c3aed", os: "macOS 10.15.7", arch: "Intel · Catalina" },
-  { name: "gecko-t-osx-1500-m4-staging", short: "1500-m4", color: "#059669", os: "macOS 15.3",    arch: "Apple Silicon" },
-];
+const STATE_COLORS: Record<string, string> = {
+  production: "#10b981",
+  staging:    "#6366f1",
+  spare:      "#6b7280",
+  defective:  "#ef4444",
+  loaner:     "#f59e0b",
+  unknown:    "#374151",
+};
 
 const TOOLTIP_STYLE = {
   background: "#111827",
@@ -102,8 +99,23 @@ export function Overview() {
     </div>
   );
 
-  const priorityPoolData = PRIORITY_POOLS.map(p => ({ name: p.short, value: data.by_pool[p.name] || 0, color: p.color }));
-  const stagingPoolData  = STAGING_POOLS.map(p => ({ name: p.short, value: data.by_pool[p.name] || 0, color: p.color }));
+  const platformData = (() => {
+    let mac = 0, linux = 0;
+    Object.entries(data.by_pool).forEach(([name, count]) => {
+      if (name.includes("osx")) mac += count;
+      else if (name.includes("linux")) linux += count;
+    });
+    return [
+      { name: "macOS", value: mac,   color: "#6366f1" },
+      { name: "Linux", value: linux, color: "#10b981" },
+    ].filter(d => d.value > 0);
+  })();
+
+  const stateData = Object.entries(data.by_state)
+    .map(([name, value]) => ({ name, value, color: STATE_COLORS[name] ?? "#374151" }))
+    .filter(d => d.value > 0)
+    .sort((a, b) => b.value - a.value);
+
   const topPools = Object.entries(data.by_pool)
     .filter(([name]) => name !== "unknown")
     .sort((a, b) => b[1] - a[1])
@@ -132,60 +144,48 @@ export function Overview() {
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="card p-5">
-          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-5">Production Workers</h3>
+          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-5">Workers by Platform</h3>
           <ResponsiveContainer width="100%" height={180}>
             <PieChart>
-              <Pie data={priorityPoolData} cx="50%" cy="50%" innerRadius={52} outerRadius={80} dataKey="value" paddingAngle={3} strokeWidth={0}>
-                {priorityPoolData.map(entry => <Cell key={entry.name} fill={entry.color} />)}
+              <Pie data={platformData} cx="50%" cy="50%" innerRadius={52} outerRadius={80} dataKey="value" paddingAngle={3} strokeWidth={0}>
+                {platformData.map(entry => <Cell key={entry.name} fill={entry.color} />)}
               </Pie>
-              <Tooltip contentStyle={TOOLTIP_STYLE} itemStyle={{ color: "#e5e7eb" }} formatter={(value, name) => {
-                const pool = PRIORITY_POOLS.find(p => p.short === name);
-                return [value, pool ? `${pool.os} · ${pool.arch}` : name];
-              }} />
+              <Tooltip contentStyle={TOOLTIP_STYLE} itemStyle={{ color: "#e5e7eb" }} />
             </PieChart>
           </ResponsiveContainer>
           <div className="flex flex-col gap-2 mt-3">
-            {priorityPoolData.map((entry, i) => {
-              const meta = PRIORITY_POOLS[i];
-              return (
-                <div key={entry.name} className="flex items-start gap-2">
-                  <span className="w-2 h-2 rounded-full flex-shrink-0 mt-0.5" style={{ backgroundColor: entry.color }} />
-                  <div>
-                    <span className="text-xs text-gray-300 font-mono">{entry.name}</span>
-                    <span className="text-[10px] text-gray-500 block">{meta.os} · {meta.arch}</span>
-                  </div>
+            {platformData.map(entry => (
+              <div key={entry.name} className="flex items-center gap-2 justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: entry.color }} />
+                  <span className="text-xs text-gray-300">{entry.name}</span>
                 </div>
-              );
-            })}
+                <span className="text-xs font-mono text-gray-400 tabular-nums">{entry.value.toLocaleString()}</span>
+              </div>
+            ))}
           </div>
         </div>
 
         <div className="card p-5">
-          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-5">Staging Workers</h3>
+          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-5">Workers by State</h3>
           <ResponsiveContainer width="100%" height={180}>
             <PieChart>
-              <Pie data={stagingPoolData} cx="50%" cy="50%" innerRadius={52} outerRadius={80} dataKey="value" paddingAngle={3} strokeWidth={0}>
-                {stagingPoolData.map(entry => <Cell key={entry.name} fill={entry.color} />)}
+              <Pie data={stateData} cx="50%" cy="50%" innerRadius={52} outerRadius={80} dataKey="value" paddingAngle={3} strokeWidth={0}>
+                {stateData.map(entry => <Cell key={entry.name} fill={entry.color} />)}
               </Pie>
-              <Tooltip contentStyle={TOOLTIP_STYLE} itemStyle={{ color: "#e5e7eb" }} formatter={(value, name) => {
-                const pool = STAGING_POOLS.find(p => p.short === name);
-                return [value, pool ? `${pool.os} · ${pool.arch}` : name];
-              }} />
+              <Tooltip contentStyle={TOOLTIP_STYLE} itemStyle={{ color: "#e5e7eb" }} />
             </PieChart>
           </ResponsiveContainer>
           <div className="flex flex-col gap-2 mt-3">
-            {stagingPoolData.map((entry, i) => {
-              const meta = STAGING_POOLS[i];
-              return (
-                <div key={entry.name} className="flex items-start gap-2">
-                  <span className="w-2 h-2 rounded-full flex-shrink-0 mt-0.5" style={{ backgroundColor: entry.color }} />
-                  <div>
-                    <span className="text-xs text-gray-300 font-mono">{entry.name}</span>
-                    <span className="text-[10px] text-gray-500 block">{meta.os} · {meta.arch}</span>
-                  </div>
+            {stateData.map(entry => (
+              <div key={entry.name} className="flex items-center gap-2 justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: entry.color }} />
+                  <span className="text-xs text-gray-300 capitalize">{entry.name}</span>
                 </div>
-              );
-            })}
+                <span className="text-xs font-mono text-gray-400 tabular-nums">{entry.value.toLocaleString()}</span>
+              </div>
+            ))}
           </div>
         </div>
 

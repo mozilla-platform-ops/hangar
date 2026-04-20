@@ -1,17 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Pin, AlertTriangle, GitBranch, Users, Lock, Hammer, FlaskConical, ChevronDown, Settings2, X, CheckCircle2, Cloud, Terminal, Smartphone, Apple } from "lucide-react";
+import { Pin, AlertTriangle, GitBranch, Users, Lock, Hammer, FlaskConical, ChevronDown, Settings2, X, CheckCircle2, Cloud, Terminal, Smartphone } from "lucide-react";
 import { api } from "../api";
 import type { PoolHealth, PoolOpResult, PoolSources, CloudPool } from "../api";
-
-const TESTER_PLATFORMS = [
-  { key: "",        label: "All" },
-  { key: "mac",     label: "macOS" },
-  { key: "linux",   label: "Linux" },
-  { key: "android", label: "Android" },
-] as const;
-
-type TesterPlatform = "" | "mac" | "linux" | "android";
 
 const PINNED_POOLS = [
   "gecko-t-osx-1400-r8",
@@ -505,6 +496,55 @@ function CloudPoolCard({ pool }: { pool: CloudPool }) {
   );
 }
 
+function PoolStatusTile({ pool, pending: pendingCount }: { pool: PoolHealth; pending: number | null }) {
+  const navigate = useNavigate();
+  const pct = Math.round(pool.health_score * 100);
+  const color = pool.health_score >= 0.9 ? "#10b981" : pool.health_score >= 0.7 ? "#eab308" : pool.health_score >= 0.5 ? "#f97316" : "#ef4444";
+  const r = 28, circ = 2 * Math.PI * r;
+  const utilPct = pool.active_24h > 0 ? Math.round(((pool.running_tasks ?? 0) / pool.active_24h) * 100) : 0;
+  return (
+    <div className="card p-5 flex flex-col gap-4 cursor-pointer hover:border-gray-700 transition-all"
+      onClick={() => navigate(`/workers?worker_pool=${encodeURIComponent(pool.name)}`)}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-mono font-semibold text-white truncate">{pool.name}</div>
+          <div className={`text-xs font-mono mt-0.5 ${GEN_COLOR[pool.generation || ""] || "text-gray-500"}`}>
+            {pool.generation || "—"}
+          </div>
+        </div>
+        <div className="relative w-16 h-16 flex-shrink-0">
+          <svg width="64" height="64" viewBox="0 0 64 64" className="-rotate-90">
+            <circle cx="32" cy="32" r={r} fill="none" stroke="#1f2937" strokeWidth="5" />
+            <circle cx="32" cy="32" r={r} fill="none" stroke={color} strokeWidth="5"
+              strokeDasharray={`${(pct / 100) * circ} ${circ}`} strokeLinecap="round" />
+          </svg>
+          <span className="absolute inset-0 flex items-center justify-center text-sm font-bold" style={{ color }}>{pct}%</span>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3 bg-gray-800/30 rounded-lg p-3 border border-gray-700/30">
+        <div>
+          <div className={`text-2xl font-bold tabular-nums ${pendingColor(pendingCount)}`}>
+            {pendingCount === null ? "—" : pendingCount.toLocaleString()}
+          </div>
+          <div className="text-[10px] text-gray-500 uppercase tracking-wider mt-0.5">pending tasks</div>
+        </div>
+        <div>
+          <div className="text-2xl font-bold tabular-nums text-white">
+            {pool.running_tasks ?? 0}
+            <span className="text-sm font-normal text-gray-500"> / {pool.active_24h}</span>
+          </div>
+          <div className="text-[10px] text-gray-500 uppercase tracking-wider mt-0.5">workers running</div>
+          <div className="mt-1.5 w-full bg-gray-700/60 rounded-full h-1 overflow-hidden">
+            <div className={`h-1 rounded-full transition-all ${utilPct >= 90 ? "bg-orange-400" : utilPct >= 70 ? "bg-yellow-400" : "bg-emerald-400"}`}
+              style={{ width: `${Math.min(utilPct, 100)}%` }} />
+          </div>
+          <div className="text-[10px] text-gray-600 mt-0.5">{utilPct}% utilized</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AndroidPoolCards({ pools }: { pools: CloudPool[] }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -521,7 +561,6 @@ export function Pools() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showOther, setShowOther] = useState(false);
-  const [testerPlatform, setTesterPlatform] = useState<TesterPlatform>("");
   const [managingPool, setManagingPool] = useState<PoolHealth | null>(null);
   const [pending, setPending] = useState<Record<string, number | null>>({});
   const [sources, setSources] = useState<Record<string, PoolSources>>({});
@@ -577,7 +616,6 @@ export function Pools() {
   const testerPools  = macPools.filter(p => !p.name.includes("signing") && !p.name.includes("-b-") && p.name.includes("-t-"));
   const otherPools   = macPools.filter(p => !p.name.includes("signing") && !p.name.includes("-b-") && !p.name.includes("-t-"));
 
-  const showMac   = section === "" || section === "mac";
   const showCloud = section === "" || section === "cloud";
 
   const totalWorkers = pools.reduce((s, p) => s + p.total, 0);
@@ -620,70 +658,55 @@ export function Pools() {
         </div>
       )}
 
-      {showMac && (testerPools.length > 0 || section === "") && (
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
-              <FlaskConical size={12} /> Tester Pools
-            </h2>
-            {section === "" && (
-              <div className="flex items-center gap-1 bg-gray-900 border border-gray-800 rounded-lg p-0.5">
-                {TESTER_PLATFORMS.map(({ key, label }) => (
-                  <button key={key} onClick={() => setTesterPlatform(key)}
-                    className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
-                      testerPlatform === key ? "bg-gray-700 text-white" : "text-gray-500 hover:text-gray-300"
-                    }`}>
-                    {label}
-                  </button>
+      {/* Overview: compact status tiles per platform */}
+      {section === "" && (
+        <div className="space-y-6">
+          {testerPools.length > 0 && (
+            <div>
+              <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-3">
+                macOS Hardware
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {testerPools.map(pool => (
+                  <PoolStatusTile key={pool.name} pool={pool} pending={pending[pool.name] ?? null} />
                 ))}
               </div>
-            )}
-          </div>
-
-          {/* macOS tester pools */}
-          {(section !== "" || testerPlatform === "" || testerPlatform === "mac") && testerPools.length > 0 && (
-            <div className={section === "" && testerPlatform === "" ? "mb-6" : ""}>
-              {section === "" && testerPlatform === "" && (
-                <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  <Apple size={10} /> macOS
-                </div>
-              )}
-              <PoolTable pools={testerPools} pinnedPools={PINNED_POOLS} navigate={navigate} showLegend onManage={setManagingPool} pending={pending} />
             </div>
           )}
-
-          {/* Linux hardware — overview only */}
-          {section === "" && (testerPlatform === "" || testerPlatform === "linux") && linuxHwPools.length > 0 && (
-            <div className={testerPlatform === "" ? "mt-1 mb-6" : ""}>
-              {testerPlatform === "" && (
-                <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  <Terminal size={10} /> Linux Hardware
-                </div>
-              )}
+          {linuxHwPools.length > 0 && (
+            <div>
+              <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                <Terminal size={10} /> Linux Hardware
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {linuxHwPools.map(pool => (
-                  <PinnedCard key={pool.name} pool={pool} pending={pending[pool.name] ?? null}
-                    sources={sources[pool.name]} onManage={setManagingPool} />
+                  <PoolStatusTile key={pool.name} pool={pool} pending={pending[pool.name] ?? null} />
                 ))}
               </div>
             </div>
           )}
-
-          {/* Android hardware — overview only */}
-          {section === "" && (testerPlatform === "" || testerPlatform === "android") && androidPoolData.length > 0 && (
-            <div className={testerPlatform === "" ? "mt-1" : ""}>
-              {testerPlatform === "" && (
-                <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  <Smartphone size={10} /> Android Hardware
-                </div>
-              )}
+          {androidPoolData.length > 0 && (
+            <div>
+              <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                <Smartphone size={10} /> Android Hardware
+              </div>
               <AndroidPoolCards pools={androidPoolData} />
             </div>
           )}
         </div>
       )}
 
-      {showMac && builderPools.length > 0 && (
+      {/* macOS sub-page: full detail */}
+      {section === "mac" && testerPools.length > 0 && (
+        <div>
+          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+            <FlaskConical size={12} /> Tester Pools
+          </h2>
+          <PoolTable pools={testerPools} pinnedPools={PINNED_POOLS} navigate={navigate} showLegend onManage={setManagingPool} pending={pending} />
+        </div>
+      )}
+
+      {section === "mac" && builderPools.length > 0 && (
         <div>
           <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2">
             <Hammer size={12} /> Builder Pools
@@ -693,7 +716,7 @@ export function Pools() {
         </div>
       )}
 
-      {showMac && signingPools.length > 0 && (
+      {section === "mac" && signingPools.length > 0 && (
         <div>
           <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2">
             <Lock size={12} /> Signing Pools
@@ -742,7 +765,7 @@ export function Pools() {
         </div>
       )}
 
-      {showMac && otherPools.length > 0 && (
+      {section === "mac" && otherPools.length > 0 && (
         <div>
           <button onClick={toggleOther}
             className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase tracking-wider hover:text-gray-400 transition-colors mb-3">
