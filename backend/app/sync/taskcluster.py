@@ -314,6 +314,9 @@ def run_sync(db: Session) -> int:
     try:
         total = 0
         seen_hostnames: set[str] = set()
+        # Track workers added this session — db.get() won't find unflushed pending
+        # objects, so workers appearing in multiple pools would get double-inserted.
+        session_workers: dict[str, Worker] = {}
 
         for provisioner_id, worker_type in HW_WORKER_POOLS:
             log.info("Fetching TC workers: %s/%s", provisioner_id, worker_type)
@@ -328,10 +331,11 @@ def run_sync(db: Session) -> int:
                 hostname = _worker_hostname(worker_id)
                 seen_hostnames.add(hostname)
 
-                worker = db.get(Worker, hostname)
+                worker = session_workers.get(hostname) or db.get(Worker, hostname)
                 if worker is None:
                     worker = Worker(hostname=hostname, worker_id=worker_id)
                     db.add(worker)
+                session_workers[hostname] = worker
 
                 quarantine_until = _parse_dt(node.get("quarantineUntil"))
                 worker.tc_worker_id = worker_id
@@ -398,10 +402,13 @@ def run_sync(db: Session) -> int:
         return total
 
     except Exception as exc:
-        db.rollback()
         log.exception("TC sync failed")
+        db.rollback()
+        # log_entry may be detached after rollback if the first commit never ran;
+        # re-add it to the session so the failure record is saved.
+        db.add(log_entry)
         log_entry.finished_at = datetime.utcnow()
-        log_entry.error = str(exc)
+        log_entry.error = str(exc)[:500]
         log_entry.success = False
         db.commit()
         raise
