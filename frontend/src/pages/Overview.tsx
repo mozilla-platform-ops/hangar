@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Monitor, Server, Activity, GitBranch, ShieldOff, Cpu, FlaskConical } from "lucide-react";
+import { Monitor, Server, Activity, ShieldOff, Cpu, FlaskConical } from "lucide-react";
 import { PieChart, Pie, Cell, Tooltip, BarChart, Bar, XAxis, YAxis, ResponsiveContainer } from "recharts";
 import { api } from "../api";
 import type { FleetSummary, FailureInsights } from "../api";
@@ -273,46 +273,6 @@ export function Overview() {
         </div>
       </div>
 
-      {/* Branch overrides */}
-      {data.branch_overrides?.total > 0 && (
-        <div className="card p-5">
-          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
-            <GitBranch size={12} /> Branch Overrides
-            <span className="ml-1 text-amber-400 font-bold">{data.branch_overrides.total}</span>
-            <span className="text-gray-600 font-normal">workers pinned to a non-default branch</span>
-          </h3>
-          <div className="flex flex-wrap gap-6">
-            <div>
-              <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-2">By Branch</div>
-              <div className="flex flex-wrap gap-2">
-                {Object.entries(data.branch_overrides.by_branch).sort((a, b) => b[1] - a[1]).map(([branch, count]) => (
-                  <div key={branch} className="flex items-center gap-2 bg-amber-950/30 border border-amber-900/40 rounded-lg px-3 py-1.5">
-                    <GitBranch size={10} className="text-amber-500" />
-                    <span className="text-xs font-mono text-amber-300">{branch}</span>
-                    <span className="text-xs font-bold text-white tabular-nums">{count}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div>
-              <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-2">By Pool</div>
-              <div className="flex flex-wrap gap-2">
-                {Object.entries(data.branch_overrides.by_pool).sort((a, b) => b[1] - a[1]).map(([pool, count]) => (
-                  <div key={pool} className="flex items-center gap-2 bg-gray-800/40 border border-gray-700/40 rounded-lg px-3 py-1.5">
-                    <span className="text-xs font-mono text-gray-400">{pool}</span>
-                    <span className="text-xs font-bold text-amber-400 tabular-nums">{count}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-          <div className="mt-3 pt-3 border-t border-gray-800/60">
-            <Link to="/workers?branch=set" className="text-xs text-brand-400 hover:text-brand-300 transition-colors">
-              View affected workers →
-            </Link>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

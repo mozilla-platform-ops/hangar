@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { Pin, AlertTriangle, GitBranch, Users, Lock, Hammer, FlaskConical, ChevronDown, Settings2, X, CheckCircle2, Cloud, Terminal, Smartphone } from "lucide-react";
 import { api } from "../api";
-import type { PoolHealth, PoolOpResult, PoolSources, CloudPool } from "../api";
+import type { PoolHealth, PoolOpResult, PoolSources, CloudPool, FleetSummary } from "../api";
 
 const OVERVIEW_EXCLUDED_POOLS = new Set([
   "gecko-t-osx-1500-m4-ipv6",
@@ -573,6 +573,7 @@ export function Pools() {
   const [sources, setSources] = useState<Record<string, PoolSources>>({});
   const [cloudPoolData, setCloudPoolData] = useState<CloudPool[]>([]);
   const [androidPoolData, setAndroidPoolData] = useState<CloudPool[]>([]);
+  const [branchOverrides, setBranchOverrides] = useState<FleetSummary["branch_overrides"] | null>(null);
   const toggleOther = useCallback(() => setShowOther(v => !v), []);
 
   useEffect(() => {
@@ -595,6 +596,9 @@ export function Pools() {
       .catch(() => {});
     api.fleet.androidPools()
       .then(d => setAndroidPoolData(d.pools))
+      .catch(() => {});
+    api.fleet.summary()
+      .then(d => setBranchOverrides(d.branch_overrides))
       .catch(() => {});
   }, []);
 
@@ -828,6 +832,46 @@ export function Pools() {
             <ChevronDown size={12} className={`transition-transform ${showOther ? "rotate-180" : ""}`} />
           </button>
           {showOther && <PoolTable pools={otherPools} pinnedPools={[]} navigate={navigate} showLegend={false} onManage={setManagingPool} pending={pending} />}
+        </div>
+      )}
+
+      {section === "mac" && branchOverrides && branchOverrides.total > 0 && (
+        <div className="card p-5">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+            <GitBranch size={12} /> Branch Overrides
+            <span className="ml-1 text-amber-400 font-bold">{branchOverrides.total}</span>
+            <span className="text-gray-600 font-normal">workers pinned to a non-default branch</span>
+          </h3>
+          <div className="flex flex-wrap gap-6">
+            <div>
+              <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-2">By Branch</div>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(branchOverrides.by_branch).sort((a, b) => b[1] - a[1]).map(([branch, count]) => (
+                  <div key={branch} className="flex items-center gap-2 bg-amber-950/30 border border-amber-900/40 rounded-lg px-3 py-1.5">
+                    <GitBranch size={10} className="text-amber-500" />
+                    <span className="text-xs font-mono text-amber-300">{branch}</span>
+                    <span className="text-xs font-bold text-white tabular-nums">{count}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-2">By Pool</div>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(branchOverrides.by_pool).sort((a, b) => b[1] - a[1]).map(([pool, count]) => (
+                  <div key={pool} className="flex items-center gap-2 bg-gray-800/40 border border-gray-700/40 rounded-lg px-3 py-1.5">
+                    <span className="text-xs font-mono text-gray-400">{pool}</span>
+                    <span className="text-xs font-bold text-amber-400 tabular-nums">{count}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="mt-3 pt-3 border-t border-gray-800/60">
+            <Link to="/workers?branch=set" className="text-xs text-brand-400 hover:text-brand-300 transition-colors">
+              View affected workers →
+            </Link>
+          </div>
         </div>
       )}
 
