@@ -132,7 +132,7 @@ export function Overview() {
       </div>
 
       {/* Sync status */}
-      <div className="card p-5 space-y-4">
+      <div className="card p-5">
         <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
           <Clock size={12} /> Sync Status
         </h3>
@@ -152,28 +152,6 @@ export function Overview() {
             </div>
           );
         })()}
-        {/* macOS sources */}
-        <div>
-          <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-2">macOS Sources</div>
-          <div className="flex gap-3">
-            {(["puppet", "simplemdm"] as const).map(source => {
-              const status = data.sync_status[source];
-              if (!status) return null;
-              return (
-                <div key={source} className="bg-gray-800/40 rounded-lg p-3 border border-gray-700/40 min-w-[130px]">
-                  <div className="flex items-center gap-2 mb-2">
-                    <SyncDot ok={!!status.last_success} />
-                    <span className="text-xs text-gray-400 font-medium capitalize">{source === "simplemdm" ? "SimpleMDM" : source}</span>
-                  </div>
-                  <div className="text-sm font-medium text-white">{timeAgo(status.last_success)}</div>
-                  {status.records_updated !== null && (
-                    <div className="text-xs text-gray-600 mt-0.5">{status.records_updated.toLocaleString()} records</div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
       </div>
 
       {/* Charts */}
