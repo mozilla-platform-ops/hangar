@@ -196,10 +196,11 @@ def pool_health(db: Session = Depends(get_db)) -> dict[str, Any]:
         else:
             p["stale_30d_plus"] += 1
 
-        # Fully healthy: production + enrolled + not quarantined + active <24h
+        # Fully healthy: production + not quarantined + active <24h
+        # MDM only disqualifies if explicitly unenrolled (linux workers have null MDM — not a disqualifier)
         if (
             is_production
-            and w.mdm_enrollment_status == "enrolled"
+            and w.mdm_enrollment_status != "unenrolled"
             and not w.tc_quarantined
             and la is not None
             and la >= t_24h

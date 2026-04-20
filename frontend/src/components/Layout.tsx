@@ -1,8 +1,16 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { LayoutDashboard, Monitor, AlertTriangle, BarChart2, RefreshCw, Layers, ChevronDown, Smartphone, Cloud, Terminal, Apple } from "lucide-react";
 import { clsx } from "clsx";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { api } from "../api";
+
+function timeAgo(iso: string | null) {
+  if (!iso) return "never";
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 2) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  return `${Math.round(mins / 60)}h ago`;
+}
 
 const NAV = [
   { to: "/", icon: LayoutDashboard, label: "Overview" },
@@ -22,6 +30,13 @@ const POOL_SECTIONS = [
 export function Layout() {
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState("");
+  const [tcSync, setTcSync] = useState<{ last_success: string | null } | null>(null);
+
+  useEffect(() => {
+    api.fleet.summary()
+      .then(d => setTcSync(d.sync_status["taskcluster"] ?? null))
+      .catch(() => {});
+  }, []);
   const location = useLocation();
   const navigate = useNavigate();
   const onPools = location.pathname.startsWith("/pools");
@@ -125,7 +140,7 @@ export function Layout() {
         </nav>
 
         {/* Sync */}
-        <div className="px-3 pb-4 border-t border-gray-800/60 pt-3">
+        <div className="px-3 pb-4 border-t border-gray-800/60 pt-3 space-y-2">
           <button
             onClick={triggerSync}
             disabled={syncing}
@@ -134,6 +149,12 @@ export function Layout() {
             <RefreshCw size={12} className={syncing ? "animate-spin" : ""} />
             {syncing ? "Syncing…" : syncMsg || "Sync All Sources"}
           </button>
+          {tcSync && (
+            <div className="flex items-center gap-2 px-3 py-1">
+              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${tcSync.last_success ? "bg-emerald-500" : "bg-gray-600"}`} />
+              <span className="text-[10px] text-gray-600">TC synced {timeAgo(tcSync.last_success)}</span>
+            </div>
+          )}
         </div>
       </aside>
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Monitor, Server, Activity, Clock, GitBranch, ShieldOff, Cpu, FlaskConical } from "lucide-react";
+import { Monitor, Server, Activity, GitBranch, ShieldOff, Cpu, FlaskConical } from "lucide-react";
 import { PieChart, Pie, Cell, Tooltip, BarChart, Bar, XAxis, YAxis, ResponsiveContainer } from "recharts";
 import { api } from "../api";
 import type { FleetSummary, FailureInsights } from "../api";
@@ -72,9 +72,6 @@ function shortPool(pool: string | null): string {
   return pool.replace(/^gecko-[tb]-osx-/, "").replace(/^gecko-\d+-[tb]-osx-/, "");
 }
 
-function SyncDot({ ok }: { ok: boolean }) {
-  return <span className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 ${ok ? "bg-emerald-400" : "bg-gray-600"}`} />;
-}
 
 const FAILURE_PLATFORMS = [
   { key: "",      label: "All" },
@@ -131,28 +128,6 @@ export function Overview() {
         <StatCard icon={Activity} label="Active Alerts" value={totalAlerts} color="red" to="/alerts" />
       </div>
 
-      {/* Sync status */}
-      <div className="card p-5">
-        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
-          <Clock size={12} /> Sync Status
-        </h3>
-        {/* Fleet-wide: Taskcluster */}
-        {data.sync_status["taskcluster"] && (() => {
-          const status = data.sync_status["taskcluster"];
-          return (
-            <div className="bg-gray-800/40 rounded-lg p-3 border border-gray-700/40 max-w-xs">
-              <div className="flex items-center gap-2 mb-2">
-                <SyncDot ok={!!status.last_success} />
-                <span className="text-xs text-gray-400 font-medium">Taskcluster</span>
-              </div>
-              <div className="text-sm font-medium text-white">{timeAgo(status.last_success)}</div>
-              {status.records_updated !== null && (
-                <div className="text-xs text-gray-600 mt-0.5">{status.records_updated.toLocaleString()} records</div>
-              )}
-            </div>
-          );
-        })()}
-      </div>
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">

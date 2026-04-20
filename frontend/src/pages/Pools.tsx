@@ -441,57 +441,74 @@ function PoolTable({ pools, pinnedPools, navigate, showLegend, onManage, pending
   );
 }
 
+function CloudPoolCard({ pool }: { pool: CloudPool }) {
+  const load = pool.total > 0 ? Math.round((pool.running / pool.total) * 100) : 0;
+  const isAndroid = pool.provisioner === "proj-autophone";
+  const isLambda = pool.name.includes("lambda");
+  const isAlpha = pool.name.includes("alpha");
+  const deviceLabel = pool.name.includes("a55") ? "Samsung A55"
+    : pool.name.includes("p6") ? "Pixel 6"
+    : pool.name.includes("s24") ? "Galaxy S24"
+    : pool.name.includes("p5") ? "Pixel 5"
+    : null;
+  const infra = isLambda ? "Lambda" : isAndroid ? "Bitbar" : "Cloud";
+  const ringColor = load >= 90 ? "#f97316" : load >= 60 ? "#eab308" : "#10b981";
+  const r = 28, circ = 2 * Math.PI * r;
+
+  return (
+    <div className="card p-5 flex flex-col gap-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-mono font-semibold text-white truncate">{pool.name}</div>
+          <div className="flex items-center gap-1.5 mt-0.5">
+            {deviceLabel
+              ? <span className="text-xs text-green-400 font-medium">{deviceLabel}</span>
+              : <span className="text-xs text-gray-500 font-mono">{infra}</span>
+            }
+            {isAlpha && <span className="text-[10px] bg-purple-900/40 text-purple-400 border border-purple-800/40 px-1.5 py-0.5 rounded-full">alpha</span>}
+            {deviceLabel && <span className="text-[10px] text-gray-600">{infra}</span>}
+          </div>
+        </div>
+        <div className="relative w-16 h-16 flex-shrink-0">
+          <svg width="64" height="64" viewBox="0 0 64 64" className="-rotate-90">
+            <circle cx="32" cy="32" r={r} fill="none" stroke="#1f2937" strokeWidth="5" />
+            <circle cx="32" cy="32" r={r} fill="none" stroke={ringColor} strokeWidth="5"
+              strokeDasharray={`${(load / 100) * circ} ${circ}`} strokeLinecap="round" />
+          </svg>
+          <span className="absolute inset-0 flex items-center justify-center text-sm font-bold" style={{ color: ringColor }}>
+            {load}%
+          </span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 bg-gray-800/30 rounded-lg p-3 border border-gray-700/30">
+        <div>
+          <div className={`text-2xl font-bold tabular-nums ${pendingColor(pool.pending, isAndroid ? 50 : 200, isAndroid ? 10 : 50)}`}>
+            {pool.pending.toLocaleString()}
+          </div>
+          <div className="text-[10px] text-gray-500 uppercase tracking-wider mt-0.5">pending tasks</div>
+        </div>
+        <div>
+          <div className="text-2xl font-bold tabular-nums text-white">
+            {pool.running}
+            <span className="text-sm font-normal text-gray-500"> / {pool.total}</span>
+          </div>
+          <div className="text-[10px] text-gray-500 uppercase tracking-wider mt-0.5">{isAndroid ? "devices running" : "workers running"}</div>
+          <div className="mt-1.5 w-full bg-gray-700/60 rounded-full h-1 overflow-hidden">
+            <div className={`h-1 rounded-full transition-all ${load >= 90 ? "bg-orange-400" : load >= 60 ? "bg-yellow-400" : "bg-emerald-400"}`}
+              style={{ width: `${Math.min(load, 100)}%` }} />
+          </div>
+          <div className="text-[10px] text-gray-600 mt-0.5">{load}% utilized</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AndroidPoolCards({ pools }: { pools: CloudPool[] }) {
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-      {pools.map(p => {
-        const load = p.total > 0 ? Math.round((p.running / p.total) * 100) : 0;
-        const loadColor = load >= 90 ? "bg-orange-400" : load >= 60 ? "bg-yellow-400" : "bg-green-500";
-        const isLambda = p.name.includes("lambda");
-        const deviceLabel = p.name.includes("a55") ? "Samsung A55"
-          : p.name.includes("p6") ? "Pixel 6"
-          : p.name.includes("s24") ? "Galaxy S24"
-          : p.name.includes("p5") ? "Pixel 5"
-          : p.name;
-        const infra = isLambda ? "Lambda" : "Bitbar";
-        const isAlpha = p.name.includes("alpha");
-        return (
-          <div key={p.name} className="card p-4 flex flex-col gap-3">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <div className="font-mono text-xs text-white truncate">{p.name}</div>
-                <div className="flex items-center gap-1.5 mt-1">
-                  <span className="text-[10px] text-green-400 font-medium">{deviceLabel}</span>
-                  {isAlpha && <span className="text-[10px] bg-purple-900/40 text-purple-400 border border-purple-800/40 px-1 rounded">alpha</span>}
-                  <span className="text-[10px] text-gray-600">{infra}</span>
-                </div>
-              </div>
-              <div className="text-[10px] text-gray-600 tabular-nums flex-shrink-0">{p.total} devices</div>
-            </div>
-            <div className="grid grid-cols-2 gap-2 bg-gray-800/30 rounded-lg p-2.5 border border-gray-700/30">
-              <div>
-                <div className={`text-xl font-bold tabular-nums ${pendingColor(p.pending, 50, 10)}`}>
-                  {p.pending.toLocaleString()}
-                </div>
-                <div className="text-[10px] text-gray-500 uppercase tracking-wider mt-0.5">pending</div>
-              </div>
-              <div>
-                <div className="text-xl font-bold tabular-nums text-white">
-                  {p.running}
-                  <span className="text-xs font-normal text-gray-500"> / {p.total}</span>
-                </div>
-                <div className="text-[10px] text-gray-500 uppercase tracking-wider mt-0.5">running</div>
-              </div>
-            </div>
-            <div>
-              <div className="w-full bg-gray-700/60 rounded-full h-1.5 overflow-hidden">
-                <div className={`h-1.5 rounded-full transition-all ${loadColor}`} style={{ width: `${Math.min(load, 100)}%` }} />
-              </div>
-              <div className="text-[10px] text-gray-600 mt-1">{load}% capacity utilized</div>
-            </div>
-          </div>
-        );
-      })}
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {pools.map(p => <CloudPoolCard key={p.name} pool={p} />)}
     </div>
   );
 }
@@ -534,6 +551,15 @@ export function Pools() {
       .then(d => setAndroidPoolData(d.pools))
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    const linuxNames = pools.filter(p => p.name.includes("linux")).map(p => p.name);
+    for (const poolName of linuxNames) {
+      api.fleet.poolSources(poolName)
+        .then(s => setSources(prev => ({ ...prev, [poolName]: s })))
+        .catch(() => {});
+    }
+  }, [pools]);
 
   if (error) return <div className="p-8 text-red-400 text-sm">{error}</div>;
   if (loading) return (
@@ -634,7 +660,12 @@ export function Pools() {
                   <Terminal size={10} /> Linux Hardware
                 </div>
               )}
-              <PoolTable pools={linuxHwPools} pinnedPools={[]} navigate={navigate} showLegend={testerPlatform !== ""} onManage={setManagingPool} pending={pending} />
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {linuxHwPools.map(pool => (
+                  <PinnedCard key={pool.name} pool={pool} pending={pending[pool.name] ?? null}
+                    sources={sources[pool.name]} onManage={setManagingPool} />
+                ))}
+              </div>
             </div>
           )}
 
@@ -680,7 +711,12 @@ export function Pools() {
             <Terminal size={12} /> Linux Hardware Pools
           </h2>
           <p className="text-[11px] text-gray-600 mb-3">Physical Linux hardware in MDC1 — branch overrides via <span className="font-mono">/etc/puppet/ronin_settings</span>.</p>
-          <PoolTable pools={linuxHwPools} pinnedPools={[]} navigate={navigate} showLegend onManage={setManagingPool} pending={pending} />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {linuxHwPools.map(pool => (
+              <PinnedCard key={pool.name} pool={pool} pending={pending[pool.name] ?? null}
+                sources={sources[pool.name]} onManage={setManagingPool} />
+            ))}
+          </div>
         </div>
       )}
 
@@ -690,37 +726,8 @@ export function Pools() {
             <Cloud size={12} /> Cloud Linux Pools
           </h2>
           <p className="text-[11px] text-gray-600 mb-3">Ephemeral cloud workers — auto-scale to demand. Read-only load view.</p>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {cloudPoolData.map(p => {
-              const load = p.total > 0 ? Math.round((p.running / p.total) * 100) : 0;
-              const loadColor = load >= 90 ? "bg-orange-400" : load >= 60 ? "bg-yellow-400" : "bg-teal-400";
-              return (
-                <div key={p.name} className="card p-4 flex flex-col gap-3">
-                  <div className="font-mono text-xs text-white truncate">{p.name}</div>
-                  <div className="grid grid-cols-2 gap-2 bg-gray-800/30 rounded-lg p-2.5 border border-gray-700/30">
-                    <div>
-                      <div className={`text-xl font-bold tabular-nums ${pendingColor(p.pending, 200, 50)}`}>
-                        {p.pending.toLocaleString()}
-                      </div>
-                      <div className="text-[10px] text-gray-500 uppercase tracking-wider mt-0.5">pending</div>
-                    </div>
-                    <div>
-                      <div className="text-xl font-bold tabular-nums text-white">
-                        {p.running}
-                        <span className="text-xs font-normal text-gray-500"> / {p.total}</span>
-                      </div>
-                      <div className="text-[10px] text-gray-500 uppercase tracking-wider mt-0.5">running</div>
-                    </div>
-                  </div>
-                  <div>
-                    <div className="w-full bg-gray-700/60 rounded-full h-1.5 overflow-hidden">
-                      <div className={`h-1.5 rounded-full transition-all ${loadColor}`} style={{ width: `${Math.min(load, 100)}%` }} />
-                    </div>
-                    <div className="text-[10px] text-gray-600 mt-1">{load}% capacity utilized</div>
-                  </div>
-                </div>
-              );
-            })}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {cloudPoolData.map(p => <CloudPoolCard key={p.name} pool={p} />)}
           </div>
         </div>
       )}
