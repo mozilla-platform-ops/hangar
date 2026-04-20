@@ -713,7 +713,7 @@ export function Pools() {
           <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
             <FlaskConical size={12} /> Tester Pools
           </h2>
-          <PoolTable pools={testerPools} pinnedPools={PINNED_POOLS} navigate={navigate} showLegend onManage={setManagingPool} pending={pending} />
+          <PoolTable pools={testerPools} pinnedPools={[]} navigate={navigate} showLegend onManage={setManagingPool} pending={pending} />
         </div>
       )}
 
