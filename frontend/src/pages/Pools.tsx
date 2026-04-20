@@ -758,10 +758,11 @@ export function Pools() {
 
       {showCloud && cloudPoolData.length > 0 && (
         <div>
-          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2">
-            <Cloud size={12} /> Cloud Linux Pools
-          </h2>
-          <p className="text-[11px] text-gray-600 mb-3">Ephemeral cloud workers — auto-scale to demand. Read-only load view.</p>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-0.5 h-5 bg-teal-500 rounded-full" />
+            <span className="text-sm font-semibold text-gray-300 tracking-tight">Cloud Linux</span>
+            <span className="text-xs text-gray-600">{cloudPoolData.length} pools</span>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {cloudPoolData.map(p => <CloudPoolCard key={p.name} pool={p} />)}
           </div>
