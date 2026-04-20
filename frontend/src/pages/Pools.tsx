@@ -627,7 +627,7 @@ export function Pools() {
   const testerPools  = macPools.filter(p => !p.name.includes("signing") && !p.name.includes("-b-") && p.name.includes("-t-"));
   const otherPools   = macPools.filter(p => !p.name.includes("signing") && !p.name.includes("-b-") && !p.name.includes("-t-"));
 
-  const showCloud = section === "" || section === "cloud";
+  const showCloud = section === "" || section === "linux";
 
   const totalWorkers = pools.reduce((s, p) => s + p.total, 0);
   const totalIssues  = testerPools.reduce((s, p) => s + p.quarantined + p.mdm_unenrolled, 0);

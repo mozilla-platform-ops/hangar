@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Monitor, AlertTriangle, BarChart2, RefreshCw, Layers, ChevronDown, Smartphone, Cloud, Terminal, Apple } from "lucide-react";
+import { LayoutDashboard, Monitor, AlertTriangle, BarChart2, RefreshCw, Layers, ChevronDown, Smartphone, Terminal, Apple } from "lucide-react";
 import { clsx } from "clsx";
 import { useState, useEffect } from "react";
 import { api } from "../api";
@@ -23,7 +23,6 @@ const POOL_SECTIONS = [
   { section: "",        label: "Overview",  icon: Layers },
   { section: "mac",     label: "macOS",     icon: Apple },
   { section: "linux",   label: "Linux",     icon: Terminal },
-  { section: "cloud",   label: "Cloud",     icon: Cloud },
   { section: "android", label: "Android",   icon: Smartphone },
 ];
 
