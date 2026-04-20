@@ -4,6 +4,13 @@ import { Pin, AlertTriangle, GitBranch, Users, Lock, Hammer, FlaskConical, Chevr
 import { api } from "../api";
 import type { PoolHealth, PoolOpResult, PoolSources, CloudPool } from "../api";
 
+const OVERVIEW_EXCLUDED_POOLS = new Set([
+  "gecko-t-osx-1500-m4-ipv6",
+  "gecko-t-osx-1500-m4-staging",
+  "gecko-t-osx-1400-r8-staging",
+  "gecko-t-osx-1015-r8-staging",
+]);
+
 const PINNED_POOLS = [
   "gecko-t-osx-1400-r8",
   "gecko-t-osx-1015-r8",
@@ -667,7 +674,7 @@ export function Pools() {
                 macOS Hardware
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {testerPools.map(pool => (
+                {testerPools.filter(p => !OVERVIEW_EXCLUDED_POOLS.has(p.name)).map(pool => (
                   <PoolStatusTile key={pool.name} pool={pool} pending={pending[pool.name] ?? null} />
                 ))}
               </div>
@@ -729,16 +736,18 @@ export function Pools() {
       )}
 
       {section === "linux" && linuxHwPools.length > 0 && (
-        <div>
-          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2">
-            <Terminal size={12} /> Linux Hardware Pools
-          </h2>
-          <p className="text-[11px] text-gray-600 mb-3">Physical Linux hardware in MDC1 — branch overrides via <span className="font-mono">/etc/puppet/ronin_settings</span>.</p>
+        <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {linuxHwPools.map(pool => (
               <PinnedCard key={pool.name} pool={pool} pending={pending[pool.name] ?? null}
                 sources={sources[pool.name]} onManage={setManagingPool} />
             ))}
+          </div>
+          <div>
+            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+              <Terminal size={12} /> All Linux Hardware Pools
+            </h2>
+            <PoolTable pools={linuxHwPools} pinnedPools={[]} navigate={navigate} showLegend onManage={setManagingPool} pending={pending} />
           </div>
         </div>
       )}
@@ -756,12 +765,56 @@ export function Pools() {
       )}
 
       {section === "android" && androidPoolData.length > 0 && (
-        <div>
-          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2">
-            <Smartphone size={12} /> Android Hardware Pools
-          </h2>
-          <p className="text-[11px] text-gray-600 mb-3">Physical Android devices via Bitbar and Lambda — read-only load view.</p>
+        <div className="space-y-6">
           <AndroidPoolCards pools={androidPoolData} />
+          <div>
+            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+              <Smartphone size={12} /> All Android Hardware Pools
+            </h2>
+            <div className="card overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-800/80">
+                    {["Pool", "Device", "Infra", "Pending", "Running", "Total", "Load"].map(h => (
+                      <th key={h} className="text-left px-4 py-3 text-[11px] font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {androidPoolData.map(p => {
+                    const load = p.total > 0 ? Math.round((p.running / p.total) * 100) : 0;
+                    const isLambda = p.name.includes("lambda");
+                    const deviceLabel = p.name.includes("a55") ? "Samsung A55"
+                      : p.name.includes("p6") ? "Pixel 6"
+                      : p.name.includes("s24") ? "Galaxy S24"
+                      : p.name.includes("p5") ? "Pixel 5"
+                      : "—";
+                    return (
+                      <tr key={p.name} className="border-b border-gray-800/40 last:border-0 hover:bg-gray-800/20 transition-colors">
+                        <td className="px-4 py-2.5 text-xs font-mono text-gray-300">{p.name}</td>
+                        <td className="px-4 py-2.5 text-xs text-green-400 font-medium">{deviceLabel}</td>
+                        <td className="px-4 py-2.5 text-xs text-gray-500">{isLambda ? "Lambda" : "Bitbar"}</td>
+                        <td className="px-4 py-2.5">
+                          <span className={`text-xs font-mono font-medium tabular-nums ${pendingColor(p.pending, 50, 10)}`}>{p.pending.toLocaleString()}</span>
+                        </td>
+                        <td className="px-4 py-2.5 text-xs text-gray-400 tabular-nums">{p.running}</td>
+                        <td className="px-4 py-2.5 text-xs text-gray-400 tabular-nums">{p.total}</td>
+                        <td className="px-4 py-2.5">
+                          <div className="flex items-center gap-2">
+                            <div className="w-16 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                              <div className={`h-full rounded-full ${load >= 90 ? "bg-orange-400" : load >= 60 ? "bg-yellow-400" : "bg-emerald-400"}`}
+                                style={{ width: `${load}%` }} />
+                            </div>
+                            <span className="text-xs text-gray-600 tabular-nums">{load}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )}
 
