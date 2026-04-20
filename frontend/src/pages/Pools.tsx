@@ -1,8 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Pin, AlertTriangle, GitBranch, Users, Lock, Hammer, FlaskConical, ChevronDown, Settings2, X, CheckCircle2, Cloud, Terminal, Smartphone } from "lucide-react";
+import { Pin, AlertTriangle, GitBranch, Users, Lock, Hammer, FlaskConical, ChevronDown, Settings2, X, CheckCircle2, Cloud, Terminal, Smartphone, Apple } from "lucide-react";
 import { api } from "../api";
 import type { PoolHealth, PoolOpResult, PoolSources, CloudPool } from "../api";
+
+const TESTER_PLATFORMS = [
+  { key: "",        label: "All" },
+  { key: "mac",     label: "macOS" },
+  { key: "linux",   label: "Linux" },
+  { key: "android", label: "Android" },
+] as const;
+
+type TesterPlatform = "" | "mac" | "linux" | "android";
 
 const PINNED_POOLS = [
   "gecko-t-osx-1400-r8",
@@ -432,6 +441,61 @@ function PoolTable({ pools, pinnedPools, navigate, showLegend, onManage, pending
   );
 }
 
+function AndroidPoolCards({ pools }: { pools: CloudPool[] }) {
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+      {pools.map(p => {
+        const load = p.total > 0 ? Math.round((p.running / p.total) * 100) : 0;
+        const loadColor = load >= 90 ? "bg-orange-400" : load >= 60 ? "bg-yellow-400" : "bg-green-500";
+        const isLambda = p.name.includes("lambda");
+        const deviceLabel = p.name.includes("a55") ? "Samsung A55"
+          : p.name.includes("p6") ? "Pixel 6"
+          : p.name.includes("s24") ? "Galaxy S24"
+          : p.name.includes("p5") ? "Pixel 5"
+          : p.name;
+        const infra = isLambda ? "Lambda" : "Bitbar";
+        const isAlpha = p.name.includes("alpha");
+        return (
+          <div key={p.name} className="card p-4 flex flex-col gap-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="font-mono text-xs text-white truncate">{p.name}</div>
+                <div className="flex items-center gap-1.5 mt-1">
+                  <span className="text-[10px] text-green-400 font-medium">{deviceLabel}</span>
+                  {isAlpha && <span className="text-[10px] bg-purple-900/40 text-purple-400 border border-purple-800/40 px-1 rounded">alpha</span>}
+                  <span className="text-[10px] text-gray-600">{infra}</span>
+                </div>
+              </div>
+              <div className="text-[10px] text-gray-600 tabular-nums flex-shrink-0">{p.total} devices</div>
+            </div>
+            <div className="grid grid-cols-2 gap-2 bg-gray-800/30 rounded-lg p-2.5 border border-gray-700/30">
+              <div>
+                <div className={`text-xl font-bold tabular-nums ${pendingColor(p.pending, 50, 10)}`}>
+                  {p.pending.toLocaleString()}
+                </div>
+                <div className="text-[10px] text-gray-500 uppercase tracking-wider mt-0.5">pending</div>
+              </div>
+              <div>
+                <div className="text-xl font-bold tabular-nums text-white">
+                  {p.running}
+                  <span className="text-xs font-normal text-gray-500"> / {p.total}</span>
+                </div>
+                <div className="text-[10px] text-gray-500 uppercase tracking-wider mt-0.5">running</div>
+              </div>
+            </div>
+            <div>
+              <div className="w-full bg-gray-700/60 rounded-full h-1.5 overflow-hidden">
+                <div className={`h-1.5 rounded-full transition-all ${loadColor}`} style={{ width: `${Math.min(load, 100)}%` }} />
+              </div>
+              <div className="text-[10px] text-gray-600 mt-1">{load}% capacity utilized</div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function Pools() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -440,6 +504,7 @@ export function Pools() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showOther, setShowOther] = useState(false);
+  const [testerPlatform, setTesterPlatform] = useState<TesterPlatform>("");
   const [managingPool, setManagingPool] = useState<PoolHealth | null>(null);
   const [pending, setPending] = useState<Record<string, number | null>>({});
   const [sources, setSources] = useState<Record<string, PoolSources>>({});
@@ -486,10 +551,8 @@ export function Pools() {
   const testerPools  = macPools.filter(p => !p.name.includes("signing") && !p.name.includes("-b-") && p.name.includes("-t-"));
   const otherPools   = macPools.filter(p => !p.name.includes("signing") && !p.name.includes("-b-") && !p.name.includes("-t-"));
 
-  const showMac     = section === "" || section === "mac";
-  const showLinux   = section === "" || section === "linux";
-  const showCloud   = section === "" || section === "cloud";
-  const showAndroid = section === "" || section === "android";
+  const showMac   = section === "" || section === "mac";
+  const showCloud = section === "" || section === "cloud";
 
   const totalWorkers = pools.reduce((s, p) => s + p.total, 0);
   const totalIssues  = testerPools.reduce((s, p) => s + p.quarantined + p.mdm_unenrolled, 0);
@@ -516,7 +579,7 @@ export function Pools() {
         </div>
       </div>
 
-      {showMac && pinnedData.length > 0 && (
+      {section === "mac" && pinnedData.length > 0 && (
         <div>
           <div className="flex items-center gap-2 mb-3">
             <Pin size={11} className="text-brand-400" />
@@ -531,12 +594,61 @@ export function Pools() {
         </div>
       )}
 
-      {showMac && testerPools.length > 0 && (
+      {showMac && (testerPools.length > 0 || section === "") && (
         <div>
-          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
-            <FlaskConical size={12} /> Tester Pools
-          </h2>
-          <PoolTable pools={testerPools} pinnedPools={PINNED_POOLS} navigate={navigate} showLegend onManage={setManagingPool} pending={pending} />
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+              <FlaskConical size={12} /> Tester Pools
+            </h2>
+            {section === "" && (
+              <div className="flex items-center gap-1 bg-gray-900 border border-gray-800 rounded-lg p-0.5">
+                {TESTER_PLATFORMS.map(({ key, label }) => (
+                  <button key={key} onClick={() => setTesterPlatform(key)}
+                    className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                      testerPlatform === key ? "bg-gray-700 text-white" : "text-gray-500 hover:text-gray-300"
+                    }`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* macOS tester pools */}
+          {(section !== "" || testerPlatform === "" || testerPlatform === "mac") && testerPools.length > 0 && (
+            <div className={section === "" && testerPlatform === "" ? "mb-6" : ""}>
+              {section === "" && testerPlatform === "" && (
+                <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <Apple size={10} /> macOS
+                </div>
+              )}
+              <PoolTable pools={testerPools} pinnedPools={PINNED_POOLS} navigate={navigate} showLegend onManage={setManagingPool} pending={pending} />
+            </div>
+          )}
+
+          {/* Linux hardware — overview only */}
+          {section === "" && (testerPlatform === "" || testerPlatform === "linux") && linuxHwPools.length > 0 && (
+            <div className={testerPlatform === "" ? "mt-1 mb-6" : ""}>
+              {testerPlatform === "" && (
+                <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <Terminal size={10} /> Linux Hardware
+                </div>
+              )}
+              <PoolTable pools={linuxHwPools} pinnedPools={[]} navigate={navigate} showLegend={testerPlatform !== ""} onManage={setManagingPool} pending={pending} />
+            </div>
+          )}
+
+          {/* Android hardware — overview only */}
+          {section === "" && (testerPlatform === "" || testerPlatform === "android") && androidPoolData.length > 0 && (
+            <div className={testerPlatform === "" ? "mt-1" : ""}>
+              {testerPlatform === "" && (
+                <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <Smartphone size={10} /> Android Hardware
+                </div>
+              )}
+              <AndroidPoolCards pools={androidPoolData} />
+            </div>
+          )}
         </div>
       )}
 
@@ -562,7 +674,7 @@ export function Pools() {
         </div>
       )}
 
-      {showLinux && linuxHwPools.length > 0 && (
+      {section === "linux" && linuxHwPools.length > 0 && (
         <div>
           <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2">
             <Terminal size={12} /> Linux Hardware Pools
@@ -613,62 +725,13 @@ export function Pools() {
         </div>
       )}
 
-      {showAndroid && androidPoolData.length > 0 && (
+      {section === "android" && androidPoolData.length > 0 && (
         <div>
           <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2">
             <Smartphone size={12} /> Android Hardware Pools
           </h2>
           <p className="text-[11px] text-gray-600 mb-3">Physical Android devices via Bitbar and Lambda — read-only load view.</p>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {androidPoolData.map(p => {
-              const load = p.total > 0 ? Math.round((p.running / p.total) * 100) : 0;
-              const loadColor = load >= 90 ? "bg-orange-400" : load >= 60 ? "bg-yellow-400" : "bg-green-500";
-              const isLambda = p.name.includes("lambda");
-              const deviceLabel = p.name.includes("a55") ? "Samsung A55"
-                : p.name.includes("p6") ? "Pixel 6"
-                : p.name.includes("s24") ? "Galaxy S24"
-                : p.name.includes("p5") ? "Pixel 5"
-                : p.name;
-              const infra = isLambda ? "Lambda" : "Bitbar";
-              const isAlpha = p.name.includes("alpha");
-              return (
-                <div key={p.name} className="card p-4 flex flex-col gap-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="font-mono text-xs text-white truncate">{p.name}</div>
-                      <div className="flex items-center gap-1.5 mt-1">
-                        <span className="text-[10px] text-green-400 font-medium">{deviceLabel}</span>
-                        {isAlpha && <span className="text-[10px] bg-purple-900/40 text-purple-400 border border-purple-800/40 px-1 rounded">alpha</span>}
-                        <span className="text-[10px] text-gray-600">{infra}</span>
-                      </div>
-                    </div>
-                    <div className="text-[10px] text-gray-600 tabular-nums flex-shrink-0">{p.total} devices</div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 bg-gray-800/30 rounded-lg p-2.5 border border-gray-700/30">
-                    <div>
-                      <div className={`text-xl font-bold tabular-nums ${pendingColor(p.pending, 50, 10)}`}>
-                        {p.pending.toLocaleString()}
-                      </div>
-                      <div className="text-[10px] text-gray-500 uppercase tracking-wider mt-0.5">pending</div>
-                    </div>
-                    <div>
-                      <div className="text-xl font-bold tabular-nums text-white">
-                        {p.running}
-                        <span className="text-xs font-normal text-gray-500"> / {p.total}</span>
-                      </div>
-                      <div className="text-[10px] text-gray-500 uppercase tracking-wider mt-0.5">running</div>
-                    </div>
-                  </div>
-                  <div>
-                    <div className="w-full bg-gray-700/60 rounded-full h-1.5 overflow-hidden">
-                      <div className={`h-1.5 rounded-full transition-all ${loadColor}`} style={{ width: `${Math.min(load, 100)}%` }} />
-                    </div>
-                    <div className="text-[10px] text-gray-600 mt-1">{load}% capacity utilized</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          <AndroidPoolCards pools={androidPoolData} />
         </div>
       )}
 
