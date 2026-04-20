@@ -214,6 +214,7 @@ export const api = {
     poolSources: (pool: string) => get<PoolSources>("/fleet/pool-sources", { pool }),
     failures: (days = 7) => get<FailureInsights>("/fleet/failures", { days }),
     cloudPools: () => get<CloudPoolsResponse>("/fleet/cloud-pools"),
+    androidPools: () => get<CloudPoolsResponse>("/fleet/android-pools"),
     consolidation: () => get<ConsolidationData>("/fleet/consolidation"),
   },
   pools: {

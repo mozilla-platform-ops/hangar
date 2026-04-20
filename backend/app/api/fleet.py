@@ -24,6 +24,15 @@ CLOUD_WORKER_POOLS: list[tuple[str, str]] = [
     ("gecko-t", "t-linux-xlarge-2204-wayland"),
 ]
 
+ANDROID_WORKER_POOLS: list[tuple[str, str]] = [
+    ("proj-autophone", "gecko-t-bitbar-gw-perf-a55"),
+    ("proj-autophone", "gecko-t-bitbar-gw-perf-p6"),
+    ("proj-autophone", "gecko-t-bitbar-gw-perf-s24"),
+    ("proj-autophone", "gecko-t-bitbar-gw-unit-p5"),
+    ("proj-autophone", "gecko-t-lambda-alpha-a55"),
+    ("proj-autophone", "gecko-t-lambda-perf-a55"),
+]
+
 router = APIRouter(prefix="/fleet", tags=["fleet"])
 
 DEFAULT_BRANCH = "master"
@@ -262,6 +271,16 @@ def cloud_pools() -> dict[str, Any]:
     """Live load stats for cloud Linux worker pools (no DB — all live from TC)."""
     with ThreadPoolExecutor(max_workers=10) as ex:
         futures = [ex.submit(_fetch_cloud_pool, p, w) for p, w in CLOUD_WORKER_POOLS]
+        results = [f.result() for f in as_completed(futures)]
+    results.sort(key=lambda x: x["name"])
+    return {"pools": results}
+
+
+@router.get("/android-pools")
+def android_pools() -> dict[str, Any]:
+    """Live load stats for Android hardware pools (no DB — all live from TC)."""
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        futures = [ex.submit(_fetch_cloud_pool, p, w) for p, w in ANDROID_WORKER_POOLS]
         results = [f.result() for f in as_completed(futures)]
     results.sort(key=lambda x: x["name"])
     return {"pools": results}
