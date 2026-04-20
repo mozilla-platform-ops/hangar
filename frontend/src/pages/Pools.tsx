@@ -640,18 +640,20 @@ export function Pools() {
           <h1 className="text-xl font-semibold text-white tracking-tight">Pool Health</h1>
           <p className="text-gray-500 text-sm mt-0.5">{pools.length} pools · {totalWorkers.toLocaleString()} workers</p>
         </div>
-        <div className="flex items-center gap-3">
-          {totalIssues > 0 && (
-            <div className="flex items-center gap-1.5 text-xs text-red-400 bg-red-950/40 border border-red-900/50 px-3 py-1.5 rounded-lg">
-              <AlertTriangle size={12} /> {totalIssues} issue{totalIssues !== 1 ? "s" : ""}
-            </div>
-          )}
-          {totalBranch > 0 && (
-            <div className="flex items-center gap-1.5 text-xs text-amber-400 bg-amber-950/40 border border-amber-900/50 px-3 py-1.5 rounded-lg">
-              <GitBranch size={12} /> {totalBranch} branch override{totalBranch !== 1 ? "s" : ""}
-            </div>
-          )}
-        </div>
+        {section === "mac" && (
+          <div className="flex items-center gap-3">
+            {totalIssues > 0 && (
+              <div className="flex items-center gap-1.5 text-xs text-red-400 bg-red-950/40 border border-red-900/50 px-3 py-1.5 rounded-lg">
+                <AlertTriangle size={12} /> {totalIssues} issue{totalIssues !== 1 ? "s" : ""}
+              </div>
+            )}
+            {totalBranch > 0 && (
+              <div className="flex items-center gap-1.5 text-xs text-amber-400 bg-amber-950/40 border border-amber-900/50 px-3 py-1.5 rounded-lg">
+                <GitBranch size={12} /> {totalBranch} branch override{totalBranch !== 1 ? "s" : ""}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {section === "mac" && pinnedData.length > 0 && (
