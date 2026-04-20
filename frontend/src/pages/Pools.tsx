@@ -661,11 +661,13 @@ export function Pools() {
 
       {/* Overview: compact status tiles per platform */}
       {section === "" && (
-        <div className="space-y-6">
+        <div className="space-y-8">
           {testerPools.length > 0 && (
             <div>
-              <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-3">
-                macOS Hardware
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-0.5 h-5 bg-indigo-500 rounded-full" />
+                <span className="text-sm font-semibold text-gray-300 tracking-tight">macOS Hardware</span>
+                <span className="text-xs text-gray-600">{testerPools.filter(p => !OVERVIEW_EXCLUDED_POOLS.has(p.name)).length} pools</span>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {testerPools.filter(p => !OVERVIEW_EXCLUDED_POOLS.has(p.name)).map(pool => (
@@ -676,8 +678,10 @@ export function Pools() {
           )}
           {linuxHwPools.length > 0 && (
             <div>
-              <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <Terminal size={10} /> Linux Hardware
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-0.5 h-5 bg-emerald-500 rounded-full" />
+                <span className="text-sm font-semibold text-gray-300 tracking-tight">Linux Hardware</span>
+                <span className="text-xs text-gray-600">{linuxHwPools.length} pools</span>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {linuxHwPools.map(pool => (
@@ -688,8 +692,10 @@ export function Pools() {
           )}
           {androidPoolData.length > 0 && (
             <div>
-              <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <Smartphone size={10} /> Android Hardware
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-0.5 h-5 bg-green-500 rounded-full" />
+                <span className="text-sm font-semibold text-gray-300 tracking-tight">Android Hardware</span>
+                <span className="text-xs text-gray-600">{androidPoolData.length} pools</span>
               </div>
               <AndroidPoolCards pools={androidPoolData} />
             </div>
