@@ -651,17 +651,11 @@ export function Pools() {
       </div>
 
       {section === "mac" && pinnedData.length > 0 && (
-        <div>
-          <div className="flex items-center gap-2 mb-3">
-            <Pin size={11} className="text-brand-400" />
-            <span className="text-xs font-semibold text-brand-400 uppercase tracking-wider">Priority Pools</span>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {pinnedData.map(pool => (
-              <PinnedCard key={pool.name} pool={pool} pending={pending[pool.name] ?? null}
-                sources={sources[pool.name]} onManage={setManagingPool} />
-            ))}
-          </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {pinnedData.map(pool => (
+            <PinnedCard key={pool.name} pool={pool} pending={pending[pool.name] ?? null}
+              sources={sources[pool.name]} onManage={setManagingPool} />
+          ))}
         </div>
       )}
 
