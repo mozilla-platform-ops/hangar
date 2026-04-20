@@ -142,7 +142,7 @@ export function Overview() {
 
 
       {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <div className="card p-5">
           <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-5">Workers by Platform</h3>
           <ResponsiveContainer width="100%" height={180}>
@@ -159,29 +159,6 @@ export function Overview() {
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: entry.color }} />
                   <span className="text-xs text-gray-300">{entry.name}</span>
-                </div>
-                <span className="text-xs font-mono text-gray-400 tabular-nums">{entry.value.toLocaleString()}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="card p-5">
-          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-5">Workers by State</h3>
-          <ResponsiveContainer width="100%" height={180}>
-            <PieChart>
-              <Pie data={stateData} cx="50%" cy="50%" innerRadius={52} outerRadius={80} dataKey="value" paddingAngle={3} strokeWidth={0}>
-                {stateData.map(entry => <Cell key={entry.name} fill={entry.color} />)}
-              </Pie>
-              <Tooltip contentStyle={TOOLTIP_STYLE} itemStyle={{ color: "#e5e7eb" }} />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="flex flex-col gap-2 mt-3">
-            {stateData.map(entry => (
-              <div key={entry.name} className="flex items-center gap-2 justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: entry.color }} />
-                  <span className="text-xs text-gray-300 capitalize">{entry.name}</span>
                 </div>
                 <span className="text-xs font-mono text-gray-400 tabular-nums">{entry.value.toLocaleString()}</span>
               </div>
