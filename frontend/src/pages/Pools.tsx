@@ -762,7 +762,7 @@ export function Pools() {
         <div>
           <div className="flex items-center gap-3 mb-4">
             <div className="w-0.5 h-5 bg-teal-500 rounded-full" />
-            <span className="text-sm font-semibold text-gray-300 tracking-tight">Cloud Linux</span>
+            <span className="text-sm font-semibold text-gray-300 tracking-tight">Linux Cloud</span>
             <span className="text-xs text-gray-600">{cloudPoolData.length} pools</span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
