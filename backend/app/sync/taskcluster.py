@@ -5,7 +5,6 @@ data than the REST API, including latestTask details.
 """
 from __future__ import annotations
 
-import json
 import logging
 from datetime import datetime, timedelta
 from typing import Any
@@ -83,7 +82,6 @@ query ViewWorkers($provisionerId: String!, $workerType: String!, $workersConnect
         workerGroup
         latestTask {
           run { taskId runId started resolved state reasonResolved }
-          task { metadata { owner } routes }
         }
         firstClaim
         quarantineUntil
@@ -325,11 +323,6 @@ def run_sync(db: Session) -> int:
                 prev_task_id = worker.tc_latest_task_id
                 worker.tc_latest_task_id = new_task_id
                 worker.tc_latest_task_state = new_task_state_raw
-
-                task_detail = latest_task_node.get("task") or {}
-                worker.tc_latest_task_owner = (task_detail.get("metadata") or {}).get("owner")
-                routes = task_detail.get("routes") or []
-                worker.tc_latest_task_routes = json.dumps(routes) if routes else None
 
                 # Record a FailureEvent when we first observe a new failed/exception task.
                 new_state = new_task_state_raw.lower()

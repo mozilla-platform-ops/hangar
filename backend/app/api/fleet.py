@@ -1,7 +1,6 @@
 """Fleet summary and consolidation endpoints."""
 from __future__ import annotations
 
-import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from typing import Any
@@ -19,27 +18,6 @@ from ..sync.taskcluster import MAC_WORKER_POOLS
 router = APIRouter(prefix="/fleet", tags=["fleet"])
 
 DEFAULT_BRANCH = "master"
-
-
-def _classify_source(routes_json: str | None) -> str:
-    if not routes_json:
-        return "other"
-    try:
-        routes = json.loads(routes_json)
-    except (ValueError, TypeError):
-        return "other"
-    joined = " ".join(routes)
-    if ".try." in joined:
-        return "try"
-    if ".autoland." in joined or ".integration." in joined:
-        return "autoland"
-    if ".releases." in joined or ".release." in joined:
-        return "release"
-    if ".mozilla-central." in joined:
-        return "mozilla-central"
-    if ".mozilla-beta." in joined or ".mozilla-esr" in joined:
-        return "release"
-    return "other"
 
 
 def _is_branch_override(branch: str | None) -> bool:
@@ -165,8 +143,6 @@ def pool_health(db: Session = Depends(get_db)) -> dict[str, Any]:
                 "branch_override_count": 0,
                 "running_tasks": 0,
                 "healthy": 0,
-                "running_sources": {},
-                "_owners": {},
             }
 
         p = pools[pool]
@@ -188,13 +164,6 @@ def pool_health(db: Session = Depends(get_db)) -> dict[str, Any]:
 
         if (w.tc_latest_task_state or "").upper() == "RUNNING":
             p["running_tasks"] += 1
-
-        # Running task source + owner tracking
-        if w.tc_latest_task_state == "running":
-            source = _classify_source(w.tc_latest_task_routes)
-            p["running_sources"][source] = p["running_sources"].get(source, 0) + 1
-            if w.tc_latest_task_owner:
-                p["_owners"][w.tc_latest_task_owner] = p["_owners"].get(w.tc_latest_task_owner, 0) + 1
 
         # Staleness bucket
         la = w.tc_last_active
@@ -223,12 +192,6 @@ def pool_health(db: Session = Depends(get_db)) -> dict[str, Any]:
     for p in pools.values():
         prod = p["production"]
         p["health_score"] = round(p["healthy"] / prod, 3) if prod > 0 else 0.0
-        p["top_owners"] = sorted(
-            [{"email": email, "count": cnt} for email, cnt in p["_owners"].items()],
-            key=lambda x: x["count"],
-            reverse=True,
-        )[:5]
-        del p["_owners"]
         result.append(p)
 
     result.sort(key=lambda x: x["total"], reverse=True)
