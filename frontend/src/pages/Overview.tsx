@@ -5,14 +5,6 @@ import { PieChart, Pie, Cell, Tooltip, BarChart, Bar, XAxis, YAxis, ResponsiveCo
 import { api } from "../api";
 import type { FleetSummary, FailureInsights } from "../api";
 
-const STATE_COLORS: Record<string, string> = {
-  production: "#10b981",
-  staging:    "#6366f1",
-  spare:      "#6b7280",
-  defective:  "#ef4444",
-  loaner:     "#f59e0b",
-  unknown:    "#374151",
-};
 
 const TOOLTIP_STYLE = {
   background: "#111827",
@@ -110,11 +102,6 @@ export function Overview() {
       { name: "Linux", value: linux, color: "#10b981" },
     ].filter(d => d.value > 0);
   })();
-
-  const stateData = Object.entries(data.by_state)
-    .map(([name, value]) => ({ name, value, color: STATE_COLORS[name] ?? "#374151" }))
-    .filter(d => d.value > 0)
-    .sort((a, b) => b.value - a.value);
 
   const topPools = Object.entries(data.by_pool)
     .filter(([name]) => name !== "unknown")
