@@ -186,6 +186,7 @@ export interface FailureInsights {
   }>;
   test_failures: Array<{ task_name: string; count: number; last_at: string | null }>;
   window_days: number;
+  platform: string | null;
 }
 
 export interface PoolsResponse {
@@ -212,7 +213,7 @@ export const api = {
     pools: () => get<PoolsResponse>("/fleet/pools"),
     pendingCounts: () => get<PendingCountsResponse>("/fleet/pending-counts"),
     poolSources: (pool: string) => get<PoolSources>("/fleet/pool-sources", { pool }),
-    failures: (days = 7) => get<FailureInsights>("/fleet/failures", { days }),
+    failures: (days = 7, platform?: string) => get<FailureInsights>("/fleet/failures", { days, platform }),
     cloudPools: () => get<CloudPoolsResponse>("/fleet/cloud-pools"),
     androidPools: () => get<CloudPoolsResponse>("/fleet/android-pools"),
     consolidation: () => get<ConsolidationData>("/fleet/consolidation"),

@@ -345,13 +345,23 @@ def pool_sources(pool: str, db: Session = Depends(get_db)) -> dict[str, Any]:
     }
 
 
+PLATFORM_POOL_PREFIXES: dict[str, str] = {
+    "mac": "gecko-t-osx-%",
+    "linux": "gecko-t-linux-%",
+}
+
+
 @router.get("/failures")
-def failure_insights(days: int = 7, db: Session = Depends(get_db)) -> dict[str, Any]:
-    """Top failing machines and test task types over the last N days."""
+def failure_insights(days: int = 7, platform: str | None = None, db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Top failing machines and test task types over the last N days.
+
+    Optional platform filter: "mac" | "linux" (defaults to all hardware pools).
+    """
     from sqlalchemy import desc
     cutoff = datetime.utcnow() - timedelta(days=days)
+    pool_like = PLATFORM_POOL_PREFIXES.get(platform or "")
 
-    machine_rows = (
+    base_machine = (
         db.query(
             FailureEvent.hostname,
             FailureEvent.worker_pool,
@@ -359,13 +369,19 @@ def failure_insights(days: int = 7, db: Session = Depends(get_db)) -> dict[str, 
             func.max(FailureEvent.failed_at).label("last_at"),
         )
         .filter(FailureEvent.failed_at >= cutoff)
+    )
+    if pool_like:
+        base_machine = base_machine.filter(FailureEvent.worker_pool.like(pool_like))
+
+    machine_rows = (
+        base_machine
         .group_by(FailureEvent.hostname, FailureEvent.worker_pool)
         .order_by(desc("cnt"))
         .limit(10)
         .all()
     )
 
-    test_rows = (
+    base_test = (
         db.query(
             FailureEvent.task_name,
             func.count(FailureEvent.id).label("cnt"),
@@ -376,6 +392,12 @@ def failure_insights(days: int = 7, db: Session = Depends(get_db)) -> dict[str, 
             FailureEvent.state == "failed",
             FailureEvent.task_name.isnot(None),
         )
+    )
+    if pool_like:
+        base_test = base_test.filter(FailureEvent.worker_pool.like(pool_like))
+
+    test_rows = (
+        base_test
         .group_by(FailureEvent.task_name)
         .order_by(desc("cnt"))
         .limit(10)
@@ -401,6 +423,7 @@ def failure_insights(days: int = 7, db: Session = Depends(get_db)) -> dict[str, 
             for r in test_rows
         ],
         "window_days": days,
+        "platform": platform,
     }
 
 

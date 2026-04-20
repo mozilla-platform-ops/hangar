@@ -76,15 +76,26 @@ function SyncDot({ ok }: { ok: boolean }) {
   return <span className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 ${ok ? "bg-emerald-400" : "bg-gray-600"}`} />;
 }
 
+const FAILURE_PLATFORMS = [
+  { key: "",      label: "All" },
+  { key: "mac",   label: "macOS" },
+  { key: "linux", label: "Linux" },
+];
+
 export function Overview() {
   const [data, setData] = useState<FleetSummary | null>(null);
   const [failures, setFailures] = useState<FailureInsights | null>(null);
+  const [failurePlatform, setFailurePlatform] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
     api.fleet.summary().then(setData).catch(e => setError(e.message));
-    api.fleet.failures().then(setFailures).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    setFailures(null);
+    api.fleet.failures(7, failurePlatform || undefined).then(setFailures).catch(() => {});
+  }, [failurePlatform]);
 
   if (error) return <div className="p-8 text-red-400 text-sm">{error}</div>;
   if (!data) return (
@@ -121,23 +132,47 @@ export function Overview() {
       </div>
 
       {/* Sync status */}
-      <div className="card p-5">
-        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+      <div className="card p-5 space-y-4">
+        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
           <Clock size={12} /> Sync Status
         </h3>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          {Object.entries(data.sync_status).map(([source, status]) => (
-            <div key={source} className="bg-gray-800/40 rounded-lg p-3 border border-gray-700/40">
+        {/* Fleet-wide: Taskcluster */}
+        {data.sync_status["taskcluster"] && (() => {
+          const status = data.sync_status["taskcluster"];
+          return (
+            <div className="bg-gray-800/40 rounded-lg p-3 border border-gray-700/40 max-w-xs">
               <div className="flex items-center gap-2 mb-2">
                 <SyncDot ok={!!status.last_success} />
-                <span className="text-xs text-gray-400 font-medium capitalize">{source}</span>
+                <span className="text-xs text-gray-400 font-medium">Taskcluster</span>
               </div>
               <div className="text-sm font-medium text-white">{timeAgo(status.last_success)}</div>
               {status.records_updated !== null && (
                 <div className="text-xs text-gray-600 mt-0.5">{status.records_updated.toLocaleString()} records</div>
               )}
             </div>
-          ))}
+          );
+        })()}
+        {/* macOS sources */}
+        <div>
+          <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-2">macOS Sources</div>
+          <div className="flex gap-3">
+            {(["puppet", "simplemdm"] as const).map(source => {
+              const status = data.sync_status[source];
+              if (!status) return null;
+              return (
+                <div key={source} className="bg-gray-800/40 rounded-lg p-3 border border-gray-700/40 min-w-[130px]">
+                  <div className="flex items-center gap-2 mb-2">
+                    <SyncDot ok={!!status.last_success} />
+                    <span className="text-xs text-gray-400 font-medium capitalize">{source === "simplemdm" ? "SimpleMDM" : source}</span>
+                  </div>
+                  <div className="text-sm font-medium text-white">{timeAgo(status.last_success)}</div>
+                  {status.records_updated !== null && (
+                    <div className="text-xs text-gray-600 mt-0.5">{status.records_updated.toLocaleString()} records</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
 
@@ -216,9 +251,23 @@ export function Overview() {
 
       {/* Failure Insights */}
       <div>
-        <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
-          Failure Insights · last 7 days
-        </h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            Failure Insights · last 7 days
+          </h2>
+          <div className="flex items-center gap-1 bg-gray-900 border border-gray-800 rounded-lg p-0.5">
+            {FAILURE_PLATFORMS.map(({ key, label }) => (
+              <button key={key} onClick={() => setFailurePlatform(key)}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                  failurePlatform === key
+                    ? "bg-gray-700 text-white"
+                    : "text-gray-500 hover:text-gray-300"
+                }`}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           <div className="card p-5">
             <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
