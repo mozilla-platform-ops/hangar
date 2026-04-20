@@ -109,7 +109,7 @@ export function Overview() {
       {/* Header */}
       <div>
         <h1 className="text-xl font-semibold text-white tracking-tight">Fleet Overview</h1>
-        <p className="text-gray-500 text-sm mt-0.5">macOS CI worker fleet · real-time</p>
+        <p className="text-gray-500 text-sm mt-0.5">CI hardware fleet · real-time</p>
       </div>
 
       {/* Summary cards */}
