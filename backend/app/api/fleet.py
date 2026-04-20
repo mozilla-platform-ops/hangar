@@ -385,6 +385,31 @@ def failure_insights(days: int = 7, db: Session = Depends(get_db)) -> dict[str, 
     }
 
 
+@router.get("/sync-logs")
+def sync_logs(db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Last 10 sync log entries per source, including failures."""
+    rows = (
+        db.query(SyncLog)
+        .order_by(SyncLog.started_at.desc())
+        .limit(40)
+        .all()
+    )
+    return {
+        "logs": [
+            {
+                "id": r.id,
+                "source": r.source,
+                "started_at": r.started_at.isoformat() if r.started_at else None,
+                "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+                "records_updated": r.records_updated,
+                "success": r.success,
+                "error": r.error,
+            }
+            for r in rows
+        ]
+    }
+
+
 @router.get("/consolidation")
 def consolidation_analysis(db: Session = Depends(get_db)) -> dict[str, Any]:
     """Analyze r8 vs m4 capacity and retirement candidates."""
