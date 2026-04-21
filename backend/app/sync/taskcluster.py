@@ -13,14 +13,40 @@ import requests
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..models import Alert, SyncLog, Worker
+from ..models import Alert, FailureEvent, SyncLog, Worker
 
 log = logging.getLogger(__name__)
 
 TC_GRAPHQL_URL = f"{settings.tc_root_url}/graphql"
 
-# All macOS worker pools to monitor (provisioner_id, worker_type)
-MAC_WORKER_POOLS: list[tuple[str, str]] = [
+# In-memory cache of taskId → task name. Cleared when it exceeds 5 000 entries.
+_task_name_cache: dict[str, str] = {}
+
+
+def _fetch_task_name(task_id: str) -> str | None:
+    """Fetch metadata.name for a TC task via REST. Best-effort: returns None on any error."""
+    if task_id in _task_name_cache:
+        return _task_name_cache[task_id]
+    try:
+        resp = requests.get(
+            f"{settings.tc_root_url}/api/queue/v1/task/{task_id}",
+            timeout=3,
+            headers={"User-Agent": "relops-dashboard/1.0"},
+        )
+        if resp.ok:
+            name = resp.json().get("metadata", {}).get("name")
+            if name:
+                if len(_task_name_cache) > 5000:
+                    _task_name_cache.clear()
+                _task_name_cache[task_id] = name
+            return name
+    except Exception as exc:
+        log.debug("task name lookup failed %s: %s", task_id, exc)
+    return None
+
+# All hardware worker pools to monitor (provisioner_id, worker_type)
+HW_WORKER_POOLS: list[tuple[str, str]] = [
+    # macOS
     ("releng-hardware", "gecko-t-osx-1400-r8"),
     ("releng-hardware", "gecko-t-osx-1400-r8-staging"),
     ("releng-hardware", "gecko-t-osx-1015-r8"),
@@ -41,7 +67,39 @@ MAC_WORKER_POOLS: list[tuple[str, str]] = [
     ("releng-hardware", "mozillavpn-b-3-osx"),
     ("releng-hardware", "nss-1-b-osx-1015"),
     ("releng-hardware", "nss-3-b-osx-1015"),
+    # Linux hardware
+    ("releng-hardware", "gecko-t-linux-talos-1804"),
+    ("releng-hardware", "gecko-t-linux-talos-2404"),
+    ("releng-hardware", "gecko-t-linux-netperf-1804"),
+    ("releng-hardware", "gecko-t-linux-netperf-2404"),
 ]
+
+# Keep old name as alias so fleet.py import doesn't break until updated
+MAC_WORKER_POOLS = HW_WORKER_POOLS
+
+
+def _detect_platform(worker_id: str, worker_pool_id: str | None) -> str:
+    combined = f"{worker_id} {worker_pool_id or ''}".lower()
+    if "linux" in combined or worker_id.startswith("t-linux"):
+        return "linux"
+    if "win" in combined or worker_id.startswith("nuc"):
+        return "windows"
+    return "mac"
+
+
+def _detect_generation(hostname: str, worker_pool: str | None) -> str | None:
+    pool = (worker_pool or "").lower()
+    if "2404" in pool:
+        return "2404"
+    if "1804" in pool:
+        return "1804"
+    if "m4" in hostname:
+        return "m4"
+    if "m2" in hostname:
+        return "m2"
+    if "r8" in hostname:
+        return "r8"
+    return None
 
 _GRAPHQL_QUERY = """
 query ViewWorkers($provisionerId: String!, $workerType: String!, $workersConnection: PageConnection) {
@@ -55,7 +113,9 @@ query ViewWorkers($provisionerId: String!, $workerType: String!, $workersConnect
       node {
         workerId
         workerGroup
-        latestTask { run { taskId runId started resolved state } }
+        latestTask {
+          run { taskId runId started resolved state reasonResolved }
+        }
         firstClaim
         quarantineUntil
         lastDateActive
@@ -254,8 +314,11 @@ def run_sync(db: Session) -> int:
     try:
         total = 0
         seen_hostnames: set[str] = set()
+        # Track workers added this session — db.get() won't find unflushed pending
+        # objects, so workers appearing in multiple pools would get double-inserted.
+        session_workers: dict[str, Worker] = {}
 
-        for provisioner_id, worker_type in MAC_WORKER_POOLS:
+        for provisioner_id, worker_type in HW_WORKER_POOLS:
             log.info("Fetching TC workers: %s/%s", provisioner_id, worker_type)
             try:
                 workers = _fetch_pool_workers(provisioner_id, worker_type)
@@ -268,10 +331,11 @@ def run_sync(db: Session) -> int:
                 hostname = _worker_hostname(worker_id)
                 seen_hostnames.add(hostname)
 
-                worker = db.get(Worker, hostname)
+                worker = session_workers.get(hostname) or db.get(Worker, hostname)
                 if worker is None:
                     worker = Worker(hostname=hostname, worker_id=worker_id)
                     db.add(worker)
+                session_workers[hostname] = worker
 
                 quarantine_until = _parse_dt(node.get("quarantineUntil"))
                 worker.tc_worker_id = worker_id
@@ -288,16 +352,35 @@ def run_sync(db: Session) -> int:
                 if not worker.worker_pool and worker.tc_worker_pool_id:
                     worker.worker_pool = worker.tc_worker_pool_id.split("/")[-1]
 
-                latest_task = (node.get("latestTask") or {}).get("run") or {}
-                worker.tc_latest_task_id = latest_task.get("taskId")
-                worker.tc_latest_task_state = latest_task.get("state")
+                latest_task_node = node.get("latestTask") or {}
+                latest_task = latest_task_node.get("run") or {}
+                new_task_id = latest_task.get("taskId")
+                new_task_state_raw = latest_task.get("state") or ""
 
+                prev_task_id = worker.tc_latest_task_id
+                worker.tc_latest_task_id = new_task_id
+                worker.tc_latest_task_state = new_task_state_raw
+
+                # Record a FailureEvent when we first observe a new failed/exception task.
+                new_state = new_task_state_raw.lower()
+                if new_task_id and new_task_id != prev_task_id and new_state in ("failed", "exception"):
+                    task_name: str | None = None
+                    if new_state == "failed":
+                        task_name = _fetch_task_name(new_task_id)
+                    db.add(FailureEvent(
+                        task_id=new_task_id,
+                        task_name=task_name,
+                        hostname=hostname,
+                        worker_pool=worker.worker_pool,
+                        state=new_state,
+                        reason_resolved=latest_task.get("reasonResolved"),
+                        failed_at=datetime.utcnow(),
+                    ))
+
+                if not worker.platform:
+                    worker.platform = _detect_platform(worker_id, node.get("workerPoolId"))
                 if not worker.generation:
-                    worker.generation = (
-                        "m4" if "m4" in hostname else
-                        "m2" if "m2" in hostname else
-                        "r8" if "r8" in hostname else None
-                    )
+                    worker.generation = _detect_generation(hostname, worker.worker_pool)
 
                 worker.last_synced_tc = datetime.utcnow()
                 _generate_alerts(db, hostname, worker)
@@ -305,6 +388,10 @@ def run_sync(db: Session) -> int:
 
         # Second pass: flag known production workers absent from TC entirely
         _check_absent_workers(db, seen_hostnames)
+
+        # Prune failure events older than 14 days
+        prune_cutoff = datetime.utcnow() - timedelta(days=14)
+        db.query(FailureEvent).filter(FailureEvent.failed_at < prune_cutoff).delete(synchronize_session=False)
 
         db.commit()
         log_entry.finished_at = datetime.utcnow()
@@ -315,10 +402,13 @@ def run_sync(db: Session) -> int:
         return total
 
     except Exception as exc:
-        db.rollback()
         log.exception("TC sync failed")
+        db.rollback()
+        # log_entry may be detached after rollback if the first commit never ran;
+        # re-add it to the session so the failure record is saved.
+        db.add(log_entry)
         log_entry.finished_at = datetime.utcnow()
-        log_entry.error = str(exc)
+        log_entry.error = str(exc)[:500]
         log_entry.success = False
         db.commit()
         raise

@@ -1,20 +1,45 @@
-import { NavLink, Outlet } from "react-router-dom";
-import { LayoutDashboard, Monitor, AlertTriangle, BarChart2, RefreshCw, Cpu, Layers } from "lucide-react";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { LayoutDashboard, Monitor, AlertTriangle, BarChart2, RefreshCw, Layers, ChevronDown, Smartphone, Terminal, Apple } from "lucide-react";
 import { clsx } from "clsx";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { api } from "../api";
+
+function timeAgo(iso: string | null) {
+  if (!iso) return "never";
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 2) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  return `${Math.round(mins / 60)}h ago`;
+}
 
 const NAV = [
   { to: "/", icon: LayoutDashboard, label: "Overview" },
   { to: "/workers", icon: Monitor, label: "Workers" },
-  { to: "/pools", icon: Layers, label: "Pool Health" },
   { to: "/alerts", icon: AlertTriangle, label: "Alerts" },
   { to: "/consolidation", icon: BarChart2, label: "Consolidation" },
+];
+
+const POOL_SECTIONS = [
+  { section: "",        label: "Overview",  icon: Layers },
+  { section: "mac",     label: "macOS",     icon: Apple },
+  { section: "linux",   label: "Linux",     icon: Terminal },
+  { section: "android", label: "Android",   icon: Smartphone },
 ];
 
 export function Layout() {
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState("");
+  const [tcSync, setTcSync] = useState<{ last_success: string | null } | null>(null);
+
+  useEffect(() => {
+    api.fleet.summary()
+      .then(d => setTcSync(d.sync_status["taskcluster"] ?? null))
+      .catch(() => {});
+  }, []);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const onPools = location.pathname.startsWith("/pools");
+  const currentSection = new URLSearchParams(location.search).get("section") ?? "";
 
   async function triggerSync() {
     setSyncing(true);
@@ -39,41 +64,76 @@ export function Layout() {
         {/* Brand */}
         <div className="px-4 py-5 border-b border-gray-800/60">
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-brand-600/20 border border-brand-500/30 flex items-center justify-center flex-shrink-0">
-              <Cpu size={14} className="text-brand-400" />
-            </div>
+            <svg viewBox="0 0 48 32" width="36" height="24" xmlns="http://www.w3.org/2000/svg" className="flex-shrink-0">
+              <path d="M3,26 Q14,5 45,13 Q31,17 29,26 Z" fill="#378ADD"/>
+              <path d="M3,26 Q14,8 45,13 Q36,11 34,20 Z" fill="#85B7EB"/>
+            </svg>
             <div>
-              <div className="text-[10px] font-semibold text-brand-400/80 uppercase tracking-[0.2em] leading-none">RelOps</div>
-              <div className="text-sm font-semibold text-white leading-tight mt-0.5">Fleet Dashboard</div>
+              <div className="text-base font-medium text-brand-500 leading-none tracking-tight">Hangar</div>
+              <div className="text-[10px] font-mono text-gray-600 leading-none mt-1 tracking-wide">CI FLEET MANAGER</div>
             </div>
           </div>
         </div>
 
         {/* Nav */}
         <nav className="flex-1 px-2 py-3 space-y-0.5">
-          {NAV.map(({ to, icon: Icon, label }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === "/"}
-              className={({ isActive }) =>
-                clsx(
-                  "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 relative",
-                  isActive
-                    ? "bg-brand-500/10 text-brand-300 border border-brand-500/20"
-                    : "text-gray-500 hover:text-gray-200 hover:bg-gray-800/60 border border-transparent"
-                )
-              }
-            >
-              {({ isActive }) => (
-                <>
-                  {isActive && (
-                    <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 bg-brand-400 rounded-full" />
-                  )}
-                  <Icon size={15} />
-                  {label}
-                </>
-              )}
+          {NAV.slice(0, 2).map(({ to, icon: Icon, label }) => (
+            <NavLink key={to} to={to} end={to === "/"}
+              className={({ isActive }) => clsx(
+                "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 relative",
+                isActive ? "bg-brand-500/10 text-brand-300 border border-brand-500/20"
+                         : "text-gray-500 hover:text-gray-200 hover:bg-gray-800/60 border border-transparent"
+              )}>
+              {({ isActive }) => (<>
+                {isActive && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 bg-brand-400 rounded-full" />}
+                <Icon size={15} />{label}
+              </>)}
+            </NavLink>
+          ))}
+
+          {/* Pool Health with sub-nav */}
+          <div>
+            <button onClick={() => navigate("/pools")}
+              className={clsx(
+                "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 relative",
+                onPools ? "bg-brand-500/10 text-brand-300 border border-brand-500/20"
+                        : "text-gray-500 hover:text-gray-200 hover:bg-gray-800/60 border border-transparent"
+              )}>
+              {onPools && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 bg-brand-400 rounded-full" />}
+              <Layers size={15} />
+              <span className="flex-1 text-left">Pool Health</span>
+              <ChevronDown size={11} className={clsx("transition-transform text-gray-600", onPools && "rotate-180")} />
+            </button>
+            {onPools && (
+              <div className="mt-0.5 ml-3 pl-3 border-l border-gray-800 space-y-0.5">
+                {POOL_SECTIONS.map(({ section, label, icon: Icon }) => {
+                  const isActive = currentSection === section;
+                  const to = section ? `/pools?section=${section}` : "/pools";
+                  return (
+                    <button key={section} onClick={() => navigate(to)}
+                      className={clsx(
+                        "w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all",
+                        isActive ? "bg-brand-500/10 text-brand-300" : "text-gray-600 hover:text-gray-300 hover:bg-gray-800/40"
+                      )}>
+                      <Icon size={11} />{label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {NAV.slice(2).map(({ to, icon: Icon, label }) => (
+            <NavLink key={to} to={to}
+              className={({ isActive }) => clsx(
+                "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 relative",
+                isActive ? "bg-brand-500/10 text-brand-300 border border-brand-500/20"
+                         : "text-gray-500 hover:text-gray-200 hover:bg-gray-800/60 border border-transparent"
+              )}>
+              {({ isActive }) => (<>
+                {isActive && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 bg-brand-400 rounded-full" />}
+                <Icon size={15} />{label}
+              </>)}
             </NavLink>
           ))}
         </nav>
@@ -86,7 +146,12 @@ export function Layout() {
             className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-xs font-medium text-gray-500 hover:text-gray-200 hover:bg-gray-800/60 transition-all disabled:opacity-40 border border-transparent hover:border-gray-700/50"
           >
             <RefreshCw size={12} className={syncing ? "animate-spin" : ""} />
-            {syncing ? "Syncing…" : syncMsg || "Sync All Sources"}
+            <div className="flex flex-col items-start gap-0.5">
+              <span>{syncing ? "Syncing…" : syncMsg || "Sync All Sources"}</span>
+              {!syncing && !syncMsg && tcSync?.last_success && (
+                <span className="text-[10px] text-gray-700 font-normal">TC {timeAgo(tcSync.last_success)}</span>
+              )}
+            </div>
           </button>
         </div>
       </aside>

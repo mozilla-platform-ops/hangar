@@ -14,7 +14,8 @@ class Worker(Base):
 
     hostname: Mapped[str] = mapped_column(String(255), primary_key=True)
     worker_id: Mapped[str | None] = mapped_column(String(255))
-    generation: Mapped[str | None] = mapped_column(String(20))  # r8 / m2 / m4
+    generation: Mapped[str | None] = mapped_column(String(20))  # r8 / m2 / m4 / 2404 / 1804
+    platform: Mapped[str | None] = mapped_column(String(20))   # mac / linux / windows
 
     # From Puppet inventory.d
     worker_pool: Mapped[str | None] = mapped_column(String(255))
@@ -52,6 +53,8 @@ class Worker(Base):
     tc_first_claim: Mapped[datetime | None] = mapped_column(DateTime)
     tc_latest_task_id: Mapped[str | None] = mapped_column(String(100))
     tc_latest_task_state: Mapped[str | None] = mapped_column(String(50))
+    tc_latest_task_owner: Mapped[str | None] = mapped_column(String(255))
+    tc_latest_task_routes: Mapped[str | None] = mapped_column(Text)  # JSON list of route strings
     tc_worker_pool_id: Mapped[str | None] = mapped_column(String(255))
 
     @property
@@ -93,3 +96,16 @@ class SyncLog(Base):
     records_updated: Mapped[int | None] = mapped_column(Integer)
     error: Mapped[str | None] = mapped_column(Text)
     success: Mapped[bool | None] = mapped_column(Boolean)
+
+
+class FailureEvent(Base):
+    __tablename__ = "failure_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    task_id: Mapped[str] = mapped_column(String(100), index=True)
+    task_name: Mapped[str | None] = mapped_column(Text)
+    hostname: Mapped[str] = mapped_column(String(255), index=True)
+    worker_pool: Mapped[str | None] = mapped_column(String(255))
+    state: Mapped[str] = mapped_column(String(20))           # "failed" | "exception"
+    reason_resolved: Mapped[str | None] = mapped_column(String(100))
+    failed_at: Mapped[datetime] = mapped_column(DateTime, index=True)

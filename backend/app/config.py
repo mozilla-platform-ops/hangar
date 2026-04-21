@@ -15,27 +15,47 @@ class Settings(BaseSettings):
 
     # Taskcluster
     tc_root_url: str = "https://firefox-ci-tc.services.mozilla.com"
-    # TC client ID + access token are optional; unauthenticated works for public pools
     tc_client_id: str = ""
     tc_access_token: str = ""
 
     # Google Sheets
-    google_sheets_id: str = ""           # read-only master inventory sheet
-    google_export_sheet_id: str = ""     # dashboard-owned export sheet (written to)
-    google_credentials_json: str = ""    # path to service account key JSON file
+    google_sheets_id: str = ""
+    google_export_sheet_id: str = ""
+    google_credentials_json: str = ""
 
     # ronin_puppet repo
     puppet_repo_url: str = "https://github.com/mozilla-platform-ops/ronin_puppet"
     puppet_repo_path: str = "/tmp/ronin_puppet"
 
     # Sync intervals (seconds)
-    sync_interval_tc: int = 300        # 5 min
-    sync_interval_simplemdm: int = 900  # 15 min
-    sync_interval_sheets: int = 1800   # 30 min
-    sync_interval_puppet: int = 3600   # 60 min
+    sync_interval_tc: int = 300
+    sync_interval_simplemdm: int = 900
+    sync_interval_sheets: int = 1800
+    sync_interval_puppet: int = 3600
 
     # Alert thresholds
-    tc_missing_threshold_hours: int = 24  # flag worker if no TC activity for this long
+    tc_missing_threshold_hours: int = 24
+
+    # Security
+    # Comma-separated allowed CORS origins. Use "*" for local dev only.
+    cors_origins: str = "*"
+    # Path to SSH known_hosts file for worker SSH terminal connections.
+    # In Cloud Run this is the Secret Manager mount path.
+    ssh_known_hosts_path: str = "/run/secrets/ssh_known_hosts"
+    # Path to the relops dashboard SSH private key (for pool batch operations).
+    ssh_dashboard_key_path: str = "/run/secrets/ssh/dashboard_key"
+    # Set true only in local dev to skip SSH host key verification.
+    ssh_insecure_skip_host_check: bool = False
+
+    # Logging: set LOG_JSON=true in production for Cloud Logging structured output.
+    log_json: bool = False
+
+    # Frontend static files directory (auto-detected; override if needed).
+    static_dir: str = ""
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
 
 settings = Settings()

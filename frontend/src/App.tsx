@@ -1,5 +1,7 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Layout } from "./components/Layout";
+import { CommandPalette } from "./components/CommandPalette";
+import { KeyboardShortcuts } from "./components/KeyboardShortcuts";
 import { Overview } from "./pages/Overview";
 import { Workers } from "./pages/Workers";
 import { WorkerDetail } from "./pages/WorkerDetail";
@@ -10,6 +12,8 @@ import { Pools } from "./pages/Pools";
 export default function App() {
   return (
     <BrowserRouter>
+      <CommandPalette />
+      <KeyboardShortcuts />
       <Routes>
         <Route element={<Layout />}>
           <Route index element={<Overview />} />
