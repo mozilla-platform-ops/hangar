@@ -98,7 +98,7 @@ def fleet_summary(db: Session = Depends(get_db)) -> dict[str, Any]:
 
     # Sync status
     sync_status = {}
-    for source in ("puppet", "simplemdm", "taskcluster", "sheets"):
+    for source in ("puppet", "windows_inventory", "simplemdm", "taskcluster", "sheets"):
         last = (
             db.query(SyncLog)
             .filter(SyncLog.source == source, SyncLog.success == True)  # noqa: E712
@@ -346,21 +346,31 @@ def pool_sources(pool: str, db: Session = Depends(get_db)) -> dict[str, Any]:
     }
 
 
-PLATFORM_POOL_PREFIXES: dict[str, str] = {
-    "mac": "gecko-t-osx-%",
-    "linux": "gecko-t-linux-%",
+PLATFORM_POOL_PATTERNS: dict[str, list[str]] = {
+    "mac": ["gecko-t-osx-%"],
+    "linux": ["gecko-t-linux-%"],
+    "windows": ["win11-%", "gecko-t-win%"],
 }
+
+
+def _platform_pool_filter(platform: str | None):
+    """Return a SQLAlchemy OR clause for FailureEvent.worker_pool matching the platform, or None."""
+    from sqlalchemy import or_
+    patterns = PLATFORM_POOL_PATTERNS.get(platform or "")
+    if not patterns:
+        return None
+    return or_(*[FailureEvent.worker_pool.like(p) for p in patterns])
 
 
 @router.get("/failures")
 def failure_insights(days: int = 7, platform: str | None = None, db: Session = Depends(get_db)) -> dict[str, Any]:
     """Top failing machines and test task types over the last N days.
 
-    Optional platform filter: "mac" | "linux" (defaults to all hardware pools).
+    Optional platform filter: "mac" | "linux" | "windows" (defaults to all hardware pools).
     """
     from sqlalchemy import desc
     cutoff = datetime.utcnow() - timedelta(days=days)
-    pool_like = PLATFORM_POOL_PREFIXES.get(platform or "")
+    pool_clause = _platform_pool_filter(platform)
 
     base_machine = (
         db.query(
@@ -371,8 +381,8 @@ def failure_insights(days: int = 7, platform: str | None = None, db: Session = D
         )
         .filter(FailureEvent.failed_at >= cutoff)
     )
-    if pool_like:
-        base_machine = base_machine.filter(FailureEvent.worker_pool.like(pool_like))
+    if pool_clause is not None:
+        base_machine = base_machine.filter(pool_clause)
 
     machine_rows = (
         base_machine
@@ -394,8 +404,8 @@ def failure_insights(days: int = 7, platform: str | None = None, db: Session = D
             FailureEvent.task_name.isnot(None),
         )
     )
-    if pool_like:
-        base_test = base_test.filter(FailureEvent.worker_pool.like(pool_like))
+    if pool_clause is not None:
+        base_test = base_test.filter(pool_clause)
 
     test_rows = (
         base_test

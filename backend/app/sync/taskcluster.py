@@ -13,6 +13,7 @@ import requests
 from sqlalchemy.orm import Session
 
 from ..config import settings
+from ..hosts import worker_fqdn
 from ..models import Alert, FailureEvent, SyncLog, Worker
 
 log = logging.getLogger(__name__)
@@ -72,6 +73,15 @@ HW_WORKER_POOLS: list[tuple[str, str]] = [
     ("releng-hardware", "gecko-t-linux-talos-2404"),
     ("releng-hardware", "gecko-t-linux-netperf-1804"),
     ("releng-hardware", "gecko-t-linux-netperf-2404"),
+    # Windows hardware
+    ("releng-hardware", "win11-64-24h2-hw"),
+    ("releng-hardware", "win11-64-24h2-hw-alpha"),
+    ("releng-hardware", "win11-64-24h2-hw-perf-debug"),
+    ("releng-hardware", "win11-64-24h2-hw-perf-sheriff"),
+    ("releng-hardware", "win11-64-24h2-hw-ref"),
+    ("releng-hardware", "win11-64-24h2-hw-ref-alpha"),
+    ("releng-hardware", "win11-64-24h2-hw-relops1213"),
+    ("releng-hardware", "gecko-t-win7-32-hw"),
 ]
 
 # Keep old name as alias so fleet.py import doesn't break until updated
@@ -89,10 +99,17 @@ def _detect_platform(worker_id: str, worker_pool_id: str | None) -> str:
 
 def _detect_generation(hostname: str, worker_pool: str | None) -> str | None:
     pool = (worker_pool or "").lower()
+    host = hostname.lower()
     if "2404" in pool:
         return "2404"
     if "1804" in pool:
         return "1804"
+    if host.startswith("t-nuc12-") or "hw-ref" in pool:
+        return "nuc12"
+    if host.startswith("nuc13-"):
+        return "nuc13"
+    if host.startswith("win7-32-") or "win7" in pool:
+        return "win7"
     if "m4" in hostname:
         return "m4"
     if "m2" in hostname:
@@ -186,9 +203,7 @@ def _parse_dt(value: str | None) -> datetime | None:
 
 def _worker_hostname(worker_id: str) -> str:
     """Convert worker ID to FQDN. worker_id is typically the short hostname."""
-    if "." in worker_id:
-        return worker_id
-    return f"{worker_id}.test.releng.mdc1.mozilla.com"
+    return worker_fqdn(worker_id)
 
 
 def _generate_alerts(db: Session, hostname: str, worker: Worker) -> None:
@@ -247,7 +262,7 @@ def _check_absent_workers(db: Session, seen_hostnames: set[str]) -> None:
     now = datetime.utcnow()
     threshold_hours = settings.tc_missing_threshold_hours
 
-    # Only macmini workers are expected to be in TC.
+    # Only test-pool hardware workers are expected to be in TC.
     # Signing workers (mac-v3-signing, adhoc-mac, etc.) and macmini machines
     # assigned to signing pools never use TC the same way — exclude them.
     candidates = (
@@ -255,7 +270,12 @@ def _check_absent_workers(db: Session, seen_hostnames: set[str]) -> None:
         .filter(
             (Worker.puppet_role != None) | (Worker.tc_worker_pool_id != None)  # noqa: E711
         )
-        .filter(Worker.hostname.like("macmini-%"))
+        .filter(
+            Worker.hostname.like("macmini-%")
+            | Worker.hostname.like("nuc13-%")
+            | Worker.hostname.like("t-nuc12-%")
+            | Worker.hostname.like("win7-32-%")
+        )
         .filter(
             (Worker.worker_pool == None) | (~Worker.worker_pool.ilike("%signing%"))  # noqa: E711
         )

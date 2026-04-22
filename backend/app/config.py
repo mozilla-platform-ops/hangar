@@ -27,11 +27,16 @@ class Settings(BaseSettings):
     puppet_repo_url: str = "https://github.com/mozilla-platform-ops/ronin_puppet"
     puppet_repo_path: str = "/tmp/ronin_puppet"
 
+    # worker-images repo — source for Windows NUC inventory (pools.yml).
+    worker_images_repo_url: str = "https://github.com/mozilla-platform-ops/worker-images"
+    worker_images_repo_path: str = "/tmp/worker-images"
+
     # Sync intervals (seconds)
     sync_interval_tc: int = 300
     sync_interval_simplemdm: int = 900
     sync_interval_sheets: int = 1800
     sync_interval_puppet: int = 3600
+    sync_interval_windows_inventory: int = 3600
 
     # Alert thresholds
     tc_missing_threshold_hours: int = 24

@@ -38,10 +38,16 @@ def _run_sheets() -> None:
         google_sheets.run_sync(db)
 
 
+def _run_windows_inventory() -> None:
+    from . import windows_inventory
+    with SessionLocal() as db:
+        windows_inventory.run_sync(db)
+
+
 def run_all_sync() -> None:
     """Run all sync jobs sequentially (used for manual trigger)."""
     log.info("Manual sync: starting all sources")
-    for fn in (_run_puppet, _run_simplemdm, _run_taskcluster, _run_sheets):
+    for fn in (_run_puppet, _run_windows_inventory, _run_simplemdm, _run_taskcluster, _run_sheets):
         try:
             fn()
         except Exception:
@@ -54,6 +60,7 @@ def start_scheduler() -> None:
     _scheduler = BackgroundScheduler(daemon=True)
 
     _scheduler.add_job(_run_puppet, IntervalTrigger(seconds=settings.sync_interval_puppet), id="puppet", replace_existing=True)
+    _scheduler.add_job(_run_windows_inventory, IntervalTrigger(seconds=settings.sync_interval_windows_inventory), id="windows_inventory", replace_existing=True)
     _scheduler.add_job(_run_simplemdm, IntervalTrigger(seconds=settings.sync_interval_simplemdm), id="simplemdm", replace_existing=True)
     _scheduler.add_job(_run_taskcluster, IntervalTrigger(seconds=settings.sync_interval_tc), id="taskcluster", replace_existing=True)
     _scheduler.add_job(_run_sheets, IntervalTrigger(seconds=settings.sync_interval_sheets), id="sheets", replace_existing=True)

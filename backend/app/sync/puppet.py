@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 import logging
-import re
-import subprocess
 from datetime import datetime
 from pathlib import Path
 
@@ -12,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models import SyncLog, Worker
+from ._git import ensure_repo
 
 log = logging.getLogger(__name__)
 
@@ -36,43 +35,6 @@ def _generation_from_hostname(hostname: str) -> str | None:
 def _worker_id_from_hostname(hostname: str) -> str:
     """Strip domain suffix → worker ID (e.g. macmini-r8-50.test.releng... → macmini-r8-50)."""
     return hostname.split(".")[0]
-
-
-def _ensure_repo(repo_url: str, local_path: str) -> None:
-    """Clone or pull the puppet repo.
-
-    Uses git-init-in-place so we never have to remove the directory —
-    important because Docker volume mount points cannot be rmdir'd (EBUSY).
-    """
-    path = Path(local_path)
-    git_dir = path / ".git"
-
-    if git_dir.exists():
-        log.info("Pulling puppet repo at %s", local_path)
-        subprocess.run(
-            ["git", "-C", local_path, "fetch", "--depth=1", "--quiet", "origin"],
-            check=True, timeout=120,
-        )
-        subprocess.run(
-            ["git", "-C", local_path, "checkout", "--quiet", "FETCH_HEAD"],
-            check=True, timeout=60,
-        )
-    else:
-        log.info("Initialising puppet repo in %s from %s", local_path, repo_url)
-        path.mkdir(parents=True, exist_ok=True)
-        subprocess.run(["git", "-C", local_path, "init", "--quiet"], check=True, timeout=30)
-        subprocess.run(
-            ["git", "-C", local_path, "remote", "add", "origin", repo_url],
-            check=True, timeout=10,
-        )
-        subprocess.run(
-            ["git", "-C", local_path, "fetch", "--depth=1", "--quiet", "origin", "master"],
-            check=True, timeout=300,
-        )
-        subprocess.run(
-            ["git", "-C", local_path, "checkout", "--quiet", "FETCH_HEAD"],
-            check=True, timeout=60,
-        )
 
 
 def _parse_inventory_d(inventory_d: Path) -> list[dict]:
@@ -103,7 +65,7 @@ def run_sync(db: Session) -> int:
     db.flush()
 
     try:
-        _ensure_repo(settings.puppet_repo_url, settings.puppet_repo_path)
+        ensure_repo(settings.puppet_repo_url, settings.puppet_repo_path, "master")
         inventory_d = Path(settings.puppet_repo_path) / "inventory.d"
         if not inventory_d.exists():
             raise FileNotFoundError(f"inventory.d not found at {inventory_d}")

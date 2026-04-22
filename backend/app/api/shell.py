@@ -20,6 +20,7 @@ import asyncssh
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from ..config import settings
+from ..hosts import worker_fqdn
 
 log = logging.getLogger(__name__)
 
@@ -46,7 +47,7 @@ def _resolve_known_hosts() -> str | None:
 @router.websocket("/{hostname:path}/shell")
 async def worker_shell(websocket: WebSocket, hostname: str) -> None:
     await websocket.accept()
-    fqdn = hostname if "." in hostname else f"{hostname}.test.releng.mdc1.mozilla.com"
+    fqdn = worker_fqdn(hostname)
 
     # Step 1: receive credentials
     try:
@@ -160,7 +161,7 @@ async def worker_vnc(websocket: WebSocket, hostname: str) -> None:
     The 'binary' subprotocol header is required by noVNC.
     """
     await websocket.accept(subprotocol="binary")
-    fqdn = hostname if "." in hostname else f"{hostname}.test.releng.mdc1.mozilla.com"
+    fqdn = worker_fqdn(hostname)
 
     try:
         reader, writer = await asyncio.wait_for(

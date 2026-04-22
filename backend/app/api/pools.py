@@ -87,6 +87,15 @@ def _settings_path(platform: str | None) -> str:
     return "/etc/puppet/ronin_settings" if platform == "linux" else "/opt/puppet_environments/ronin_settings"
 
 
+def _reject_windows(workers: list[Worker], pool_name: str) -> None:
+    """Windows workers have no ronin_settings file; refuse branch ops on them."""
+    if any(w.platform == "windows" for w in workers):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Branch overrides are not supported on Windows pool {pool_name!r}",
+        )
+
+
 class SetBranchRequest(BaseModel):
     branch: str
     repo: str = "https://github.com/mozilla-platform-ops/ronin_puppet.git"
@@ -98,6 +107,7 @@ async def set_pool_branch(pool_name: str, body: SetBranchRequest, db: Session = 
     workers = db.query(Worker).filter(Worker.worker_pool == pool_name).all()
     if not workers:
         raise HTTPException(status_code=404, detail=f"Pool {pool_name!r} not found")
+    _reject_windows(workers, pool_name)
 
     content = (
         f"# puppet overrides\n"
@@ -128,6 +138,7 @@ async def clear_pool_branch(pool_name: str, db: Session = Depends(get_db)) -> di
     workers = db.query(Worker).filter(Worker.worker_pool == pool_name).all()
     if not workers:
         raise HTTPException(status_code=404, detail=f"Pool {pool_name!r} not found")
+    _reject_windows(workers, pool_name)
 
     async def _clear_one(w: Worker) -> dict:
         path = _settings_path(w.platform)
