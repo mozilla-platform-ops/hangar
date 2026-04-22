@@ -23,7 +23,7 @@ Hangar pulls data from Taskcluster, SimpleMDM, Puppet, and Google Sheets and sti
 
 | Resource | Value |
 |---|---|
-| URL | https://hangar.relops.mozilla.com (DNS pending) |
+| URL | https://hangar.relops.mozilla.com |
 | GCP Project | `relops-dashboard` |
 | Cloud Run | `hangar` (us-central1) |
 | Auth | Google IAP — `@mozilla.com` accounts only, no GCP access required |

@@ -8,7 +8,7 @@ Share this file at the start of a new session to restore full context.
 
 **Hangar** is the RelOps Fleet Dashboard — a FastAPI + React SPA that aggregates data from Taskcluster, SimpleMDM, Puppet, and Google Sheets to give visibility into the Mozilla macOS CI worker fleet (~400 mac minis across MDC1).
 
-Production URL: **https://hangar.relops.mozilla.com** (DNS A record pending — `hangar.relops.mozilla.com → 34.54.129.77`)
+Production URL: **https://hangar.relops.mozilla.com**
 
 ---
 
@@ -21,7 +21,7 @@ Production URL: **https://hangar.relops.mozilla.com** (DNS A record pending — 
 | Cloud Run service | `hangar` |
 | Cloud Run direct URL | `https://hangar-vyqzdo4yva-uc.a.run.app` (blocked — LB only) |
 | Load balancer IP | `34.54.129.77` |
-| Target DNS | `hangar.relops.mozilla.com → 34.54.129.77` (A record not yet added) |
+| Target DNS | `hangar.relops.mozilla.com → 34.54.129.77` ✅ |
 | Cloud SQL instance | `hangar-db` (Postgres 16, private IP, `ENCRYPTED_ONLY` SSL) |
 | Artifact Registry | `us-central1-docker.pkg.dev/relops-dashboard/hangar` |
 | IAP OAuth client | `488152629256-83ivupuuj3gtrbl9s1minapsv9bq0td5.apps.googleusercontent.com` |
@@ -151,8 +151,7 @@ gcloud projects delete relops-dashboard
 
 ## What still needs doing
 
-1. **DNS**: Add A record `hangar.relops.mozilla.com → 34.54.129.77` — SSL cert will auto-provision within ~15 min after
-2. **Remove `allUsers` invoker**: Clean up Cloud Run IAM to remove `allUsers roles/run.invoker` via Terraform
+1. **Remove `allUsers` invoker**: Clean up Cloud Run IAM to remove `allUsers roles/run.invoker` via Terraform
 3. **Terraform IAP service account**: Add `gcloud beta services identity create` and the IAP invoker binding to `iam.tf`
 4. **Rename Cloud Build trigger**: `hangar-security-deploy` → `hangar-main` for clarity
 5. **SSH known_hosts secret**: Populate `hangar-ssh-known-hosts` with actual known_hosts from MDC1 workers
