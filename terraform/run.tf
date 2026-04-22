@@ -13,6 +13,14 @@ resource "google_cloud_run_v2_service" "hangar" {
   # Only reachable via the load balancer — not directly from the internet
   ingress = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
 
+  lifecycle {
+    ignore_changes = [
+      template[0].containers[0].image,
+      client,
+      client_version,
+    ]
+  }
+
   template {
     service_account = google_service_account.hangar_run.email
 
