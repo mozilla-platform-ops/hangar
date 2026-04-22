@@ -4,7 +4,7 @@
 
 Hangar pulls data from Taskcluster, SimpleMDM, Puppet, and Google Sheets and stitches it into a single live view of your entire test infrastructure. Pool health, hardware generations, task failures, quarantined machines, missing workers — all in one dark-themed dashboard with web SSH and VNC built right in. No more tab soup.
 
-> 🚧 Currently tracking Mozilla's CI fleet. Built to grow with the rest of the infrastructure.
+> Currently tracking Mozilla's CI fleet. Built to grow with the rest of the infrastructure.
 
 ---
 
@@ -15,11 +15,23 @@ Hangar pulls data from Taskcluster, SimpleMDM, Puppet, and Google Sheets and sti
 | Frontend | React 19 + TypeScript, Vite, Tailwind CSS, Recharts, TanStack Table |
 | Backend | FastAPI (Python 3.11), SQLAlchemy 2, APScheduler |
 | Database | PostgreSQL 16 |
-| Infrastructure | Docker Compose |
+| Infrastructure | GCP (Cloud Run, Cloud SQL, Cloud Load Balancing, IAP, Cloud Build) |
 
 ---
 
-## 🚀 Quick Start
+## 🌐 Production
+
+| Resource | Value |
+|---|---|
+| URL | https://hangar.relops.mozilla.com (DNS pending) |
+| GCP Project | `relops-dashboard` |
+| Cloud Run | `hangar` (us-central1) |
+| Auth | Google IAP — `@mozilla.com` accounts only, no GCP access required |
+| CI/CD | Cloud Build triggers on push to `main` |
+
+---
+
+## 🚀 Quick Start (local dev)
 
 ```bash
 # 1. Configure environment
@@ -106,6 +118,22 @@ All variables are optional unless marked required.
 │              PostgreSQL 16                          │
 │  workers · alerts · sync_logs · failure_events      │
 └─────────────────────────────────────────────────────┘
+```
+
+### GCP architecture
+
+```
+User (mozilla.com Google account)
+  │
+  ▼
+Global Load Balancer (34.54.129.77)
+  │  Cloud Armor (OWASP rules + rate limiting)
+  │  Identity-Aware Proxy (IAP) — google auth gate
+  ▼
+Cloud Run — hangar (us-central1, min 1 instance)
+  │  INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER (direct URL blocked)
+  ▼
+Cloud SQL — Postgres 16 (private IP via VPC connector)
 ```
 
 ### Data sources
@@ -215,7 +243,7 @@ hangar/
 │   │   ├── App.tsx              React Router setup
 │   │   ├── api.ts               Typed API client + all TS interfaces
 │   │   ├── components/
-│   │   │   ├── Layout.tsx       App shell (collapsible sidebar)
+│   │   │   ├── Layout.tsx       App shell — sidebar nav (collapses to hamburger drawer on mobile)
 │   │   │   ├── CommandPalette.tsx  ⌘K quick search
 │   │   │   ├── KeyboardShortcuts.tsx
 │   │   │   ├── ShellModal.tsx   xterm.js SSH terminal
@@ -229,7 +257,18 @@ hangar/
 │   │       └── Consolidation.tsx
 │   ├── vite.config.ts           Dev proxy → :8000
 │   └── package.json
-└── docker-compose.yml           postgres + backend services
+├── terraform/                   All GCP infrastructure
+│   ├── main.tf                  Provider, APIs, VPC, VPC connector
+│   ├── run.tf                   Cloud Run service
+│   ├── lb.tf                    Load balancer, IAP, Cloud Armor, SSL cert
+│   ├── iam.tf                   Service accounts, IAM bindings, IAP access
+│   ├── sql.tf                   Cloud SQL Postgres 16
+│   ├── secrets.tf               Secret Manager secrets
+│   ├── variables.tf             All configurable vars
+│   └── terraform.tfvars         Local var overrides (gitignored)
+├── cloudbuild.yaml              CI/CD — triggers on push to main
+├── docker-compose.yml           Local dev (postgres + backend)
+└── .env.example                 Template for local dev
 ```
 
 ---
