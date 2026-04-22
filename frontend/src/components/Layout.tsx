@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Monitor, AlertTriangle, BarChart2, RefreshCw, Layers, ChevronDown, Smartphone, Terminal, Apple } from "lucide-react";
+import { LayoutDashboard, Monitor, AlertTriangle, BarChart2, RefreshCw, Layers, ChevronDown, Smartphone, Terminal, Apple, Menu, X } from "lucide-react";
 import { clsx } from "clsx";
 import { useState, useEffect } from "react";
 import { api } from "../api";
@@ -30,6 +30,7 @@ export function Layout() {
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState("");
   const [tcSync, setTcSync] = useState<{ last_success: string | null } | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
     api.fleet.summary()
@@ -38,6 +39,10 @@ export function Layout() {
   }, []);
   const location = useLocation();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname, location.search]);
   const onPools = location.pathname.startsWith("/pools");
   const currentSection = new URLSearchParams(location.search).get("section") ?? "";
 
@@ -56,9 +61,21 @@ export function Layout() {
   }
 
   return (
-    <div className="flex h-screen bg-gray-950">
+    <div className="flex h-screen bg-gray-950 overflow-hidden">
+      {/* Mobile backdrop */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-20 bg-gray-950/70 backdrop-blur-sm md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <aside className="w-56 flex-shrink-0 flex flex-col border-r border-gray-800/80"
+      <aside
+        className={clsx(
+          "fixed md:relative inset-y-0 left-0 z-30 w-56 flex-shrink-0 flex flex-col border-r border-gray-800/80 transition-transform duration-200 ease-in-out",
+          sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+        )}
         style={{ background: "linear-gradient(180deg, #0f1117 0%, #0d1117 100%)" }}>
 
         {/* Brand */}
@@ -68,10 +85,16 @@ export function Layout() {
               <path d="M3,26 Q14,5 45,13 Q31,17 29,26 Z" fill="#378ADD"/>
               <path d="M3,26 Q14,8 45,13 Q36,11 34,20 Z" fill="#85B7EB"/>
             </svg>
-            <div>
+            <div className="flex-1">
               <div className="text-base font-medium text-brand-500 leading-none tracking-tight">Hangar</div>
               <div className="text-[10px] font-mono text-gray-600 leading-none mt-1 tracking-wide">CI FLEET MANAGER</div>
             </div>
+            <button
+              className="md:hidden p-1 text-gray-600 hover:text-gray-300 transition-colors"
+              onClick={() => setSidebarOpen(false)}
+            >
+              <X size={16} />
+            </button>
           </div>
         </div>
 
@@ -157,8 +180,24 @@ export function Layout() {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-auto">
-        <Outlet />
+      <main className="flex-1 overflow-auto flex flex-col min-w-0">
+        {/* Mobile top bar */}
+        <div className="md:hidden sticky top-0 z-10 flex items-center gap-3 px-4 py-3 border-b border-gray-800/60 bg-gray-950/90 backdrop-blur-sm flex-shrink-0">
+          <button
+            className="p-1.5 -ml-1 text-gray-500 hover:text-gray-200 hover:bg-gray-800/60 rounded-lg transition-colors"
+            onClick={() => setSidebarOpen(true)}
+          >
+            <Menu size={20} />
+          </button>
+          <svg viewBox="0 0 48 32" width="28" height="18" xmlns="http://www.w3.org/2000/svg" className="flex-shrink-0">
+            <path d="M3,26 Q14,5 45,13 Q31,17 29,26 Z" fill="#378ADD"/>
+            <path d="M3,26 Q14,8 45,13 Q36,11 34,20 Z" fill="#85B7EB"/>
+          </svg>
+          <span className="text-sm font-medium text-brand-400 tracking-tight">Hangar</span>
+        </div>
+        <div className="flex-1 overflow-auto">
+          <Outlet />
+        </div>
       </main>
     </div>
   );
