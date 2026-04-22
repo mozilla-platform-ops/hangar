@@ -63,9 +63,10 @@ function shortPool(pool: string | null): string {
 
 
 const FAILURE_PLATFORMS = [
-  { key: "",      label: "All" },
-  { key: "mac",   label: "macOS" },
-  { key: "linux", label: "Linux" },
+  { key: "",        label: "All" },
+  { key: "mac",     label: "macOS" },
+  { key: "linux",   label: "Linux" },
+  { key: "windows", label: "Windows" },
 ];
 
 export function Overview() {
@@ -92,14 +93,16 @@ export function Overview() {
   );
 
   const platformData = (() => {
-    let mac = 0, linux = 0;
+    let mac = 0, linux = 0, windows = 0;
     Object.entries(data.by_pool).forEach(([name, count]) => {
       if (name.includes("osx")) mac += count;
       else if (name.includes("linux")) linux += count;
+      else if (name.includes("win") || name.includes("nuc")) windows += count;
     });
     return [
-      { name: "macOS", value: mac,   color: "#6366f1" },
-      { name: "Linux", value: linux, color: "#10b981" },
+      { name: "macOS",   value: mac,     color: "#6366f1" },
+      { name: "Linux",   value: linux,   color: "#10b981" },
+      { name: "Windows", value: windows, color: "#3b82f6" },
     ].filter(d => d.value > 0);
   })();
 

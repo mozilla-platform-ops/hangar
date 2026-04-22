@@ -9,6 +9,7 @@ from sqlalchemy import asc, desc, nullslast
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..hosts import worker_fqdn
 from ..models import Worker
 
 router = APIRouter(prefix="/workers", tags=["workers"])
@@ -120,7 +121,7 @@ def list_workers(
 
 @router.patch("/{hostname:path}/notes")
 def update_notes(hostname: str, db: Session = Depends(get_db), notes: str | None = Body(None, embed=True)) -> dict[str, Any]:
-    fqdn = hostname if "." in hostname else f"{hostname}.test.releng.mdc1.mozilla.com"
+    fqdn = worker_fqdn(hostname)
     worker = db.get(Worker, fqdn)
     if not worker:
         raise HTTPException(status_code=404, detail=f"Worker {fqdn} not found")
@@ -132,7 +133,7 @@ def update_notes(hostname: str, db: Session = Depends(get_db), notes: str | None
 @router.get("/{hostname:path}")
 def get_worker(hostname: str, db: Session = Depends(get_db)) -> dict[str, Any]:
     # Accept both short and FQDN
-    fqdn = hostname if "." in hostname else f"{hostname}.test.releng.mdc1.mozilla.com"
+    fqdn = worker_fqdn(hostname)
     worker = db.get(Worker, fqdn)
     if not worker:
         raise HTTPException(status_code=404, detail=f"Worker {fqdn} not found")

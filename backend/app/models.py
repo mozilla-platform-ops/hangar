@@ -71,6 +71,7 @@ class Worker(Base):
     last_synced_mdm: Mapped[datetime | None] = mapped_column(DateTime)
     last_synced_tc: Mapped[datetime | None] = mapped_column(DateTime)
     last_synced_sheet: Mapped[datetime | None] = mapped_column(DateTime)
+    last_synced_windows_inventory: Mapped[datetime | None] = mapped_column(DateTime)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 

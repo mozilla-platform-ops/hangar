@@ -18,12 +18,28 @@ const PINNED_POOLS = [
 ];
 
 const GEN_COLOR: Record<string, string> = {
-  r8:   "text-indigo-400",
-  m2:   "text-cyan-400",
-  m4:   "text-emerald-400",
+  r8:    "text-indigo-400",
+  m2:    "text-cyan-400",
+  m4:    "text-emerald-400",
   "2404": "text-teal-400",
   "1804": "text-teal-600",
+  nuc13: "text-sky-400",
+  nuc12: "text-slate-400",
+  win7:  "text-gray-500",
 };
+
+function isLinuxPool(name: string): boolean {
+  return name.includes("linux");
+}
+
+function isWindowsPool(name: string): boolean {
+  return name.includes("win");
+}
+
+function canManagePool(name: string): boolean {
+  // Windows workers have no ronin_settings override file; hide branch UI for them.
+  return !isWindowsPool(name);
+}
 
 const PROJECT_COLORS: Record<string, string> = {
   try:               "bg-sky-500",
@@ -249,10 +265,12 @@ function PinnedCard({ pool, pending, sources, onManage }: {
           </div>
         </div>
         <div className="flex items-start gap-2">
-          <button onClick={e => { e.stopPropagation(); onManage(pool); }}
-            className="p-1.5 rounded-lg hover:bg-gray-700 text-gray-600 hover:text-gray-300 transition-colors mt-0.5" title="Manage branch overrides">
-            <Settings2 size={13} />
-          </button>
+          {canManagePool(pool.name) && (
+            <button onClick={e => { e.stopPropagation(); onManage(pool); }}
+              className="p-1.5 rounded-lg hover:bg-gray-700 text-gray-600 hover:text-gray-300 transition-colors mt-0.5" title="Manage branch overrides">
+              <Settings2 size={13} />
+            </button>
+          )}
           <HealthRing score={pool.health_score} />
         </div>
       </div>
@@ -409,10 +427,12 @@ function PoolTable({ pools, pinnedPools, navigate, showLegend, onManage, pending
                   ) : <span className="text-xs text-gray-700">—</span>}
                 </td>
                 <td className="px-4 py-2.5">
-                  <button onClick={e => { e.stopPropagation(); onManage(pool); }}
-                    className="p-1 rounded hover:bg-gray-700 text-gray-700 hover:text-gray-300 transition-colors" title="Manage branch overrides">
-                    <Settings2 size={12} />
-                  </button>
+                  {canManagePool(pool.name) ? (
+                    <button onClick={e => { e.stopPropagation(); onManage(pool); }}
+                      className="p-1 rounded hover:bg-gray-700 text-gray-700 hover:text-gray-300 transition-colors" title="Manage branch overrides">
+                      <Settings2 size={12} />
+                    </button>
+                  ) : <span className="text-xs text-gray-700">—</span>}
                 </td>
               </tr>
             );
@@ -603,8 +623,8 @@ export function Pools() {
   }, []);
 
   useEffect(() => {
-    const linuxNames = pools.filter(p => p.name.includes("linux")).map(p => p.name);
-    for (const poolName of linuxNames) {
+    const names = pools.filter(p => isLinuxPool(p.name) || isWindowsPool(p.name)).map(p => p.name);
+    for (const poolName of names) {
       api.fleet.poolSources(poolName)
         .then(s => setSources(prev => ({ ...prev, [poolName]: s })))
         .catch(() => {});
@@ -620,8 +640,9 @@ export function Pools() {
 
   const pinnedData = PINNED_POOLS.map(name => pools.find(p => p.name === name)).filter(Boolean) as PoolHealth[];
 
-  const linuxHwPools = pools.filter(p => p.name.includes("linux"));
-  const macPools     = pools.filter(p => !p.name.includes("linux"));
+  const linuxHwPools   = pools.filter(p => isLinuxPool(p.name));
+  const windowsHwPools = pools.filter(p => isWindowsPool(p.name));
+  const macPools       = pools.filter(p => !isLinuxPool(p.name) && !isWindowsPool(p.name));
   const signingPools = macPools.filter(p => p.name.includes("signing"));
   const builderPools = macPools.filter(p => !p.name.includes("signing") && p.name.includes("-b-"));
   const testerPools  = macPools.filter(p => !p.name.includes("signing") && !p.name.includes("-b-") && p.name.includes("-t-"));
@@ -696,6 +717,20 @@ export function Pools() {
               </div>
             </div>
           )}
+          {windowsHwPools.length > 0 && (
+            <div>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-0.5 h-5 bg-sky-500 rounded-full" />
+                <span className="text-sm font-semibold text-gray-300 tracking-tight">Windows Hardware</span>
+                <span className="text-xs text-gray-600">{windowsHwPools.length} pools</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {windowsHwPools.map(pool => (
+                  <PoolStatusTile key={pool.name} pool={pool} pending={pending[pool.name] ?? null} />
+                ))}
+              </div>
+            </div>
+          )}
           {androidPoolData.length > 0 && (
             <div>
               <div className="flex items-center gap-3 mb-4">
@@ -754,6 +789,23 @@ export function Pools() {
               <Terminal size={12} /> All Linux Hardware Pools
             </h2>
             <PoolTable pools={linuxHwPools} pinnedPools={[]} navigate={navigate} showLegend onManage={setManagingPool} pending={pending} />
+          </div>
+        </div>
+      )}
+
+      {section === "windows" && windowsHwPools.length > 0 && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {windowsHwPools.map(pool => (
+              <PinnedCard key={pool.name} pool={pool} pending={pending[pool.name] ?? null}
+                sources={sources[pool.name]} onManage={setManagingPool} />
+            ))}
+          </div>
+          <div>
+            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+              <Terminal size={12} /> All Windows Hardware Pools
+            </h2>
+            <PoolTable pools={windowsHwPools} pinnedPools={[]} navigate={navigate} showLegend onManage={setManagingPool} pending={pending} />
           </div>
         </div>
       )}
