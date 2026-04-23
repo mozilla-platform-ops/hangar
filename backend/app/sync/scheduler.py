@@ -44,10 +44,16 @@ def _run_windows_inventory() -> None:
         windows_inventory.run_sync(db)
 
 
+def _run_github_prs() -> None:
+    from . import github_prs
+    with SessionLocal() as db:
+        github_prs.run_sync(db)
+
+
 def run_all_sync() -> None:
     """Run all sync jobs sequentially (used for manual trigger)."""
     log.info("Manual sync: starting all sources")
-    for fn in (_run_puppet, _run_windows_inventory, _run_simplemdm, _run_taskcluster, _run_sheets):
+    for fn in (_run_puppet, _run_windows_inventory, _run_simplemdm, _run_taskcluster, _run_sheets, _run_github_prs):
         try:
             fn()
         except Exception:
@@ -64,6 +70,7 @@ def start_scheduler() -> None:
     _scheduler.add_job(_run_simplemdm, IntervalTrigger(seconds=settings.sync_interval_simplemdm), id="simplemdm", replace_existing=True)
     _scheduler.add_job(_run_taskcluster, IntervalTrigger(seconds=settings.sync_interval_tc), id="taskcluster", replace_existing=True)
     _scheduler.add_job(_run_sheets, IntervalTrigger(seconds=settings.sync_interval_sheets), id="sheets", replace_existing=True)
+    _scheduler.add_job(_run_github_prs, IntervalTrigger(seconds=settings.sync_interval_github_prs), id="github_prs", replace_existing=True)
 
     _scheduler.start()
     log.info("Background sync scheduler started")

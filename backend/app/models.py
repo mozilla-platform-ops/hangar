@@ -100,6 +100,22 @@ class SyncLog(Base):
     success: Mapped[bool | None] = mapped_column(Boolean)
 
 
+class RoninPR(Base):
+    __tablename__ = "ronin_prs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)  # GitHub PR number
+    title: Mapped[str] = mapped_column(Text)
+    url: Mapped[str] = mapped_column(String(512))
+    state: Mapped[str] = mapped_column(String(20))  # open / closed / merged
+    author: Mapped[str | None] = mapped_column(String(100))
+    labels: Mapped[str] = mapped_column(Text, default="[]")  # JSON list of label names
+    pr_created_at: Mapped[datetime | None] = mapped_column(DateTime)
+    pr_updated_at: Mapped[datetime | None] = mapped_column(DateTime)
+    upvotes: Mapped[int] = mapped_column(Integer, default=0)
+    downvotes: Mapped[int] = mapped_column(Integer, default=0)
+    last_synced: Mapped[datetime | None] = mapped_column(DateTime)
+
+
 class FailureEvent(Base):
     __tablename__ = "failure_events"
 

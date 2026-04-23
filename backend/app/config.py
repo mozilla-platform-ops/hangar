@@ -31,12 +31,16 @@ class Settings(BaseSettings):
     worker_images_repo_url: str = "https://github.com/mozilla-platform-ops/worker-images"
     worker_images_repo_path: str = "/tmp/worker-images"
 
+    # GitHub (optional — increases rate limit from 60 to 5000 req/hr)
+    github_token: str = ""
+
     # Sync intervals (seconds)
     sync_interval_tc: int = 300
     sync_interval_simplemdm: int = 900
     sync_interval_sheets: int = 1800
     sync_interval_puppet: int = 3600
     sync_interval_windows_inventory: int = 3600
+    sync_interval_github_prs: int = 1800
 
     # Alert thresholds
     tc_missing_threshold_hours: int = 24

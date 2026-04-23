@@ -198,6 +198,25 @@ export interface PendingCountsResponse {
   pending_counts: Record<string, number | null>;
 }
 
+export interface RoninPR {
+  number: number;
+  title: string;
+  url: string;
+  state: string;
+  author: string | null;
+  labels: string[];
+  created_at: string | null;
+  updated_at: string | null;
+  upvotes: number;
+  downvotes: number;
+  last_synced: string | null;
+}
+
+export interface RoninPRsResponse {
+  total: number;
+  prs: RoninPR[];
+}
+
 export interface ConsolidationData {
   r8: { total: number; by_state: Record<string, number>; by_pool: Record<string, number>; inactive_30d_count: number; inactive_30d_sample: string[] };
   m4: { total: number; by_state: Record<string, number>; by_pool: Record<string, number>; inactive_30d_count: number; inactive_30d_sample: string[] };
@@ -234,6 +253,11 @@ export const api = {
     list: (activeOnly = true) => get<AlertListResponse>("/alerts", { active_only: activeOnly }),
     resolve: (id: number) => post<Alert>(`/alerts/${id}/resolve`),
     acknowledge: (id: number) => post<Alert>(`/alerts/${id}/acknowledge`),
+  },
+  prs: {
+    list: () => get<RoninPRsResponse>("/prs/ronin"),
+    upvote: (n: number) => post<RoninPR>(`/prs/ronin/${n}/upvote`),
+    downvote: (n: number) => post<RoninPR>(`/prs/ronin/${n}/downvote`),
   },
   sync: {
     run: () => post<{ status: string }>("/sync/run"),
