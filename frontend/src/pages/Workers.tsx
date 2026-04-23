@@ -192,6 +192,14 @@ export function Workers() {
         return <span className={`text-xs font-mono ${b ? "text-amber-400" : "text-gray-700"}`}>{b || "—"}</span>;
       },
     },
+    {
+      id: "git_version",
+      header: "Git",
+      cell: ({ row }) => {
+        const g = row.original.mdm.git_version;
+        return <span className="text-xs font-mono text-gray-400">{g || "—"}</span>;
+      },
+    },
   ];
 
   const table = useReactTable({
