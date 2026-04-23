@@ -881,6 +881,12 @@ export function Pools() {
         </div>
       )}
 
+      {section === "mac" && roninPRs.length > 0 && (
+        <RoninPRPanel prs={roninPRs} onVote={(updated) =>
+          setRoninPRs(prev => prev.map(p => p.number === updated.number ? updated : p))
+        } />
+      )}
+
       {section === "mac" && otherPools.length > 0 && (
         <div>
           <button onClick={toggleOther}
@@ -934,12 +940,6 @@ export function Pools() {
         </div>
       )}
 
-      {section === "mac" && roninPRs.length > 0 && (
-        <RoninPRPanel prs={roninPRs} onVote={(updated) =>
-          setRoninPRs(prev => prev.map(p => p.number === updated.number ? updated : p))
-        } />
-      )}
-
       {managingPool && <PoolBranchModal pool={managingPool} onClose={() => setManagingPool(null)} />}
     </div>
   );
@@ -967,7 +967,7 @@ function RoninPRPanel({ prs, onVote }: { prs: RoninPR[]; onVote: (pr: RoninPR) =
   return (
     <div className="card p-5">
       <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
-        <GitBranch size={12} /> ronin_puppet Mac PRs
+        <GitBranch size={12} /> Incoming Changes
         <span className="ml-1 text-gray-400 font-bold">{prs.length}</span>
       </h3>
       <div className="space-y-2">

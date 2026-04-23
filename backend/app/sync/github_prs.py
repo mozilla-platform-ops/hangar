@@ -80,6 +80,9 @@ def run_sync(db: Session) -> int:
             row.last_synced = datetime.utcnow()
             count += 1
 
+        # Remove PRs that are no longer open / no longer carry the tracked labels
+        db.query(RoninPR).filter(RoninPR.id.not_in(list(seen.keys()))).delete(synchronize_session=False)
+
         db.commit()
         log_entry.finished_at = datetime.utcnow()
         log_entry.records_updated = count
