@@ -55,6 +55,7 @@ export interface WorkerMDM {
   refresh_hz: string | null;
   resolution: string | null;
   branch: string | null;
+  git_version: string | null;
 }
 
 export interface WorkerTC {
