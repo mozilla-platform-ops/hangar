@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { Pin, AlertTriangle, GitBranch, Users, Lock, Hammer, FlaskConical, ChevronDown, Settings2, X, CheckCircle2, Terminal, Smartphone } from "lucide-react";
 import { api } from "../api";
-import type { PoolHealth, PoolOpResult, PoolSources, CloudPool, FleetSummary } from "../api";
+import type { PoolHealth, PoolOpResult, PoolSources, CloudPool, FleetSummary, RoninPR } from "../api";
 
 const OVERVIEW_EXCLUDED_POOLS = new Set([
   "gecko-t-osx-1500-m4-ipv6",
@@ -594,6 +594,7 @@ export function Pools() {
   const [cloudPoolData, setCloudPoolData] = useState<CloudPool[]>([]);
   const [androidPoolData, setAndroidPoolData] = useState<CloudPool[]>([]);
   const [branchOverrides, setBranchOverrides] = useState<FleetSummary["branch_overrides"] | null>(null);
+  const [roninPRs, setRoninPRs] = useState<RoninPR[]>([]);
   const toggleOther = useCallback(() => setShowOther(v => !v), []);
 
   useEffect(() => {
@@ -619,6 +620,9 @@ export function Pools() {
       .catch(() => {});
     api.fleet.summary()
       .then(d => setBranchOverrides(d.branch_overrides))
+      .catch(() => {});
+    api.prs.list()
+      .then(d => setRoninPRs(d.prs))
       .catch(() => {});
   }, []);
 
@@ -877,6 +881,12 @@ export function Pools() {
         </div>
       )}
 
+      {section === "mac" && roninPRs.length > 0 && (
+        <RoninPRPanel prs={roninPRs} onVote={(updated) =>
+          setRoninPRs(prev => prev.map(p => p.number === updated.number ? updated : p))
+        } />
+      )}
+
       {section === "mac" && otherPools.length > 0 && (
         <div>
           <button onClick={toggleOther}
@@ -931,6 +941,70 @@ export function Pools() {
       )}
 
       {managingPool && <PoolBranchModal pool={managingPool} onClose={() => setManagingPool(null)} />}
+    </div>
+  );
+}
+
+const LABEL_COLORS: Record<string, string> = {
+  "Mac Improvement": "bg-amber-950/40 border-amber-800/50 text-amber-300",
+  "Mac Feature":     "bg-blue-950/40 border-blue-800/50 text-blue-300",
+};
+
+function RoninPRPanel({ prs, onVote }: { prs: RoninPR[]; onVote: (pr: RoninPR) => void }) {
+  const [voting, setVoting] = useState<Record<number, boolean>>({});
+
+  async function vote(pr: RoninPR, dir: "up" | "down") {
+    if (voting[pr.number]) return;
+    setVoting(v => ({ ...v, [pr.number]: true }));
+    try {
+      const updated = await (dir === "up" ? api.prs.upvote(pr.number) : api.prs.downvote(pr.number));
+      onVote(updated);
+    } finally {
+      setVoting(v => ({ ...v, [pr.number]: false }));
+    }
+  }
+
+  return (
+    <div className="card p-5">
+      <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+        <GitBranch size={12} /> Incoming Changes
+        <span className="ml-1 text-gray-400 font-bold">{prs.length}</span>
+      </h3>
+      <div className="space-y-2">
+        {prs.map(pr => (
+          <div key={pr.number} className="flex items-center gap-3 rounded-lg bg-gray-800/40 border border-gray-700/40 px-4 py-3">
+            <span className="text-xs font-mono text-gray-600 tabular-nums w-10 shrink-0">#{pr.number}</span>
+            <a href={pr.url} target="_blank" rel="noopener noreferrer"
+              className="flex-1 text-sm text-gray-200 hover:text-white transition-colors truncate">
+              {pr.title}
+            </a>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {pr.labels.map(l => (
+                <span key={l} className={`text-[10px] font-medium px-2 py-0.5 rounded border ${LABEL_COLORS[l] ?? "bg-gray-800 border-gray-700 text-gray-400"}`}>
+                  {l}
+                </span>
+              ))}
+            </div>
+            {pr.author && (
+              <span className="text-xs text-gray-600 shrink-0 hidden lg:block">{pr.author}</span>
+            )}
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                onClick={() => vote(pr, "up")}
+                disabled={voting[pr.number]}
+                className="flex items-center gap-1 px-2 py-1 rounded text-xs text-gray-400 hover:text-emerald-400 hover:bg-emerald-950/30 transition-colors disabled:opacity-40">
+                ▲ <span className="tabular-nums">{pr.upvotes}</span>
+              </button>
+              <button
+                onClick={() => vote(pr, "down")}
+                disabled={voting[pr.number]}
+                className="flex items-center gap-1 px-2 py-1 rounded text-xs text-gray-400 hover:text-red-400 hover:bg-red-950/30 transition-colors disabled:opacity-40">
+                ▼ <span className="tabular-nums">{pr.downvotes}</span>
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
