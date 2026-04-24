@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
-import { Pin, AlertTriangle, GitBranch, Users, Lock, Hammer, FlaskConical, ChevronDown, Settings2, X, CheckCircle2, Terminal, Smartphone } from "lucide-react";
+import { Pin, AlertTriangle, GitBranch, Users, Lock, Hammer, FlaskConical, ChevronDown, Settings2, X, CheckCircle2, Terminal, Smartphone, Monitor } from "lucide-react";
 import { api } from "../api";
 import type { PoolHealth, PoolOpResult, PoolSources, CloudPool, FleetSummary, RoninPR } from "../api";
 
@@ -648,9 +648,10 @@ export function Pools() {
   const windowsHwPools = pools.filter(p => isWindowsPool(p.name));
   const macPools       = pools.filter(p => !isLinuxPool(p.name) && !isWindowsPool(p.name));
   const signingPools = macPools.filter(p => p.name.includes("signing"));
-  const builderPools = macPools.filter(p => !p.name.includes("signing") && p.name.includes("-b-"));
-  const testerPools  = macPools.filter(p => !p.name.includes("signing") && !p.name.includes("-b-") && p.name.includes("-t-"));
-  const otherPools   = macPools.filter(p => !p.name.includes("signing") && !p.name.includes("-b-") && !p.name.includes("-t-"));
+  const vmPools      = macPools.filter(p => p.name.endsWith("-vms"));
+  const builderPools = macPools.filter(p => !p.name.includes("signing") && !p.name.endsWith("-vms") && p.name.includes("-b-"));
+  const testerPools  = macPools.filter(p => !p.name.includes("signing") && !p.name.endsWith("-vms") && !p.name.includes("-b-") && p.name.includes("-t-"));
+  const otherPools   = macPools.filter(p => !p.name.includes("signing") && !p.name.endsWith("-vms") && !p.name.includes("-b-") && !p.name.includes("-t-"));
 
   const showCloud = section === "" || section === "linux";
 
@@ -765,6 +766,16 @@ export function Pools() {
           </h2>
           <p className="text-[11px] text-gray-600 mb-3">Build workers — identified by <span className="font-mono">-b-</span> in pool name.</p>
           <PoolTable pools={builderPools} pinnedPools={[]} navigate={navigate} showLegend={false} onManage={setManagingPool} pending={pending} />
+        </div>
+      )}
+
+      {section === "mac" && vmPools.length > 0 && (
+        <div>
+          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2">
+            <Monitor size={12} /> VM Pools
+          </h2>
+          <p className="text-[11px] text-gray-600 mb-3">Virtual machine pools running on Apple Silicon hosts.</p>
+          <PoolTable pools={vmPools} pinnedPools={[]} navigate={navigate} showLegend={false} onManage={setManagingPool} pending={pending} />
         </div>
       )}
 
