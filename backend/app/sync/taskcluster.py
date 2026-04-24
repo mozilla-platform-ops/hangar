@@ -55,6 +55,10 @@ HW_WORKER_POOLS: list[tuple[str, str]] = [
     ("releng-hardware", "gecko-t-osx-1500-m4"),
     ("releng-hardware", "gecko-t-osx-1500-m4-staging"),
     ("releng-hardware", "gecko-t-osx-1500-m4-ipv6"),
+    # macOS VM pools
+    ("releng-hardware", "gecko-1-b-osx-arm64-vms"),
+    ("releng-hardware", "gecko-3-b-osx-arm64-vms"),
+    ("releng-hardware", "gecko-t-osx-1500-m-vms"),
     ("releng-hardware", "gecko-1-b-osx-1015"),
     ("releng-hardware", "gecko-3-b-osx-1015"),
     ("releng-hardware", "gecko-1-b-osx-1015-staging"),
