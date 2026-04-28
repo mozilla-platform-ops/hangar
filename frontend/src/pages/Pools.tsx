@@ -696,14 +696,14 @@ export function Pools() {
 
   const sectionPoolCount =
     section === "mac"     ? macPools.length
-    : section === "linux"   ? linuxHwPools.length + cloudPoolData.length
+    : section === "linux"   ? linuxHwPools.length
     : section === "windows" ? windowsHwPools.length
     : section === "android" ? androidPoolData.length
     : pools.length;
 
   const sectionWorkerCount =
     section === "mac"     ? macPools.reduce((s, p) => s + p.total, 0)
-    : section === "linux"   ? linuxHwPools.reduce((s, p) => s + p.total, 0) + cloudPoolData.reduce((s, p) => s + p.total, 0)
+    : section === "linux"   ? linuxHwPools.reduce((s, p) => s + p.total, 0)
     : section === "windows" ? windowsHwPools.reduce((s, p) => s + p.total, 0)
     : section === "android" ? androidPoolData.reduce((s, p) => s + p.total, 0)
     : totalWorkers;
