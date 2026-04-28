@@ -31,6 +31,7 @@ ANDROID_WORKER_POOLS: list[tuple[str, str]] = [
     ("proj-autophone", "gecko-t-bitbar-gw-unit-p5"),
     ("proj-autophone", "gecko-t-lambda-alpha-a55"),
     ("proj-autophone", "gecko-t-lambda-perf-a55"),
+    ("proj-autophone", "gecko-t-lambda-test-1"),
 ]
 
 router = APIRouter(prefix="/fleet", tags=["fleet"])
@@ -285,6 +286,74 @@ def android_pools() -> dict[str, Any]:
         results = [f.result() for f in as_completed(futures)]
     results.sort(key=lambda x: x["name"])
     return {"pools": results}
+
+
+_ANDROID_PROVISIONER: dict[str, str] = {wt: prov for prov, wt in ANDROID_WORKER_POOLS}
+
+
+@router.get("/android-pool-sources")
+def android_pool_sources(pool: str) -> dict[str, Any]:
+    """Sample running tasks for an Android pool via the TC workers endpoint (no DB)."""
+    provisioner = _ANDROID_PROVISIONER.get(pool)
+    if not provisioner:
+        return {"pool": pool, "sample_size": 0, "by_project": {}, "by_user": {}}
+
+    task_ids: list[str] = []
+    try:
+        resp = requests.get(
+            f"{settings.tc_root_url}/api/queue/v1/provisioners/{provisioner}/worker-types/{pool}/workers?limit=1000",
+            timeout=8,
+            headers={"User-Agent": "relops-dashboard/1.0"},
+        )
+        if resp.ok:
+            for w in resp.json().get("workers", []):
+                lt = w.get("latestTask")
+                if lt and lt.get("taskId"):
+                    task_ids.append(lt["taskId"])
+    except Exception:
+        pass
+
+    if not task_ids:
+        return {"pool": pool, "sample_size": 0, "by_project": {}, "by_user": {}}
+
+    def _scheduler_project(scheduler_id: str) -> str:
+        if "level-3" in scheduler_id:
+            return "autoland"
+        if "level-1" in scheduler_id:
+            return "try"
+        if "github" in scheduler_id:
+            return "github"
+        return "other"
+
+    def _fetch(task_id: str) -> dict[str, str]:
+        url = f"{settings.tc_root_url}/api/queue/v1/task/{task_id}"
+        try:
+            r = requests.get(url, timeout=4, headers={"User-Agent": "relops-dashboard/1.0"})
+            if r.ok:
+                d = r.json()
+                tags = d.get("tags") or {}
+                project = tags.get("project") or _scheduler_project(d.get("schedulerId", ""))
+                user = tags.get("createdForUser") or ""
+                return {"project": project, "user": user}
+        except Exception:
+            pass
+        return {"project": "unknown", "user": ""}
+
+    by_project: dict[str, int] = {}
+    by_user: dict[str, int] = {}
+    with ThreadPoolExecutor(max_workers=20) as ex:
+        for meta in [f.result() for f in [ex.submit(_fetch, tid) for tid in task_ids]]:
+            p = meta["project"] or "unknown"
+            by_project[p] = by_project.get(p, 0) + 1
+            if meta["user"]:
+                by_user[meta["user"]] = by_user.get(meta["user"], 0) + 1
+
+    return {
+        "pool": pool,
+        "sample_size": len(task_ids),
+        "by_project": dict(sorted(by_project.items(), key=lambda x: x[1], reverse=True)),
+        "by_user": dict(sorted(by_user.items(), key=lambda x: x[1], reverse=True)[:10]),
+    }
 
 
 @router.get("/pool-sources")

@@ -459,7 +459,7 @@ function PoolTable({ pools, pinnedPools, navigate, showLegend, onManage, pending
   );
 }
 
-function CloudPoolCard({ pool }: { pool: CloudPool }) {
+function CloudPoolCard({ pool, sources }: { pool: CloudPool; sources?: PoolSources | null }) {
   const load = pool.total > 0 ? Math.round((pool.running / pool.total) * 100) : 0;
   const isAndroid = pool.provisioner === "proj-autophone";
   const isLambda = pool.name.includes("lambda");
@@ -519,6 +519,33 @@ function CloudPoolCard({ pool }: { pool: CloudPool }) {
           <div className="text-[10px] text-gray-600 mt-0.5">{load}% utilized</div>
         </div>
       </div>
+
+      {sources !== undefined && (
+        <div>
+          <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-2">Job Sources</div>
+          <SourceBar sources={sources} />
+        </div>
+      )}
+
+      {sources && Object.keys(sources.by_user).length > 0 && (
+        <div>
+          <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-2">Top Submitters</div>
+          <div className="space-y-1">
+            {Object.entries(sources.by_user).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([user, count], i) => {
+              const short = user.replace(/@.*$/, "");
+              const pct = Math.round((count / sources.sample_size) * 100);
+              return (
+                <div key={user} className="flex items-center gap-2">
+                  <span className="text-[10px] text-gray-700 tabular-nums w-3">{i + 1}</span>
+                  <span className="text-[10px] font-mono text-gray-400 truncate flex-1" title={user}>{short}</span>
+                  <span className="text-[10px] text-gray-600 tabular-nums">{pct}%</span>
+                  <span className="text-[10px] text-gray-700 tabular-nums">({count})</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -572,10 +599,10 @@ function PoolStatusTile({ pool, pending: pendingCount }: { pool: PoolHealth; pen
   );
 }
 
-function AndroidPoolCards({ pools }: { pools: CloudPool[] }) {
+function AndroidPoolCards({ pools, sources }: { pools: CloudPool[]; sources: Record<string, PoolSources> }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-      {pools.map(p => <CloudPoolCard key={p.name} pool={p} />)}
+      {pools.map(p => <CloudPoolCard key={p.name} pool={p} sources={sources[p.name]} />)}
     </div>
   );
 }
@@ -635,6 +662,14 @@ export function Pools() {
     }
   }, [pools]);
 
+  useEffect(() => {
+    for (const pool of androidPoolData) {
+      api.fleet.androidPoolSources(pool.name)
+        .then(s => setSources(prev => ({ ...prev, [pool.name]: s })))
+        .catch(() => {});
+    }
+  }, [androidPoolData]);
+
   if (error) return <div className="p-8 text-red-400 text-sm">{error}</div>;
   if (loading) return (
     <div className="p-8 flex items-center gap-2 text-gray-600 text-sm">
@@ -659,12 +694,26 @@ export function Pools() {
   const totalIssues  = testerPools.reduce((s, p) => s + p.quarantined + p.mdm_unenrolled, 0);
   const totalBranch  = testerPools.reduce((s, p) => s + p.branch_override_count, 0);
 
+  const sectionPoolCount =
+    section === "mac"     ? macPools.length
+    : section === "linux"   ? linuxHwPools.length + cloudPoolData.length
+    : section === "windows" ? windowsHwPools.length
+    : section === "android" ? androidPoolData.length
+    : pools.length;
+
+  const sectionWorkerCount =
+    section === "mac"     ? macPools.reduce((s, p) => s + p.total, 0)
+    : section === "linux"   ? linuxHwPools.reduce((s, p) => s + p.total, 0) + cloudPoolData.reduce((s, p) => s + p.total, 0)
+    : section === "windows" ? windowsHwPools.reduce((s, p) => s + p.total, 0)
+    : section === "android" ? androidPoolData.reduce((s, p) => s + p.total, 0)
+    : totalWorkers;
+
   return (
     <div className="p-8 space-y-8 max-w-7xl">
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-xl font-semibold text-white tracking-tight">Pool Health</h1>
-          <p className="text-gray-500 text-sm mt-0.5">{pools.length} pools · {totalWorkers.toLocaleString()} workers</p>
+          <p className="text-gray-500 text-sm mt-0.5">{sectionPoolCount} pools · {sectionWorkerCount.toLocaleString()} workers</p>
         </div>
         {section === "mac" && (
           <div className="flex items-center gap-3">
@@ -743,7 +792,7 @@ export function Pools() {
                 <span className="text-sm font-semibold text-gray-300 tracking-tight">Android Hardware</span>
                 <span className="text-xs text-gray-600">{androidPoolData.length} pools</span>
               </div>
-              <AndroidPoolCards pools={androidPoolData} />
+              <AndroidPoolCards pools={androidPoolData} sources={{}} />
             </div>
           )}
         </div>
@@ -840,7 +889,7 @@ export function Pools() {
 
       {section === "android" && androidPoolData.length > 0 && (
         <div className="space-y-6">
-          <AndroidPoolCards pools={androidPoolData} />
+          <AndroidPoolCards pools={androidPoolData} sources={sources} />
           <div>
             <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
               <Smartphone size={12} /> All Android Hardware Pools
