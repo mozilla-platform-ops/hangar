@@ -152,12 +152,6 @@ export interface PoolHealth {
   top_owners: Array<{ email: string; count: number }>;
 }
 
-export interface PoolOpResult {
-  total: number;
-  succeeded: number;
-  failed: Array<{ hostname: string; ok: boolean; error: string | null }>;
-}
-
 export interface PoolSources {
   pool: string;
   sample_size: number;
@@ -238,12 +232,6 @@ export const api = {
     androidPools: () => get<CloudPoolsResponse>("/fleet/android-pools"),
     androidPoolSources: (pool: string) => get<PoolSources>("/fleet/android-pool-sources", { pool }),
     consolidation: () => get<ConsolidationData>("/fleet/consolidation"),
-  },
-  pools: {
-    setBranch: (poolName: string, branch: string, repo?: string, email?: string) =>
-      post<PoolOpResult>(`/pools/${encodeURIComponent(poolName)}/set-branch`, { branch, repo, email }),
-    clearBranch: (poolName: string) =>
-      post<PoolOpResult>(`/pools/${encodeURIComponent(poolName)}/clear-branch`),
   },
   workers: {
     list: (params?: Parameters<typeof get>[1]) => get<WorkerListResponse>("/workers", params),

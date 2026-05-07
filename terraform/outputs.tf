@@ -22,10 +22,6 @@ output "db_private_ip" {
 output "populate_secrets_commands" {
   description = "Run these after first apply to populate secret values"
   value       = <<-EOT
-    # SSH known_hosts (run ssh-keyscan against your worker fleet first):
-    ssh-keyscan -H macmini-r8-{100..200}.test.releng.mdc1.mozilla.com > /tmp/known_hosts
-    gcloud secrets versions add hangar-ssh-known-hosts --data-file=/tmp/known_hosts
-
     # SimpleMDM API key:
     echo -n "YOUR_KEY" | gcloud secrets versions add hangar-simplemdm-api-key --data-file=-
 

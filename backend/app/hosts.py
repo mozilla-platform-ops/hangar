@@ -1,4 +1,4 @@
-"""Hostname → FQDN resolution for worker records and SSH/VNC proxies."""
+"""Hostname → FQDN resolution for worker records."""
 from __future__ import annotations
 
 _DEFAULT_SUFFIX = "test.releng.mdc1.mozilla.com"

@@ -110,9 +110,6 @@ All under project `relops-dashboard`:
 | `hangar-google-sheets-id` | placeholder | Not yet configured |
 | `hangar-google-export-sheet-id` | placeholder | Not yet configured |
 | `hangar-google-credentials-json` | placeholder | Not yet configured |
-| `hangar-ssh-known-hosts` | placeholder | **Needs real known_hosts from MDC1 workers** |
-
-**SSH dashboard key**: Pool batch SSH operations need the `relops` user's private key. Should be added as a new secret and mounted at `SSH_DASHBOARD_KEY_PATH`. Not yet done.
 
 ---
 
@@ -152,13 +149,11 @@ gcloud projects delete relops-dashboard
 ## What still needs doing
 
 1. **Remove `allUsers` invoker**: Clean up Cloud Run IAM to remove `allUsers roles/run.invoker` via Terraform
-3. **Terraform IAP service account**: Add `gcloud beta services identity create` and the IAP invoker binding to `iam.tf`
-4. **Rename Cloud Build trigger**: `hangar-security-deploy` → `hangar-main` for clarity
-5. **SSH known_hosts secret**: Populate `hangar-ssh-known-hosts` with actual known_hosts from MDC1 workers
-6. **SSH dashboard key secret**: Add `relops` user private key as secret + mount it for pool batch SSH
-7. **Google Sheets integration**: Populate `hangar-google-sheets-id`, `hangar-google-export-sheet-id`, and `hangar-google-credentials-json` secrets
-8. **Terraform GCS backend**: Move `terraform.tfstate` from local to a GCS bucket
-9. **DB password**: Change from `placeholder` to something real
+2. **Terraform IAP service account**: Add `gcloud beta services identity create` and the IAP invoker binding to `iam.tf`
+3. **Rename Cloud Build trigger**: `hangar-security-deploy` → `hangar-main` for clarity
+4. **Google Sheets integration**: Populate `hangar-google-sheets-id`, `hangar-google-export-sheet-id`, and `hangar-google-credentials-json` secrets
+5. **Terraform GCS backend**: Move `terraform.tfstate` from local to a GCS bucket
+6. **DB password**: Change from `placeholder` to something real
 
 ---
 
@@ -166,7 +161,7 @@ gcloud projects delete relops-dashboard
 
 - **Cloud Run min-instances=1**: Keeps APScheduler alive so background syncs run continuously
 - **VPC Access Connector**: Cloud Run → Cloud SQL private IP (no public IP on DB)
-- **Secrets as volume mounts** (not env vars): SSH keys at `/run/secrets/ssh/`, Google creds at `/run/secrets/google/`
+- **Secrets as volume mounts** (not env vars): Google creds at `/run/secrets/google/`
 - **IAP at load balancer level**: All auth happens at the LB before traffic reaches Cloud Run
 - **`lifecycle { ignore_changes }` on Cloud Run image**: Terraform manages config, Cloud Build manages the image — they don't step on each other
 - **Multi-stage Dockerfile**: Node builds the React SPA, Python serves it via FastAPI `StaticFiles`
@@ -184,8 +179,7 @@ hangar/
 │       ├── api/
 │       │   ├── alerts.py
 │       │   ├── fleet.py        # /fleet/* (summary, pools, pending-counts, pool-sources, failures, consolidation)
-│       │   ├── pools.py        # batch SSH (set/clear branch)
-│       │   ├── shell.py        # WebSocket SSH terminal + VNC proxy
+│       │   ├── prs.py          # ronin_puppet PR queue + voting
 │       │   └── workers.py
 │       ├── sync/
 │       │   ├── taskcluster.py
@@ -202,9 +196,7 @@ hangar/
 │       ├── components/
 │       │   ├── Layout.tsx           # Sidebar + mobile hamburger drawer
 │       │   ├── CommandPalette.tsx   # ⌘K search
-│       │   ├── KeyboardShortcuts.tsx
-│       │   ├── ShellModal.tsx
-│       │   └── VncModal.tsx
+│       │   └── KeyboardShortcuts.tsx
 │       ├── pages/
 │       │   ├── Overview.tsx
 │       │   ├── Pools.tsx

@@ -2,7 +2,7 @@
 
 **The RelOps Fleet Dashboard** — one place to see everything, fix anything, and lose no more sleep over mystery workers.
 
-Hangar pulls data from Taskcluster, SimpleMDM, Puppet, and Google Sheets and stitches it into a single live view of your entire test infrastructure. Pool health, hardware generations, task failures, quarantined machines, missing workers — all in one dark-themed dashboard with web SSH and VNC built right in. No more tab soup.
+Hangar pulls data from Taskcluster, SimpleMDM, Puppet, and Google Sheets and stitches it into a single live view of your entire test infrastructure. Pool health, hardware generations, task failures, quarantined machines, missing workers — all in one dark-themed dashboard. No more tab soup.
 
 > Currently tracking Mozilla's CI fleet. Built to grow with the rest of the infrastructure.
 
@@ -100,13 +100,11 @@ All variables are optional unless marked required.
 ┌─────────────────────────────────────────────────────┐
 │                   React SPA (Vite)                  │
 │  Overview · Workers · Alerts · Pools · Consolidation│
-│  WorkerDetail + web SSH (xterm.js) + VNC (noVNC)    │
 └──────────────────────┬──────────────────────────────┘
-                       │ REST / WebSocket
+                       │ REST
 ┌──────────────────────▼──────────────────────────────┐
 │                  FastAPI backend                     │
-│  /api/workers  /api/fleet  /api/alerts               │
-│  /api/pools    /api/shell/{host}/ws                  │
+│  /api/workers  /api/fleet  /api/alerts  /api/prs     │
 │                                                     │
 │  APScheduler ─── sync/taskcluster.py   (5 min)      │
 │               ├── sync/simplemdm.py    (15 min)      │
@@ -156,13 +154,13 @@ Your morning briefing. Fleet-wide summary stats, sync health, top-10 failing mac
 The full roster. Filterable and sortable across generation, state, pool, and MDM/TC status. Search by hostname or serial number. Up to 2,000 rows.
 
 ### 🔍 Worker Detail
-Everything Hangar knows about a single worker — Puppet role, sheet state, MDM enrollment, TC history. Edit notes, pop open a terminal, or launch VNC without leaving the page.
+Everything Hangar knows about a single worker — Puppet role, sheet state, MDM enrollment, TC history. Edit notes and jump out to Taskcluster.
 
 ### 🚨 Alerts
 The stuff that needs your attention. Types: `missing_from_tc`, `quarantined`, `mdm_unenrolled`, `pool_mismatch`. Add notes, acknowledge, resolve.
 
 ### 🏊 Pool Health
-Per-pool health scores, staleness breakdowns (active <24 h / 1–7 d / 7–30 d / 30 d+ / never seen), and job source distribution. Batch SSH operations: set/clear branch overrides, restart workers, run Puppet.
+Per-pool health scores, staleness breakdowns (active <24 h / 1–7 d / 7–30 d / 30 d+ / never seen), and job source distribution. Branch-override visibility (counts and which pools/branches are pinned).
 
 ### 📦 Consolidation
 Side-by-side hardware generation comparison — state breakdowns, inactive machines, and retirement candidates.
@@ -190,7 +188,6 @@ failure_events   — TC task failures indexed by hostname and task name
 GET    /api/workers                      list + filter + search + sort
 GET    /api/workers/{hostname}           full worker record
 PATCH  /api/workers/{hostname}/notes     update dashboard notes
-POST   /api/workers/{hostname}/clear-branch  SSH: clear branch override
 
 GET    /api/fleet/summary               dashboard stats
 GET    /api/fleet/pools                 per-pool health
@@ -203,11 +200,10 @@ GET    /api/alerts                      list (filter: type, active_only)
 PATCH  /api/alerts/{id}/acknowledge
 PATCH  /api/alerts/{id}/resolve
 
-POST   /api/pools/{pool}/set-branch     batch SSH: set branch override
-POST   /api/pools/{pool}/clear-branches batch SSH: clear overrides
-POST   /api/pools/{pool}/restart        batch SSH: restart workers
+GET    /api/prs/ronin                   ronin_puppet PR queue + voting
+POST   /api/prs/ronin/{n}/upvote
+POST   /api/prs/ronin/{n}/downvote
 
-GET    /api/shell/{hostname}/ws         WebSocket SSH terminal
 POST   /api/sync/run                    trigger manual sync
 GET    /api/health                      liveness check
 ```
@@ -228,8 +224,7 @@ hangar/
 │   │   │   ├── workers.py
 │   │   │   ├── fleet.py
 │   │   │   ├── alerts.py
-│   │   │   ├── pools.py
-│   │   │   └── shell.py         WebSocket SSH via asyncssh
+│   │   │   └── prs.py           ronin_puppet PR voting
 │   │   └── sync/
 │   │       ├── scheduler.py     APScheduler job registration
 │   │       ├── taskcluster.py   GraphQL + REST sync, alert generation
@@ -245,9 +240,7 @@ hangar/
 │   │   ├── components/
 │   │   │   ├── Layout.tsx       App shell — sidebar nav (collapses to hamburger drawer on mobile)
 │   │   │   ├── CommandPalette.tsx  ⌘K quick search
-│   │   │   ├── KeyboardShortcuts.tsx
-│   │   │   ├── ShellModal.tsx   xterm.js SSH terminal
-│   │   │   └── VncModal.tsx     noVNC remote desktop
+│   │   │   └── KeyboardShortcuts.tsx
 │   │   └── pages/
 │   │       ├── Overview.tsx
 │   │       ├── Workers.tsx

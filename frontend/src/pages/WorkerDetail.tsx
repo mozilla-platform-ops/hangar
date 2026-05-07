@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, ExternalLink, Terminal, Monitor, Pencil, CheckCircle2, X } from "lucide-react";
+import { ArrowLeft, ExternalLink, Pencil, CheckCircle2, X } from "lucide-react";
 import { api } from "../api";
 import type { Worker } from "../api";
 import { stateBadge, tcStatusBadge, enrollmentBadge } from "../components/Badge";
-import { ShellModal } from "../components/ShellModal";
-import { VncModal } from "../components/VncModal";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -89,8 +87,6 @@ export function WorkerDetail() {
   const navigate = useNavigate();
   const [worker, setWorker] = useState<Worker | null>(null);
   const [error, setError] = useState("");
-  const [showShell, setShowShell] = useState(false);
-  const [showVnc, setShowVnc] = useState(false);
 
   useEffect(() => {
     if (hostname) api.workers.get(hostname).then(setWorker).catch(e => setError(e.message));
@@ -127,29 +123,12 @@ export function WorkerDetail() {
         </button>
 
         <div className="card p-5">
-          <div className="flex items-start gap-4 flex-wrap">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-3 flex-wrap mb-1">
-                <h1 className="text-xl font-semibold text-white font-mono tracking-tight">{shortName}</h1>
-                {stateBadge(worker.state)}
-                {tcStatusBadge(worker)}
-                {enrollmentBadge(worker.mdm.enrollment_status)}
-              </div>
-              <p className="text-xs text-gray-600 font-mono">{worker.hostname}</p>
-            </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <button
-                onClick={() => setShowShell(true)}
-                className="flex items-center gap-1.5 text-xs bg-gray-800 hover:bg-gray-700 border border-gray-700/80 text-gray-300 hover:text-white rounded-lg px-3 py-1.5 transition-all"
-              >
-                <Terminal size={12} /> Shell
-              </button>
-              <button
-                onClick={() => setShowVnc(true)}
-                className="flex items-center gap-1.5 text-xs bg-gray-800 hover:bg-gray-700 border border-gray-700/80 text-gray-300 hover:text-white rounded-lg px-3 py-1.5 transition-all"
-              >
-                <Monitor size={12} /> VNC
-              </button>
+          <div className="min-w-0">
+            <div className="flex items-center gap-3 flex-wrap mb-1">
+              <h1 className="text-xl font-semibold text-white font-mono tracking-tight">{shortName}</h1>
+              {stateBadge(worker.state)}
+              {tcStatusBadge(worker)}
+              {enrollmentBadge(worker.mdm.enrollment_status)}
               {tcUrl && (
                 <a
                   href={tcUrl}
@@ -161,6 +140,7 @@ export function WorkerDetail() {
                 </a>
               )}
             </div>
+            <p className="text-xs text-gray-600 font-mono">{worker.hostname}</p>
           </div>
         </div>
       </div>
@@ -221,8 +201,6 @@ export function WorkerDetail() {
         <Field label="Google Sheets" value={fmtDate(worker.sync.sheet)} />
       </Section>
 
-      {showShell && <ShellModal hostname={worker.hostname} onClose={() => setShowShell(false)} />}
-      {showVnc && <VncModal hostname={worker.hostname} onClose={() => setShowVnc(false)} />}
     </div>
   );
 }

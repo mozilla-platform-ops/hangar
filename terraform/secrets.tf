@@ -14,7 +14,6 @@ locals {
     "hangar-google-credentials-json",
     "hangar-google-sheets-id",
     "hangar-google-export-sheet-id",
-    "hangar-ssh-known-hosts",
   ]
 }
 

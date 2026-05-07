@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
-import { Pin, AlertTriangle, GitBranch, Users, Lock, Hammer, FlaskConical, ChevronDown, Settings2, X, CheckCircle2, Terminal, Smartphone, Monitor } from "lucide-react";
+import { Pin, AlertTriangle, GitBranch, Users, Lock, Hammer, FlaskConical, ChevronDown, Terminal, Smartphone, Monitor } from "lucide-react";
 import { api } from "../api";
-import type { PoolHealth, PoolOpResult, PoolSources, CloudPool, FleetSummary, RoninPR } from "../api";
+import type { PoolHealth, PoolSources, CloudPool, FleetSummary, RoninPR } from "../api";
 
 const OVERVIEW_EXCLUDED_POOLS = new Set([
   "gecko-t-osx-1500-m4-ipv6",
@@ -34,11 +34,6 @@ function isLinuxPool(name: string): boolean {
 
 function isWindowsPool(name: string): boolean {
   return name.includes("win");
-}
-
-function canManagePool(name: string): boolean {
-  // Windows workers have no ronin_settings override file; hide branch UI for them.
-  return !isWindowsPool(name);
 }
 
 const PROJECT_COLORS: Record<string, string> = {
@@ -149,104 +144,10 @@ function HealthRing({ score }: { score: number }) {
   );
 }
 
-function PoolBranchModal({ pool, onClose }: { pool: PoolHealth; onClose: () => void }) {
-  const [branch, setBranch] = useState("");
-  const [repo, setRepo] = useState("");
-  const [email, setEmail] = useState("");
-  const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
-  const [result, setResult] = useState<PoolOpResult | null>(null);
-  const [error, setError] = useState("");
-  const [op, setOp] = useState<"set" | "clear" | null>(null);
-
-  async function handleSet(e: React.FormEvent) {
-    e.preventDefault();
-    if (!branch.trim()) return;
-    setOp("set"); setStatus("loading"); setResult(null); setError("");
-    try {
-      setResult(await api.pools.setBranch(pool.name, branch.trim(), repo.trim() || undefined, email.trim() || undefined));
-      setStatus("done");
-    } catch (err: unknown) { setError(String(err instanceof Error ? err.message : err)); setStatus("error"); }
-  }
-
-  async function handleClear() {
-    setOp("clear"); setStatus("loading"); setResult(null); setError("");
-    try {
-      setResult(await api.pools.clearBranch(pool.name));
-      setStatus("done");
-    } catch (err: unknown) { setError(String(err instanceof Error ? err.message : err)); setStatus("error"); }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[10vh] bg-black/50 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-lg bg-gray-900 border border-gray-700/80 rounded-xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
-          <div>
-            <div className="text-sm font-semibold text-white">Branch Override</div>
-            <div className="text-[11px] text-gray-500 font-mono mt-0.5">{pool.name}</div>
-          </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-800 text-gray-600 hover:text-gray-400 transition-colors"><X size={14} /></button>
-        </div>
-        <div className="p-5 space-y-5">
-          <form onSubmit={handleSet} className="space-y-3">
-            <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Set Branch on All Workers</div>
-            <div className="space-y-2">
-              <input className="w-full bg-gray-800/60 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-brand-500/40 font-mono"
-                placeholder="branch name (required)" value={branch} onChange={e => setBranch(e.target.value)} />
-              <input className="w-full bg-gray-800/60 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-brand-500/40 font-mono"
-                placeholder="repo URL (default: github.com/mozilla-platform-ops/ronin_puppet)" value={repo} onChange={e => setRepo(e.target.value)} />
-              <input className="w-full bg-gray-800/60 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-brand-500/40"
-                placeholder="email (default: relops@mozilla.com)" value={email} onChange={e => setEmail(e.target.value)} />
-            </div>
-            <button type="submit" disabled={!branch.trim() || status === "loading"}
-              className="flex items-center gap-1.5 text-xs bg-brand-900/40 hover:bg-brand-900/60 border border-brand-800/50 text-brand-400 hover:text-brand-300 px-3 py-1.5 rounded-lg transition-all disabled:opacity-40">
-              <GitBranch size={12} />
-              {status === "loading" && op === "set" ? `Setting on ${pool.total} workers…` : `Set on all ${pool.total} workers`}
-            </button>
-          </form>
-          <div className="border-t border-gray-800/60" />
-          <div className="space-y-2">
-            <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Clear Overrides</div>
-            <p className="text-[11px] text-gray-600">
-              Removes <span className="font-mono">/opt/puppet_environments/ronin_settings</span> from all workers.
-              {pool.branch_override_count > 0 && ` ${pool.branch_override_count} worker${pool.branch_override_count !== 1 ? "s" : ""} currently have overrides.`}
-            </p>
-            <button onClick={handleClear} disabled={status === "loading"}
-              className="flex items-center gap-1.5 text-xs bg-red-950/40 hover:bg-red-950/60 border border-red-900/50 text-red-400 hover:text-red-300 px-3 py-1.5 rounded-lg transition-all disabled:opacity-40">
-              <X size={12} />
-              {status === "loading" && op === "clear" ? "Clearing…" : `Clear on all ${pool.total} workers`}
-            </button>
-          </div>
-          {status === "error" && <div className="text-xs text-red-400 bg-red-950/30 border border-red-900/40 rounded-lg px-3 py-2">{error}</div>}
-          {status === "done" && result && (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-xs">
-                <CheckCircle2 size={13} className="text-emerald-400" />
-                <span className="text-emerald-400 font-medium">{result.succeeded}/{result.total} succeeded</span>
-                {result.failed.length > 0 && <span className="text-red-400 ml-1">{result.failed.length} failed</span>}
-              </div>
-              {result.failed.length > 0 && (
-                <div className="bg-red-950/30 border border-red-900/40 rounded-lg p-3 space-y-1 max-h-40 overflow-y-auto">
-                  {result.failed.map(f => (
-                    <div key={f.hostname} className="text-[10px] font-mono">
-                      <span className="text-red-400">{f.hostname}</span>
-                      {f.error && <span className="text-gray-600"> — {f.error}</span>}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function PinnedCard({ pool, pending, sources, onManage }: {
+function PinnedCard({ pool, pending, sources }: {
   pool: PoolHealth;
   pending: number | null;
   sources: PoolSources | null | undefined;
-  onManage: (p: PoolHealth) => void;
 }) {
   const navigate = useNavigate();
   const staleAll = pool.stale_1_7d + pool.stale_7_30d + pool.stale_30d_plus + pool.never_seen;
@@ -264,15 +165,7 @@ function PinnedCard({ pool, pending, sources, onManage }: {
             {pool.generation || "unknown"}
           </div>
         </div>
-        <div className="flex items-start gap-2">
-          {canManagePool(pool.name) && (
-            <button onClick={e => { e.stopPropagation(); onManage(pool); }}
-              className="p-1.5 rounded-lg hover:bg-gray-700 text-gray-600 hover:text-gray-300 transition-colors mt-0.5" title="Manage branch overrides">
-              <Settings2 size={13} />
-            </button>
-          )}
-          <HealthRing score={pool.health_score} />
-        </div>
+        <HealthRing score={pool.health_score} />
       </div>
 
       {/* Queue depth + utilization */}
@@ -350,12 +243,11 @@ function PinnedCard({ pool, pending, sources, onManage }: {
   );
 }
 
-function PoolTable({ pools, pinnedPools, navigate, showLegend, onManage, pending }: {
+function PoolTable({ pools, pinnedPools, navigate, showLegend, pending }: {
   pools: PoolHealth[];
   pinnedPools: string[];
   navigate: (path: string) => void;
   showLegend: boolean;
-  onManage: (pool: PoolHealth) => void;
   pending: Record<string, number | null>;
 }) {
   return (
@@ -363,7 +255,7 @@ function PoolTable({ pools, pinnedPools, navigate, showLegend, onManage, pending
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-gray-800/80">
-            {["Pool", "Gen", "Health", "Activity", "Pending", "Total", "Prod", "Running", "Active", "Stale", "Issues", "Branch", ""].map(h => (
+            {["Pool", "Gen", "Health", "Activity", "Pending", "Total", "Prod", "Running", "Active", "Stale", "Issues", "Branch"].map(h => (
               <th key={h} className="text-left px-4 py-3 text-[11px] font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">{h}</th>
             ))}
           </tr>
@@ -424,14 +316,6 @@ function PoolTable({ pools, pinnedPools, navigate, showLegend, onManage, pending
                 <td className="px-4 py-2.5">
                   {pool.branch_override_count > 0 ? (
                     <span className="flex items-center gap-1 text-xs text-amber-400 tabular-nums"><GitBranch size={10} /> {pool.branch_override_count}</span>
-                  ) : <span className="text-xs text-gray-700">—</span>}
-                </td>
-                <td className="px-4 py-2.5">
-                  {canManagePool(pool.name) ? (
-                    <button onClick={e => { e.stopPropagation(); onManage(pool); }}
-                      className="p-1 rounded hover:bg-gray-700 text-gray-700 hover:text-gray-300 transition-colors" title="Manage branch overrides">
-                      <Settings2 size={12} />
-                    </button>
                   ) : <span className="text-xs text-gray-700">—</span>}
                 </td>
               </tr>
@@ -615,7 +499,6 @@ export function Pools() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showOther, setShowOther] = useState(false);
-  const [managingPool, setManagingPool] = useState<PoolHealth | null>(null);
   const [pending, setPending] = useState<Record<string, number | null>>({});
   const [sources, setSources] = useState<Record<string, PoolSources>>({});
   const [cloudPoolData, setCloudPoolData] = useState<CloudPool[]>([]);
@@ -735,7 +618,7 @@ export function Pools() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {pinnedData.map(pool => (
             <PinnedCard key={pool.name} pool={pool} pending={pending[pool.name] ?? null}
-              sources={sources[pool.name]} onManage={setManagingPool} />
+              sources={sources[pool.name]} />
           ))}
         </div>
       )}
@@ -804,7 +687,7 @@ export function Pools() {
           <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
             <FlaskConical size={12} /> Tester Pools
           </h2>
-          <PoolTable pools={testerPools} pinnedPools={[]} navigate={navigate} showLegend onManage={setManagingPool} pending={pending} />
+          <PoolTable pools={testerPools} pinnedPools={[]} navigate={navigate} showLegend pending={pending} />
         </div>
       )}
 
@@ -814,7 +697,7 @@ export function Pools() {
             <Hammer size={12} /> Builder Pools
           </h2>
           <p className="text-[11px] text-gray-600 mb-3">Build workers — identified by <span className="font-mono">-b-</span> in pool name.</p>
-          <PoolTable pools={builderPools} pinnedPools={[]} navigate={navigate} showLegend={false} onManage={setManagingPool} pending={pending} />
+          <PoolTable pools={builderPools} pinnedPools={[]} navigate={navigate} showLegend={false} pending={pending} />
         </div>
       )}
 
@@ -824,7 +707,7 @@ export function Pools() {
             <Monitor size={12} /> VM Pools
           </h2>
           <p className="text-[11px] text-gray-600 mb-3">Virtual machine pools running on Apple Silicon hosts.</p>
-          <PoolTable pools={vmPools} pinnedPools={[]} navigate={navigate} showLegend={false} onManage={setManagingPool} pending={pending} />
+          <PoolTable pools={vmPools} pinnedPools={[]} navigate={navigate} showLegend={false} pending={pending} />
         </div>
       )}
 
@@ -836,7 +719,7 @@ export function Pools() {
           <p className="text-[11px] text-gray-600 mb-3">
             Signing workers operate differently — activity and health metrics may not reflect actual pool status.
           </p>
-          <PoolTable pools={signingPools} pinnedPools={[]} navigate={navigate} showLegend={false} onManage={setManagingPool} pending={pending} />
+          <PoolTable pools={signingPools} pinnedPools={[]} navigate={navigate} showLegend={false} pending={pending} />
         </div>
       )}
 
@@ -845,14 +728,14 @@ export function Pools() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {linuxHwPools.map(pool => (
               <PinnedCard key={pool.name} pool={pool} pending={pending[pool.name] ?? null}
-                sources={sources[pool.name]} onManage={setManagingPool} />
+                sources={sources[pool.name]} />
             ))}
           </div>
           <div>
             <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
               <Terminal size={12} /> All Linux Hardware Pools
             </h2>
-            <PoolTable pools={linuxHwPools} pinnedPools={[]} navigate={navigate} showLegend onManage={setManagingPool} pending={pending} />
+            <PoolTable pools={linuxHwPools} pinnedPools={[]} navigate={navigate} showLegend pending={pending} />
           </div>
         </div>
       )}
@@ -862,14 +745,14 @@ export function Pools() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {windowsHwPools.map(pool => (
               <PinnedCard key={pool.name} pool={pool} pending={pending[pool.name] ?? null}
-                sources={sources[pool.name]} onManage={setManagingPool} />
+                sources={sources[pool.name]} />
             ))}
           </div>
           <div>
             <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
               <Terminal size={12} /> All Windows Hardware Pools
             </h2>
-            <PoolTable pools={windowsHwPools} pinnedPools={[]} navigate={navigate} showLegend onManage={setManagingPool} pending={pending} />
+            <PoolTable pools={windowsHwPools} pinnedPools={[]} navigate={navigate} showLegend pending={pending} />
           </div>
         </div>
       )}
@@ -956,7 +839,7 @@ export function Pools() {
             <span className="text-gray-700 normal-case font-normal tracking-normal">({otherPools.length})</span>
             <ChevronDown size={12} className={`transition-transform ${showOther ? "rotate-180" : ""}`} />
           </button>
-          {showOther && <PoolTable pools={otherPools} pinnedPools={[]} navigate={navigate} showLegend={false} onManage={setManagingPool} pending={pending} />}
+          {showOther && <PoolTable pools={otherPools} pinnedPools={[]} navigate={navigate} showLegend={false} pending={pending} />}
         </div>
       )}
 
@@ -999,8 +882,6 @@ export function Pools() {
           </div>
         </div>
       )}
-
-      {managingPool && <PoolBranchModal pool={managingPool} onClose={() => setManagingPool(null)} />}
     </div>
   );
 }
