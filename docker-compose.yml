@@ -26,9 +26,6 @@ services:
       DATABASE_URL: postgresql://relops:relops@db:5432/relops
       STATIC_DIR: /app/frontend/dist
       LOG_JSON: "false"
-      # Disable SSH host key checking for local dev. In production this is
-      # handled by the ssh_known_hosts Secret Manager secret.
-      SSH_INSECURE_SKIP_HOST_CHECK: "true"
     volumes:
       - ./backend:/app
       - ./frontend/dist:/app/frontend/dist
