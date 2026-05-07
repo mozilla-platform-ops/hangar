@@ -35,7 +35,7 @@ docker compose up
 | Area | Path |
 |---|---|
 | FastAPI app | `backend/app/main.py` |
-| API routes | `backend/app/api/{workers,fleet,pools,alerts,shell}.py` |
+| API routes | `backend/app/api/{workers,fleet,alerts,prs}.py` |
 | Sync schedulers | `backend/app/sync/{taskcluster,simplemdm,puppet,google_sheets,scheduler}.py` |
 | DB models | `backend/app/models.py` |
 | Config/env | `backend/app/config.py` |
@@ -50,9 +50,7 @@ Background threads run on configurable intervals (env vars `SYNC_INTERVAL_*`). `
 
 ## Environment / secrets
 
-See `.env.example` for all variables. In production, secrets (API keys, `ssh_known_hosts`, DB password) are injected via GCP Secret Manager — see `terraform/secrets.tf`.
-
-Local dev: set `SSH_INSECURE_SKIP_HOST_CHECK=true` to skip SSH host key checking for the worker terminal feature.
+See `.env.example` for all variables. In production, secrets (API keys, DB password) are injected via GCP Secret Manager — see `terraform/secrets.tf`.
 
 ## Production deployment
 

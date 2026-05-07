@@ -117,12 +117,6 @@ resource "google_cloud_run_v2_service" "hangar" {
         value = "/run/secrets/google/credentials.json"
       }
 
-      # SSH known_hosts path (points to the secret volume mount below)
-      env {
-        name  = "SSH_KNOWN_HOSTS_PATH"
-        value = "/run/secrets/ssh/known_hosts"
-      }
-
       # Production settings
       env {
         name  = "LOG_JSON"
@@ -139,28 +133,12 @@ resource "google_cloud_run_v2_service" "hangar" {
 
       # Secret volume mounts — mount_path is a directory; item path is the filename
       volume_mounts {
-        name       = "ssh-known-hosts"
-        mount_path = "/run/secrets/ssh"
-      }
-      volume_mounts {
         name       = "google-credentials"
         mount_path = "/run/secrets/google"
       }
 
       # Health probes are configured via Cloud Build after the real image is deployed.
       # Cloud Run uses default TCP health checking in the interim.
-    }
-
-    volumes {
-      name = "ssh-known-hosts"
-      secret {
-        secret = google_secret_manager_secret.hangar["hangar-ssh-known-hosts"].secret_id
-        items {
-          version = "latest"
-          path    = "known_hosts" # → /run/secrets/ssh/known_hosts
-          mode    = 256           # 0400
-        }
-      }
     }
 
     volumes {
