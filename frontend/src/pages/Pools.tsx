@@ -36,6 +36,19 @@ function isWindowsPool(name: string): boolean {
   return name.includes("win");
 }
 
+function cloudPoolId(pool: CloudPool): string {
+  return pool.id || `${pool.provisioner}/${pool.name}`;
+}
+
+function hardwarePoolId(pool: PoolHealth): string {
+  return pool.provisioner ? `${pool.provisioner}/${pool.name}` : pool.name;
+}
+
+function provisionerSummary(pools: CloudPool[]): string {
+  const provisioners = [...new Set(pools.map(p => p.provisioner))].sort();
+  return provisioners.length === 1 ? provisioners[0] : `${provisioners.length} provisioners`;
+}
+
 const PROJECT_COLORS: Record<string, string> = {
   try:               "bg-sky-500",
   autoland:          "bg-violet-500",
@@ -157,12 +170,20 @@ function PinnedCard({ pool, pending, sources }: {
 
   return (
     <div className="card p-5 flex flex-col gap-4 cursor-pointer hover:border-gray-700 transition-all"
-      onClick={() => navigate(`/workers?worker_pool=${encodeURIComponent(pool.name)}`)}>
+      onClick={() => navigate(`/workers?worker_pool=${encodeURIComponent(pool.name)}`)}
+      title={hardwarePoolId(pool)}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-sm font-mono font-semibold text-white truncate">{pool.name}</div>
-          <div className={`text-xs font-mono mt-0.5 ${GEN_COLOR[pool.generation || ""] || "text-gray-500"}`}>
-            {pool.generation || "unknown"}
+          <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+            {pool.provisioner && (
+              <span className="max-w-full truncate text-[10px] font-mono text-emerald-300 bg-emerald-950/35 border border-emerald-900/40 rounded px-1.5 py-0.5">
+                {pool.provisioner}
+              </span>
+            )}
+            <span className={`text-xs font-mono ${GEN_COLOR[pool.generation || ""] || "text-gray-500"}`}>
+              {pool.generation || "unknown"}
+            </span>
           </div>
         </div>
         <HealthRing score={pool.health_score} />
@@ -243,19 +264,23 @@ function PinnedCard({ pool, pending, sources }: {
   );
 }
 
-function PoolTable({ pools, pinnedPools, navigate, showLegend, pending }: {
+function PoolTable({ pools, pinnedPools, navigate, showLegend, pending, showProvisioner = false }: {
   pools: PoolHealth[];
   pinnedPools: string[];
   navigate: (path: string) => void;
   showLegend: boolean;
   pending: Record<string, number | null>;
+  showProvisioner?: boolean;
 }) {
+  const headers = ["Pool", "Gen", "Health", "Activity", "Pending", "Total", "Prod", "Running", "Active", "Stale", "Issues", "Branch"];
+  if (showProvisioner) headers.splice(1, 0, "Provisioner");
+
   return (
     <div className="card overflow-hidden">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-gray-800/80">
-            {["Pool", "Gen", "Health", "Activity", "Pending", "Total", "Prod", "Running", "Active", "Stale", "Issues", "Branch"].map(h => (
+            {headers.map(h => (
               <th key={h} className="text-left px-4 py-3 text-[11px] font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">{h}</th>
             ))}
           </tr>
@@ -276,6 +301,13 @@ function PoolTable({ pools, pinnedPools, navigate, showLegend, pending }: {
                     <span className="text-xs font-mono text-gray-300">{pool.name}</span>
                   </div>
                 </td>
+                {showProvisioner && (
+                  <td className="px-4 py-2.5">
+                    {pool.provisioner ? (
+                      <span className="text-xs font-mono text-emerald-300">{pool.provisioner}</span>
+                    ) : <span className="text-xs text-gray-700">—</span>}
+                  </td>
+                )}
                 <td className="px-4 py-2.5">
                   <span className={`text-xs font-mono font-medium ${GEN_COLOR[pool.generation || ""] || "text-gray-600"}`}>{pool.generation || "?"}</span>
                 </td>
@@ -353,16 +385,23 @@ function CloudPoolCard({ pool, sources }: { pool: CloudPool; sources?: PoolSourc
     : pool.name.includes("s24") ? "Galaxy S24"
     : pool.name.includes("p5") ? "Pixel 5"
     : null;
-  const infra = isLambda ? "Lambda" : isAndroid ? "Bitbar" : "Cloud";
+  const infra = isLambda ? "Lambda" : isAndroid ? "Bitbar" : "Linux Cloud";
   const ringColor = load >= 90 ? "#f97316" : load >= 60 ? "#eab308" : "#10b981";
   const r = 28, circ = 2 * Math.PI * r;
+  const fullPoolId = cloudPoolId(pool);
 
   return (
     <div className="card p-5 flex flex-col gap-4">
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-sm font-mono font-semibold text-white truncate">{pool.name}</div>
-          <div className="flex items-center gap-1.5 mt-0.5">
+        <div className="min-w-0" title={fullPoolId}>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="max-w-full truncate text-[10px] font-mono text-teal-300 bg-teal-950/40 border border-teal-900/40 rounded px-1.5 py-0.5">
+              {pool.provisioner}
+            </span>
+            <span className="text-[10px] text-gray-600 uppercase tracking-wider">provisioner</span>
+          </div>
+          <div className="mt-1 text-sm font-mono font-semibold text-white leading-snug break-all">{pool.name}</div>
+          <div className="flex items-center gap-1.5 mt-1">
             {deviceLabel
               ? <span className="text-xs text-green-400 font-medium">{deviceLabel}</span>
               : <span className="text-xs text-gray-500 font-mono">{infra}</span>
@@ -442,12 +481,20 @@ function PoolStatusTile({ pool, pending: pendingCount }: { pool: PoolHealth; pen
   const utilPct = pool.active_24h > 0 ? Math.round(((pool.running_tasks ?? 0) / pool.active_24h) * 100) : 0;
   return (
     <div className="card p-5 flex flex-col gap-4 cursor-pointer hover:border-gray-700 transition-all"
-      onClick={() => navigate(`/workers?worker_pool=${encodeURIComponent(pool.name)}`)}>
+      onClick={() => navigate(`/workers?worker_pool=${encodeURIComponent(pool.name)}`)}
+      title={hardwarePoolId(pool)}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-sm font-mono font-semibold text-white truncate">{pool.name}</div>
-          <div className={`text-xs font-mono mt-0.5 ${GEN_COLOR[pool.generation || ""] || "text-gray-500"}`}>
-            {pool.generation || "—"}
+          <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+            {pool.provisioner && (
+              <span className="max-w-full truncate text-[10px] font-mono text-emerald-300 bg-emerald-950/35 border border-emerald-900/40 rounded px-1.5 py-0.5">
+                {pool.provisioner}
+              </span>
+            )}
+            <span className={`text-xs font-mono ${GEN_COLOR[pool.generation || ""] || "text-gray-500"}`}>
+              {pool.generation || "—"}
+            </span>
           </div>
         </div>
         <div className="relative w-16 h-16 flex-shrink-0">
@@ -486,7 +533,52 @@ function PoolStatusTile({ pool, pending: pendingCount }: { pool: PoolHealth; pen
 function AndroidPoolCards({ pools, sources }: { pools: CloudPool[]; sources: Record<string, PoolSources> }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-      {pools.map(p => <CloudPoolCard key={p.name} pool={p} sources={sources[p.name]} />)}
+      {pools.map(p => <CloudPoolCard key={cloudPoolId(p)} pool={p} sources={sources[p.name]} />)}
+    </div>
+  );
+}
+
+function CloudPoolTable({ pools }: { pools: CloudPool[] }) {
+  return (
+    <div className="card overflow-hidden">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-gray-800/80">
+            {["Provisioner", "Worker Type", "Pending", "Running", "Total", "Load"].map(h => (
+              <th key={h} className="text-left px-4 py-3 text-[11px] font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {pools.map(p => {
+            const load = p.total > 0 ? Math.round((p.running / p.total) * 100) : 0;
+            return (
+              <tr key={cloudPoolId(p)} className="border-b border-gray-800/40 last:border-0 hover:bg-gray-800/20 transition-colors">
+                <td className="px-4 py-2.5">
+                  <span className="text-xs font-mono text-teal-300">{p.provisioner}</span>
+                </td>
+                <td className="px-4 py-2.5">
+                  <span className="text-xs font-mono text-gray-300 break-all">{p.name}</span>
+                </td>
+                <td className="px-4 py-2.5">
+                  <span className={`text-xs font-mono font-medium tabular-nums ${pendingColor(p.pending, 200, 50)}`}>{p.pending.toLocaleString()}</span>
+                </td>
+                <td className="px-4 py-2.5 text-xs text-gray-400 tabular-nums">{p.running}</td>
+                <td className="px-4 py-2.5 text-xs text-gray-400 tabular-nums">{p.total}</td>
+                <td className="px-4 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <div className="w-16 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full ${load >= 90 ? "bg-orange-400" : load >= 60 ? "bg-yellow-400" : "bg-emerald-400"}`}
+                        style={{ width: `${Math.min(load, 100)}%` }} />
+                    </div>
+                    <span className="text-xs text-gray-600 tabular-nums">{load}%</span>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -574,19 +666,20 @@ export function Pools() {
   const showCloud = section === "" || section === "linux";
 
   const totalWorkers = pools.reduce((s, p) => s + p.total, 0);
+  const linuxCloudWorkers = cloudPoolData.reduce((s, p) => s + p.total, 0);
   const totalIssues  = testerPools.reduce((s, p) => s + p.quarantined + p.mdm_unenrolled, 0);
   const totalBranch  = testerPools.reduce((s, p) => s + p.branch_override_count, 0);
 
   const sectionPoolCount =
     section === "mac"     ? macPools.length
-    : section === "linux"   ? linuxHwPools.length
+    : section === "linux"   ? linuxHwPools.length + cloudPoolData.length
     : section === "windows" ? windowsHwPools.length
     : section === "android" ? androidPoolData.length
     : pools.length;
 
   const sectionWorkerCount =
     section === "mac"     ? macPools.reduce((s, p) => s + p.total, 0)
-    : section === "linux"   ? linuxHwPools.reduce((s, p) => s + p.total, 0)
+    : section === "linux"   ? linuxHwPools.reduce((s, p) => s + p.total, 0) + linuxCloudWorkers
     : section === "windows" ? windowsHwPools.reduce((s, p) => s + p.total, 0)
     : section === "android" ? androidPoolData.reduce((s, p) => s + p.total, 0)
     : totalWorkers;
@@ -645,7 +738,7 @@ export function Pools() {
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-0.5 h-5 bg-emerald-500 rounded-full" />
                 <span className="text-sm font-semibold text-gray-300 tracking-tight">Linux Hardware</span>
-                <span className="text-xs text-gray-600">{linuxHwPools.length} pools</span>
+                <span className="text-xs text-gray-600">{linuxHwPools.length} pools · releng-hardware</span>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {linuxHwPools.map(pool => (
@@ -734,8 +827,11 @@ export function Pools() {
           <div>
             <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
               <Terminal size={12} /> All Linux Hardware Pools
+              <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/35 border border-emerald-900/40 rounded px-1.5 py-0.5 normal-case tracking-normal">
+                releng-hardware
+              </span>
             </h2>
-            <PoolTable pools={linuxHwPools} pinnedPools={[]} navigate={navigate} showLegend pending={pending} />
+            <PoolTable pools={linuxHwPools} pinnedPools={[]} navigate={navigate} showLegend pending={pending} showProvisioner />
           </div>
         </div>
       )}
@@ -758,15 +854,25 @@ export function Pools() {
       )}
 
       {showCloud && cloudPoolData.length > 0 && (
-        <div>
+        <div className="space-y-4">
           <div className="flex items-center gap-3 mb-4">
             <div className="w-0.5 h-5 bg-teal-500 rounded-full" />
             <span className="text-sm font-semibold text-gray-300 tracking-tight">Linux Cloud</span>
-            <span className="text-xs text-gray-600">{cloudPoolData.length} pools · {cloudPoolData.reduce((s, p) => s + p.total, 0).toLocaleString()} workers</span>
+            <span className="text-xs text-gray-600">
+              {cloudPoolData.length} pools · {linuxCloudWorkers.toLocaleString()} workers · {provisionerSummary(cloudPoolData)}
+            </span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {cloudPoolData.map(p => <CloudPoolCard key={p.name} pool={p} />)}
+            {cloudPoolData.map(p => <CloudPoolCard key={cloudPoolId(p)} pool={p} />)}
           </div>
+          {section === "linux" && (
+            <div>
+              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+                <Terminal size={12} /> All Linux Cloud Pools
+              </h2>
+              <CloudPoolTable pools={cloudPoolData} />
+            </div>
+          )}
         </div>
       )}
 
@@ -796,7 +902,7 @@ export function Pools() {
                       : p.name.includes("p5") ? "Pixel 5"
                       : "—";
                     return (
-                      <tr key={p.name} className="border-b border-gray-800/40 last:border-0 hover:bg-gray-800/20 transition-colors">
+                      <tr key={cloudPoolId(p)} className="border-b border-gray-800/40 last:border-0 hover:bg-gray-800/20 transition-colors">
                         <td className="px-4 py-2.5 text-xs font-mono text-gray-300">{p.name}</td>
                         <td className="px-4 py-2.5 text-xs text-green-400 font-medium">{deviceLabel}</td>
                         <td className="px-4 py-2.5 text-xs text-gray-500">{isLambda ? "Lambda" : "Bitbar"}</td>

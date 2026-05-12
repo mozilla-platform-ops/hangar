@@ -134,6 +134,7 @@ export interface FleetSummary {
 
 export interface PoolHealth {
   name: string;
+  provisioner: string | null;
   generation: string | null;
   total: number;
   production: number;
@@ -160,6 +161,7 @@ export interface PoolSources {
 }
 
 export interface CloudPool {
+  id: string;
   name: string;
   provisioner: string;
   pending: number;
