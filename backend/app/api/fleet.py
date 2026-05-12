@@ -15,13 +15,80 @@ from ..database import get_db
 from ..models import Alert, FailureEvent, SyncLog, Worker
 from ..sync.taskcluster import HW_WORKER_POOLS
 
-CLOUD_WORKER_POOLS: list[tuple[str, str]] = [
+HW_POOL_PROVISIONERS: dict[str, str] = {worker_type: provisioner for provisioner, worker_type in HW_WORKER_POOLS}
+LINUX_CLOUD_EXCLUDED_PROVISIONERS = {"releng-hardware", "proj-autophone"}
+LINUX_CLOUD_WORKER_MATCH = "linux"
+
+# Used only if live worker-type discovery is unavailable.
+FALLBACK_LINUX_CLOUD_WORKER_POOLS: list[tuple[str, str]] = [
+    ("app-services-1", "b-linux"),
+    ("app-services-3", "b-linux"),
+    ("code-analysis-1", "linux-gw-gcp"),
+    ("code-analysis-3", "linux-gw-gcp"),
+    ("comm-1", "b-linux"),
+    ("comm-3", "b-linux"),
+    ("comm-3", "b-linux-docker-amd"),
+    ("comm-3", "b-linux-docker-large-amd"),
+    ("comm-3", "b-linux-docker-xlarge-amd"),
+    ("comm-t", "t-linux-docker-amd"),
+    ("comm-t", "t-linux-docker-noscratch-amd"),
+    ("enterprise-1", "b-linux"),
+    ("enterprise-1", "b-linux-docker-amd"),
+    ("enterprise-1", "b-linux-docker-large-amd"),
+    ("enterprise-1", "b-linux-docker-xlarge-amd"),
+    ("enterprise-3", "b-linux"),
+    ("enterprise-3", "b-linux-docker-amd"),
+    ("enterprise-3", "b-linux-docker-large-amd"),
+    ("enterprise-3", "b-linux-docker-xlarge-amd"),
+    ("enterprise-t", "t-linux-docker-16c32gb-amd"),
+    ("enterprise-t", "t-linux-docker-amd"),
+    ("enterprise-t", "t-linux-docker-noscratch-amd"),
+    ("gecko-1", "b-linux"),
+    ("gecko-1", "b-linux-aarch64"),
+    ("gecko-1", "b-linux-docker-amd"),
+    ("gecko-1", "b-linux-docker-large-amd"),
+    ("gecko-1", "b-linux-docker-xlarge-amd"),
+    ("gecko-1", "b-linux-kvm"),
+    ("gecko-1", "b-linux-medium"),
+    ("gecko-3", "b-linux"),
+    ("gecko-3", "b-linux-docker-amd"),
+    ("gecko-3", "b-linux-docker-large-amd"),
+    ("gecko-3", "b-linux-docker-xlarge-amd"),
+    ("gecko-3", "b-linux-kvm"),
+    ("gecko-3", "b-linux-medium"),
+    ("gecko-3", "b-linux-xlarge"),
+    ("gecko-t", "t-linux-2204-wayland"),
+    ("gecko-t", "t-linux-2204-wayland-snap"),
+    ("gecko-t", "t-linux-2404-wayland-snap"),
+    ("gecko-t", "t-linux-arm64-docker"),
     ("gecko-t", "t-linux-docker"),
+    ("gecko-t", "t-linux-docker-16c32gb-amd"),
     ("gecko-t", "t-linux-docker-amd"),
     ("gecko-t", "t-linux-docker-kvm"),
-    ("gecko-t", "t-linux-2204-wayland"),
-    ("gecko-t", "t-linux-2404-wayland-snap"),
+    ("gecko-t", "t-linux-docker-noscratch"),
+    ("gecko-t", "t-linux-docker-noscratch-amd"),
+    ("gecko-t", "t-linux-vm-2204-wayland"),
     ("gecko-t", "t-linux-xlarge-2204-wayland"),
+    ("glean-1", "b-linux"),
+    ("mobile-1", "b-linux"),
+    ("mobile-3", "b-linux"),
+    ("mozilla-t", "t-linux-2204-wayland"),
+    ("mozilla-t", "t-linux-2404-wayland"),
+    ("mozilla-t", "t-linux-2404-wayland-relsre"),
+    ("mozilla-t", "t-linux-docker"),
+    ("mozilla-t", "t-linux-docker-noscratch"),
+    ("mozillavpn-1", "b-linux"),
+    ("mozillavpn-1", "b-linux-large"),
+    ("mozillavpn-3", "b-linux"),
+    ("mozillavpn-3", "b-linux-large"),
+    ("nss-1", "linux-docker"),
+    ("nss-t", "t-linux-docker"),
+    ("releng-1", "linux-docker"),
+    ("releng-3", "linux-docker"),
+    ("releng-t", "linux-docker"),
+    ("taskgraph-t", "linux-docker"),
+    ("translations-1", "b-linux-large-gcp-d2g"),
+    ("xpi-1", "b-linux"),
 ]
 
 ANDROID_WORKER_POOLS: list[tuple[str, str]] = [
@@ -42,6 +109,12 @@ DEFAULT_BRANCH = "master"
 def _is_branch_override(branch: str | None) -> bool:
     """Return True only if the branch is set and differs from the default."""
     return bool(branch and branch.lower() != DEFAULT_BRANCH.lower())
+
+
+def _pool_provisioner(worker_pool: str, tc_worker_pool_id: str | None) -> str | None:
+    if tc_worker_pool_id and "/" in tc_worker_pool_id:
+        return tc_worker_pool_id.split("/", 1)[0]
+    return HW_POOL_PROVISIONERS.get(worker_pool)
 
 
 @router.get("/summary")
@@ -149,6 +222,7 @@ def pool_health(db: Session = Depends(get_db)) -> dict[str, Any]:
         if pool not in pools:
             pools[pool] = {
                 "name": pool,
+                "provisioner": _pool_provisioner(pool, w.tc_worker_pool_id),
                 "generation": w.generation,
                 "total": 0,
                 "production": 0,
@@ -165,6 +239,8 @@ def pool_health(db: Session = Depends(get_db)) -> dict[str, Any]:
             }
 
         p = pools[pool]
+        if not p.get("provisioner"):
+            p["provisioner"] = _pool_provisioner(pool, w.tc_worker_pool_id)
         p["total"] += 1
 
         state = w.effective_state
@@ -232,6 +308,99 @@ def _fetch_pending_count(provisioner_id: str, worker_type: str) -> tuple[str, in
     return worker_type, None
 
 
+def _list_provisioners() -> list[str]:
+    """List Taskcluster provisioners from TC Queue, following pagination."""
+    provisioners: list[str] = []
+    continuation_token: str | None = None
+
+    while True:
+        params: dict[str, str | int] = {"limit": 1000}
+        if continuation_token:
+            params["continuationToken"] = continuation_token
+
+        try:
+            resp = requests.get(
+                f"{settings.tc_root_url}/api/queue/v1/provisioners",
+                params=params,
+                timeout=8,
+                headers={"User-Agent": "relops-dashboard/1.0"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception:
+            return provisioners
+
+        provisioners.extend(
+            p["provisionerId"]
+            for p in data.get("provisioners", [])
+            if p.get("provisionerId")
+        )
+
+        continuation_token = data.get("continuationToken")
+        if not continuation_token:
+            break
+
+    return provisioners
+
+
+def _list_worker_types(provisioner: str) -> list[str]:
+    """List worker types for a provisioner from TC Queue, following pagination."""
+    worker_types: list[str] = []
+    continuation_token: str | None = None
+
+    while True:
+        params: dict[str, str | int] = {"limit": 1000}
+        if continuation_token:
+            params["continuationToken"] = continuation_token
+
+        try:
+            resp = requests.get(
+                f"{settings.tc_root_url}/api/queue/v1/provisioners/{provisioner}/worker-types",
+                params=params,
+                timeout=8,
+                headers={"User-Agent": "relops-dashboard/1.0"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception:
+            return worker_types
+
+        worker_types.extend(
+            wt["workerType"]
+            for wt in data.get("workerTypes", [])
+            if wt.get("workerType")
+        )
+
+        continuation_token = data.get("continuationToken")
+        if not continuation_token:
+            break
+
+    return worker_types
+
+
+def _linux_cloud_worker_pools() -> list[tuple[str, str]]:
+    """Discover all Linux cloud pools from non-hardware Taskcluster provisioners."""
+    pools: set[tuple[str, str]] = set()
+    provisioners = [
+        provisioner
+        for provisioner in _list_provisioners()
+        if provisioner not in LINUX_CLOUD_EXCLUDED_PROVISIONERS
+    ]
+
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        futures = {ex.submit(_list_worker_types, provisioner): provisioner for provisioner in provisioners}
+        for fut in as_completed(futures):
+            provisioner = futures[fut]
+            for worker_type in fut.result():
+                if LINUX_CLOUD_WORKER_MATCH in worker_type.lower():
+                    pools.add((provisioner, worker_type))
+
+    if not pools:
+        return FALLBACK_LINUX_CLOUD_WORKER_POOLS
+
+    return sorted(pools, key=lambda p: (p[0], p[1]))
+
+
 @router.get("/pending-counts")
 def pending_counts() -> dict[str, Any]:
     """Live pending task counts from TC Queue API for all monitored hardware pools."""
@@ -248,18 +417,23 @@ def _fetch_cloud_pool(provisioner: str, worker_type: str) -> dict[str, Any]:
     pending = _fetch_pending_count(provisioner, worker_type)[1] or 0
     running, total = 0, 0
     try:
+        # Keep this as the first queue page: later pages include older cloud workers and
+        # inflate the load snapshot beyond what the dashboard has historically shown.
         resp = requests.get(
-            f"{settings.tc_root_url}/api/queue/v1/provisioners/{provisioner}/worker-types/{worker_type}/workers?limit=1000",
+            f"{settings.tc_root_url}/api/queue/v1/provisioners/{provisioner}/worker-types/{worker_type}/workers",
+            params={"limit": 1000},
             timeout=8,
             headers={"User-Agent": "relops-dashboard/1.0"},
         )
         if resp.ok:
-            workers = resp.json().get("workers", [])
+            data = resp.json()
+            workers = data.get("workers", [])
             total = len(workers)
             running = sum(1 for w in workers if w.get("latestTask") is not None)
     except Exception:
         pass
     return {
+        "id": f"{provisioner}/{worker_type}",
         "name": worker_type,
         "provisioner": provisioner,
         "pending": pending,
@@ -271,10 +445,11 @@ def _fetch_cloud_pool(provisioner: str, worker_type: str) -> dict[str, Any]:
 @router.get("/cloud-pools")
 def cloud_pools() -> dict[str, Any]:
     """Live load stats for cloud Linux worker pools (no DB — all live from TC)."""
+    worker_pools = _linux_cloud_worker_pools()
     with ThreadPoolExecutor(max_workers=10) as ex:
-        futures = [ex.submit(_fetch_cloud_pool, p, w) for p, w in CLOUD_WORKER_POOLS]
+        futures = [ex.submit(_fetch_cloud_pool, p, w) for p, w in worker_pools]
         results = [f.result() for f in as_completed(futures)]
-    results.sort(key=lambda x: x["name"])
+    results.sort(key=lambda x: (x["provisioner"], x["name"]))
     return {"pools": results}
 
 
