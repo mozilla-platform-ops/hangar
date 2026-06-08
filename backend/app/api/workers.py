@@ -10,13 +10,49 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..hosts import worker_fqdn
-from ..models import Worker
+from ..models import SyncLog, Worker
 
 router = APIRouter(prefix="/workers", tags=["workers"])
 
+# Sources whose presence we surface per worker. Maps the UI key -> SyncLog source.
+_FOUND_SOURCES = {"puppet": "puppet", "mdm": "simplemdm", "tc": "taskcluster"}
 
-def _worker_to_dict(w: Worker) -> dict[str, Any]:
+
+def _source_cutoffs(db: Session) -> dict[str, datetime | None]:
+    """Start time of each source's most recent *completed successful* sync.
+
+    A worker is "found in" a source when its ``last_synced_<source>`` is at or
+    after that cutoff — i.e. the source reported it in its latest run. A host
+    that dropped out of a source keeps an older timestamp from a prior run and
+    so reads as not-found, without needing any new column.
+    """
+    cutoffs: dict[str, datetime | None] = {}
+    for source in set(_FOUND_SOURCES.values()):
+        row = (
+            db.query(SyncLog.started_at)
+            .filter(SyncLog.source == source, SyncLog.success == True, SyncLog.finished_at != None)  # noqa: E711,E712
+            .order_by(SyncLog.finished_at.desc())
+            .first()
+        )
+        cutoffs[source] = row[0] if row else None
+    return cutoffs
+
+
+def _found_in(w: Worker, cutoffs: dict[str, datetime | None]) -> dict[str, bool]:
+    stamps = {
+        "puppet": w.last_synced_puppet,
+        "mdm": w.last_synced_mdm,
+        "tc": w.last_synced_tc,
+    }
     return {
+        key: bool(stamps[key] and (c := cutoffs.get(src)) and stamps[key] >= c)
+        for key, src in _FOUND_SOURCES.items()
+    }
+
+
+def _worker_to_dict(w: Worker, cutoffs: dict[str, datetime | None]) -> dict[str, Any]:
+    return {
+        "found_in": _found_in(w, cutoffs),
         "hostname": w.hostname,
         "worker_id": w.worker_id,
         "generation": w.generation,
@@ -117,7 +153,8 @@ def list_workers(
     sort_col = _SORTABLE.get(sort_by, Worker.hostname)
     order = nullslast(desc(sort_col)) if sort_dir == "desc" else nullslast(asc(sort_col))
     workers = q.order_by(order).offset(offset).limit(limit).all()
-    return {"total": total, "workers": [_worker_to_dict(w) for w in workers]}
+    cutoffs = _source_cutoffs(db)
+    return {"total": total, "workers": [_worker_to_dict(w, cutoffs) for w in workers]}
 
 
 @router.patch("/{hostname:path}/notes")
@@ -128,7 +165,7 @@ def update_notes(hostname: str, db: Session = Depends(get_db), notes: str | None
         raise HTTPException(status_code=404, detail=f"Worker {fqdn} not found")
     worker.dashboard_notes = notes or None
     db.commit()
-    return _worker_to_dict(worker)
+    return _worker_to_dict(worker, _source_cutoffs(db))
 
 
 @router.get("/{hostname:path}")
@@ -138,4 +175,4 @@ def get_worker(hostname: str, db: Session = Depends(get_db)) -> dict[str, Any]:
     worker = db.get(Worker, fqdn)
     if not worker:
         raise HTTPException(status_code=404, detail=f"Worker {fqdn} not found")
-    return _worker_to_dict(worker)
+    return _worker_to_dict(worker, _source_cutoffs(db))

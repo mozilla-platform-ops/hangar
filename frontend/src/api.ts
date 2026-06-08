@@ -86,6 +86,7 @@ export interface Worker {
   mdm: WorkerMDM;
   tc: WorkerTC;
   sync: Record<string, string | null>;
+  found_in: { puppet: boolean; mdm: boolean; tc: boolean };
   updated_at: string | null;
 }
 
