@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Any
 
 import requests
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ..config import settings
@@ -20,6 +21,11 @@ from ..models import Alert, SyncLog, Worker
 log = logging.getLogger(__name__)
 
 SIMPLEMDM_BASE = "https://a.simplemdm.com/api/v1"
+
+# Hostname prefixes for the Mac fleet that SimpleMDM is the source of truth for.
+# Only these hosts are eligible for MDM-driven removal — Linux/Windows workers
+# are never enrolled in SimpleMDM and must be left untouched.
+MDM_MANAGED_PREFIXES = ("macmini-", "adhoc-mac", "dep-mac", "fx-mac", "tb-mac", "vpn-mac")
 
 
 class SimpleMDMClient:
@@ -82,10 +88,46 @@ def _hostname_from_device(device: dict[str, Any]) -> str | None:
     device_name = attrs.get("device_name", "")
     # prefer the SimpleMDM name (which should be set to the hostname short form)
     for candidate in (name, device_name):
-        if candidate and any(candidate.startswith(p) for p in ("macmini-", "adhoc-mac", "dep-mac", "fx-mac", "tb-mac", "vpn-mac")):
+        if candidate and any(candidate.startswith(p) for p in MDM_MANAGED_PREFIXES):
             short = candidate.split(".")[0]
             return f"{short}.test.releng.mdc1.mozilla.com"
     return None
+
+
+def _remove_absent_from_mdm(db: Session, seen_hostnames: set[str]) -> int:
+    """Delete Mac workers that SimpleMDM no longer knows about.
+
+    SimpleMDM is the source of truth for the Mac fleet: once a host is removed
+    from MDM (e.g. on decommission) it should disappear from the dashboard.
+
+    A host qualifies for removal only if it (a) previously had an MDM record
+    (``last_synced_mdm`` set), (b) carries an MDM-managed Mac prefix, and (c) was
+    not returned in the current sync cycle. Requiring a prior MDM record means a
+    Mac still mid-provisioning — puppet-managed but not yet enrolled — is never
+    deleted; only hosts that were enrolled and then dropped get swept.
+    """
+    # Guard: if the device fetch returned nothing usable, do not interpret that
+    # as "the whole fleet was decommissioned" and wipe every Mac.
+    if not seen_hostnames:
+        log.warning("SimpleMDM returned no recognizable hosts — skipping removal pass")
+        return 0
+
+    orphans = (
+        db.query(Worker)
+        .filter(Worker.last_synced_mdm != None)  # noqa: E711 — was managed by MDM
+        .filter(or_(*[Worker.hostname.like(f"{p}%") for p in MDM_MANAGED_PREFIXES]))
+        .filter(Worker.hostname.notin_(seen_hostnames))
+        .all()
+    )
+
+    removed = 0
+    for worker in orphans:
+        # Drop any alerts tied to the host — they reference hostname, no FK cascade.
+        db.query(Alert).filter(Alert.hostname == worker.hostname).delete(synchronize_session=False)
+        db.delete(worker)
+        removed += 1
+        log.info("Removing %s — no longer present in SimpleMDM", worker.hostname)
+    return removed
 
 
 def run_sync(db: Session) -> int:
@@ -114,10 +156,12 @@ def run_sync(db: Session) -> int:
             log.warning("No custom attribute values returned for any device")
 
         count = 0
+        seen_hostnames: set[str] = set()
         for device in devices:
             hostname = _hostname_from_device(device)
             if not hostname:
                 continue
+            seen_hostnames.add(hostname)
 
             attrs = device.get("attributes", {})
             device_id = device["id"]
@@ -165,11 +209,16 @@ def run_sync(db: Session) -> int:
             count += 1
 
         db.commit()
+
+        # MDM is authoritative for the Mac fleet: remove hosts it no longer lists.
+        removed = _remove_absent_from_mdm(db, seen_hostnames)
+        db.commit()
+
         log_entry.finished_at = datetime.utcnow()
         log_entry.records_updated = count
         log_entry.success = True
         db.commit()
-        log.info("SimpleMDM sync complete: %d records", count)
+        log.info("SimpleMDM sync complete: %d records, %d removed", count, removed)
         return count
 
     except Exception as exc:
