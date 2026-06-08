@@ -50,10 +50,20 @@ def _run_github_prs() -> None:
         github_prs.run_sync(db)
 
 
+def _run_prune() -> None:
+    from . import reconcile
+    with SessionLocal() as db:
+        reconcile.run_sync(db)
+
+
 def run_all_sync() -> None:
-    """Run all sync jobs sequentially (used for manual trigger)."""
+    """Run all sync jobs sequentially (used for manual trigger).
+
+    The decommission prune runs last, after every source has refreshed, so it
+    judges presence against up-to-date sync timestamps.
+    """
     log.info("Manual sync: starting all sources")
-    for fn in (_run_puppet, _run_windows_inventory, _run_simplemdm, _run_taskcluster, _run_sheets, _run_github_prs):
+    for fn in (_run_puppet, _run_windows_inventory, _run_simplemdm, _run_taskcluster, _run_sheets, _run_github_prs, _run_prune):
         try:
             fn()
         except Exception:
@@ -71,6 +81,7 @@ def start_scheduler() -> None:
     _scheduler.add_job(_run_taskcluster, IntervalTrigger(seconds=settings.sync_interval_tc), id="taskcluster", replace_existing=True)
     _scheduler.add_job(_run_sheets, IntervalTrigger(seconds=settings.sync_interval_sheets), id="sheets", replace_existing=True)
     _scheduler.add_job(_run_github_prs, IntervalTrigger(seconds=settings.sync_interval_github_prs), id="github_prs", replace_existing=True)
+    _scheduler.add_job(_run_prune, IntervalTrigger(seconds=settings.sync_interval_prune), id="prune", replace_existing=True)
 
     _scheduler.start()
     log.info("Background sync scheduler started")
