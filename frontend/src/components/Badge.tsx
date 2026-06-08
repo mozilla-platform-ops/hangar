@@ -61,3 +61,34 @@ export function enrollmentBadge(status: string | null): JSX.Element {
   const variant = status === "enrolled" ? "green" : status === "unenrolled" ? "red" : "gray";
   return <Badge label={status || "?"} variant={variant} dot />;
 }
+
+interface FoundIn { puppet: boolean; mdm: boolean; tc: boolean }
+
+// Compact P/M/T indicator showing which sources currently report a worker.
+// Lit = the source returned it in its latest sync; dim = absent. Makes an
+// incomplete decommission obvious (e.g. removed from MDM but still in Puppet).
+export function SourceBadges({ found }: { found: FoundIn }): JSX.Element {
+  const items: Array<[string, boolean, string]> = [
+    ["P", found.puppet, "Puppet inventory"],
+    ["M", found.mdm, "SimpleMDM"],
+    ["T", found.tc, "Taskcluster"],
+  ];
+  return (
+    <span className="inline-flex items-center gap-1">
+      {items.map(([letter, on, title]) => (
+        <span
+          key={letter}
+          title={`${title}: ${on ? "found" : "absent"}`}
+          className={clsx(
+            "w-4 h-4 inline-flex items-center justify-center rounded text-[9px] font-bold font-mono ring-1 ring-inset",
+            on
+              ? "bg-emerald-950/80 text-emerald-300 ring-emerald-500/30"
+              : "bg-gray-900/60 text-gray-700 ring-gray-800"
+          )}
+        >
+          {letter}
+        </span>
+      ))}
+    </span>
+  );
+}

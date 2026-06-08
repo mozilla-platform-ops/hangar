@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, ExternalLink, Pencil, CheckCircle2, X } from "lucide-react";
 import { api } from "../api";
 import type { Worker } from "../api";
-import { stateBadge, tcStatusBadge, enrollmentBadge } from "../components/Badge";
+import { stateBadge, tcStatusBadge, enrollmentBadge, SourceBadges } from "../components/Badge";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -195,6 +195,7 @@ export function WorkerDetail() {
       </Section>
 
       <Section title="Sync Timestamps">
+        <Field label="Found in" value={<SourceBadges found={worker.found_in} />} />
         <Field label="Puppet" value={fmtDate(worker.sync.puppet)} />
         <Field label="SimpleMDM" value={fmtDate(worker.sync.mdm)} />
         <Field label="Taskcluster" value={fmtDate(worker.sync.tc)} />

@@ -8,7 +8,7 @@ import type { SortingState, ColumnDef } from "@tanstack/react-table";
 import { Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { api } from "../api";
 import type { Worker } from "../api";
-import { stateBadge, tcStatusBadge, enrollmentBadge } from "../components/Badge";
+import { stateBadge, tcStatusBadge, enrollmentBadge, SourceBadges } from "../components/Badge";
 
 type HealthStatus = "healthy" | "degraded" | "critical" | null;
 
@@ -153,6 +153,11 @@ export function Workers() {
       id: "state",
       header: "State",
       cell: ({ row }) => stateBadge(row.original.state),
+    },
+    {
+      id: "sources",
+      header: "Sources",
+      cell: ({ row }) => <SourceBadges found={row.original.found_in} />,
     },
     {
       id: "os",
