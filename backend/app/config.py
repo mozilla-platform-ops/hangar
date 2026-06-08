@@ -41,9 +41,15 @@ class Settings(BaseSettings):
     sync_interval_puppet: int = 3600
     sync_interval_windows_inventory: int = 3600
     sync_interval_github_prs: int = 1800
+    sync_interval_prune: int = 3600
 
     # Alert thresholds
     tc_missing_threshold_hours: int = 24
+
+    # Decommission cleanup: a worker is deleted once it is absent from Puppet, TC,
+    # and SimpleMDM. The prune only runs if each of those sources has a successful
+    # sync within this many hours, so a broken/slow sync can't trigger deletions.
+    prune_source_freshness_hours: int = 6
 
     # Security
     # Comma-separated allowed CORS origins. Use "*" for local dev only.
