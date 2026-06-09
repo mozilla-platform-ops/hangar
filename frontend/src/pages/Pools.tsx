@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
-import { Pin, AlertTriangle, GitBranch, Users, Lock, Hammer, FlaskConical, ChevronDown, Terminal, Smartphone, Monitor } from "lucide-react";
+import { Pin, AlertTriangle, GitBranch, Users, Lock, Hammer, FlaskConical, ChevronDown, Terminal, Smartphone, Monitor, Pencil, Check, X, RotateCcw, GripVertical } from "lucide-react";
 import { api } from "../api";
 import type { PoolHealth, PoolSources, CloudPool, FleetSummary, RoninPR } from "../api";
+import { FF_GRADIENT } from "../lib/brand";
 
 const OVERVIEW_EXCLUDED_POOLS = new Set([
   "gecko-t-osx-1500-m4-ipv6",
@@ -11,11 +12,59 @@ const OVERVIEW_EXCLUDED_POOLS = new Set([
   "gecko-t-osx-1015-r8-staging",
 ]);
 
-const PINNED_POOLS = [
-  "gecko-t-osx-1400-r8",
-  "gecko-t-osx-1015-r8",
-  "gecko-t-osx-1500-m4",
-];
+const MAX_PINNED = 4;
+
+// Curated per-section defaults; sections without an entry default to their first few pools.
+const SECTION_DEFAULTS: Record<string, string[]> = {
+  mac: ["gecko-t-osx-1400-r8", "gecko-t-osx-1015-r8", "gecko-t-osx-1500-m4"],
+};
+
+function pinnedStorageKey(section: string): string {
+  return `hangar.pinnedPools.${section || "overview"}`;
+}
+
+function defaultPinned(section: string, available: string[]): string[] {
+  return SECTION_DEFAULTS[section] ?? available.slice(0, 3);
+}
+
+function loadPinned(section: string, available: string[]): string[] {
+  try {
+    const raw = localStorage.getItem(pinnedStorageKey(section));
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0 && parsed.every(x => typeof x === "string")) {
+        return parsed.slice(0, MAX_PINNED);
+      }
+    }
+  } catch {
+    /* fall through to default */
+  }
+  return defaultPinned(section, available);
+}
+
+function savePinned(section: string, next: string[]): void {
+  try {
+    localStorage.setItem(pinnedStorageKey(section), JSON.stringify(next));
+  } catch {
+    /* localStorage unavailable — selection persists for the session only */
+  }
+}
+
+function reorder<T>(list: T[], from: number, to: number): T[] {
+  const next = [...list];
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved);
+  return next;
+}
+
+// Pools whose generation can't be derived from Taskcluster metadata — pin it here.
+const GENERATION_OVERRIDES: Record<string, string> = {
+  "gecko-t-osx-1500-m-vms": "m4",
+};
+
+function poolGeneration(pool: PoolHealth): string {
+  return pool.generation || GENERATION_OVERRIDES[pool.name] || "";
+}
 
 const GEN_COLOR: Record<string, string> = {
   r8:    "text-indigo-400",
@@ -113,27 +162,35 @@ function ActivityBar({ pool, height = "h-2" }: { pool: PoolHealth; height?: stri
 }
 
 function SourceBar({ sources }: { sources: PoolSources | null | undefined }) {
-  if (!sources) return <div className="h-2 w-full bg-gray-800 rounded-full animate-pulse" />;
-  if (sources.sample_size === 0) return <div className="text-[10px] text-gray-700">No running tasks</div>;
-
-  const total = sources.sample_size;
-  const entries = Object.entries(sources.by_project);
+  const total = sources?.sample_size ?? 0;
+  const entries = sources && total > 0 ? Object.entries(sources.by_project) : [];
   return (
     <div className="space-y-2">
-      <div className="flex w-full h-2 rounded-full overflow-hidden gap-px">
-        {entries.map(([proj, count]) => (
-          <div key={proj} className={PROJECT_COLORS[proj] ?? "bg-gray-500"} style={{ width: `${(count / total) * 100}%` }} title={`${proj}: ${count}`} />
-        ))}
-      </div>
-      <div className="flex flex-wrap gap-x-3 gap-y-1">
-        {entries.map(([proj, count]) => (
-          <div key={proj} className="flex items-center gap-1">
-            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${PROJECT_COLORS[proj] ?? "bg-gray-500"}`} />
-            <span className={`text-[10px] font-medium ${PROJECT_TEXT[proj] ?? "text-gray-400"}`}>{proj}</span>
-            <span className="text-[10px] text-gray-600 tabular-nums">{Math.round((count / total) * 100)}%</span>
-          </div>
-        ))}
-        <span className="text-[10px] text-gray-700 ml-auto">n={total}</span>
+      {entries.length > 0 ? (
+        <div className="flex w-full h-2 rounded-full overflow-hidden gap-px">
+          {entries.map(([proj, count]) => (
+            <div key={proj} className={PROJECT_COLORS[proj] ?? "bg-gray-500"} style={{ width: `${(count / total) * 100}%` }} title={`${proj}: ${count}`} />
+          ))}
+        </div>
+      ) : (
+        <div className={`h-2 w-full bg-gray-800 rounded-full ${sources ? "" : "animate-pulse"}`} />
+      )}
+      {/* Reserve consistent height (~2 legend rows) so cards stay even whether or not a pool has job sources */}
+      <div className="flex flex-wrap gap-x-3 gap-y-1 min-h-[2rem] content-start">
+        {entries.length > 0 ? (
+          <>
+            {entries.map(([proj, count]) => (
+              <div key={proj} className="flex items-center gap-1">
+                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${PROJECT_COLORS[proj] ?? "bg-gray-500"}`} />
+                <span className={`text-[10px] font-medium ${PROJECT_TEXT[proj] ?? "text-gray-400"}`}>{proj}</span>
+                <span className="text-[10px] text-gray-600 tabular-nums">{Math.round((count / total) * 100)}%</span>
+              </div>
+            ))}
+            <span className="text-[10px] text-gray-700 ml-auto">n={total}</span>
+          </>
+        ) : (
+          <span className="text-[10px] text-gray-700">{sources ? "No running tasks" : ""}</span>
+        )}
       </div>
     </div>
   );
@@ -181,8 +238,8 @@ function PinnedCard({ pool, pending, sources }: {
                 {pool.provisioner}
               </span>
             )}
-            <span className={`text-xs font-mono ${GEN_COLOR[pool.generation || ""] || "text-gray-500"}`}>
-              {pool.generation || "unknown"}
+            <span className={`text-xs font-mono ${GEN_COLOR[poolGeneration(pool)] || "text-gray-500"}`}>
+              {poolGeneration(pool) || "unknown"}
             </span>
           </div>
         </div>
@@ -218,28 +275,36 @@ function PinnedCard({ pool, pending, sources }: {
         <SourceBar sources={sources} />
       </div>
 
-      {sources && Object.keys(sources.by_user).length > 0 && (
-        <div>
-          <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-2">Top Submitters</div>
-          <div className="space-y-1">
-            {Object.entries(sources.by_user).slice(0, 4).map(([user, count], i) => {
-              const short = user.replace(/@.*$/, "");
-              const pct = Math.round((count / sources.sample_size) * 100);
+      <div>
+        <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-2">Top Submitters</div>
+        <div className="space-y-1">
+          {Array.from({ length: 4 }).map((_, i) => {
+            const entry = sources ? Object.entries(sources.by_user)[i] : undefined;
+            if (!entry) {
               return (
-                <div key={user} className="flex items-center gap-2">
+                <div key={`ph-${i}`} className="flex items-center gap-2">
                   <span className="text-[10px] text-gray-700 tabular-nums w-3">{i + 1}</span>
-                  <span className="text-[10px] font-mono text-gray-400 truncate flex-1" title={user}>{short}</span>
-                  <span className="text-[10px] text-gray-600 tabular-nums">{pct}%</span>
-                  <span className="text-[10px] text-gray-700 tabular-nums">({count})</span>
+                  <span className="text-[10px] font-mono text-gray-700 flex-1">—</span>
                 </div>
               );
-            })}
-          </div>
+            }
+            const [user, count] = entry;
+            const short = user.replace(/@.*$/, "");
+            const pct = Math.round((count / (sources?.sample_size || 1)) * 100);
+            return (
+              <div key={user} className="flex items-center gap-2">
+                <span className="text-[10px] text-gray-700 tabular-nums w-3">{i + 1}</span>
+                <span className="text-[10px] font-mono text-gray-400 truncate flex-1" title={user}>{short}</span>
+                <span className="text-[10px] text-gray-600 tabular-nums">{pct}%</span>
+                <span className="text-[10px] text-gray-700 tabular-nums">({count})</span>
+              </div>
+            );
+          })}
         </div>
-      )}
+      </div>
 
       {unavailable > 0 ? (
-        <div className="pt-1 border-t border-gray-800/60">
+        <div className="pt-1 border-t border-gray-800/60 min-h-[2.75rem]">
           <div className="text-[10px] text-gray-600 mb-1.5">{unavailable} worker{unavailable !== 1 ? "s" : ""} unavailable</div>
           <div className="flex flex-wrap gap-1">
             {pool.quarantined > 0 && (
@@ -256,7 +321,7 @@ function PinnedCard({ pool, pending, sources }: {
           </div>
         </div>
       ) : (
-        <div className="pt-1 border-t border-gray-800/60">
+        <div className="pt-1 border-t border-gray-800/60 min-h-[2.75rem]">
           <span className="text-[10px] text-emerald-600">All workers available</span>
         </div>
       )}
@@ -309,7 +374,7 @@ function PoolTable({ pools, pinnedPools, navigate, showLegend, pending, showProv
                   </td>
                 )}
                 <td className="px-4 py-2.5">
-                  <span className={`text-xs font-mono font-medium ${GEN_COLOR[pool.generation || ""] || "text-gray-600"}`}>{pool.generation || "?"}</span>
+                  <span className={`text-xs font-mono font-medium ${GEN_COLOR[poolGeneration(pool)] || "text-gray-600"}`}>{poolGeneration(pool) || "?"}</span>
                 </td>
                 <td className="px-4 py-2.5">
                   <div className="flex items-center gap-2">
@@ -450,11 +515,21 @@ function CloudPoolCard({ pool, sources }: { pool: CloudPool; sources?: PoolSourc
         </div>
       )}
 
-      {sources && Object.keys(sources.by_user).length > 0 && (
+      {sources && (
         <div>
           <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-2">Top Submitters</div>
           <div className="space-y-1">
-            {Object.entries(sources.by_user).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([user, count], i) => {
+            {Array.from({ length: 4 }).map((_, i) => {
+              const entry = Object.entries(sources.by_user).sort((a, b) => b[1] - a[1])[i];
+              if (!entry) {
+                return (
+                  <div key={`ph-${i}`} className="flex items-center gap-2">
+                    <span className="text-[10px] text-gray-700 tabular-nums w-3">{i + 1}</span>
+                    <span className="text-[10px] font-mono text-gray-700 flex-1">—</span>
+                  </div>
+                );
+              }
+              const [user, count] = entry;
               const short = user.replace(/@.*$/, "");
               const pct = Math.round((count / sources.sample_size) * 100);
               return (
@@ -492,8 +567,8 @@ function PoolStatusTile({ pool, pending: pendingCount }: { pool: PoolHealth; pen
                 {pool.provisioner}
               </span>
             )}
-            <span className={`text-xs font-mono ${GEN_COLOR[pool.generation || ""] || "text-gray-500"}`}>
-              {pool.generation || "—"}
+            <span className={`text-xs font-mono ${GEN_COLOR[poolGeneration(pool)] || "text-gray-500"}`}>
+              {poolGeneration(pool) || "—"}
             </span>
           </div>
         </div>
@@ -583,6 +658,158 @@ function CloudPoolTable({ pools }: { pools: CloudPool[] }) {
   );
 }
 
+function PinnedEditor({ allPools, selected, defaults, onSave, onClose }: {
+  allPools: PoolHealth[];
+  selected: string[];
+  defaults: string[];
+  onSave: (next: string[]) => void;
+  onClose: () => void;
+}) {
+  const [draft, setDraft] = useState<string[]>(selected);
+  const [filter, setFilter] = useState("");
+  const [dragChip, setDragChip] = useState<number | null>(null);
+
+  const toggle = (name: string) =>
+    setDraft(d =>
+      d.includes(name)
+        ? d.filter(n => n !== name)
+        : d.length >= MAX_PINNED ? d : [...d, name]
+    );
+
+  const names = [...new Set(allPools.map(p => p.name))].sort();
+  const q = filter.trim().toLowerCase();
+  const filtered = q ? names.filter(n => n.toLowerCase().includes(q)) : names;
+  const atMax = draft.length >= MAX_PINNED;
+
+  return (
+    <div className="card p-5 space-y-4 border-brand-500/30">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-white">Edit tracked pools</div>
+          <div className="text-[11px] text-gray-500 mt-0.5">
+            Pick up to {MAX_PINNED} pools to pin at the top. {draft.length}/{MAX_PINNED} selected.
+          </div>
+        </div>
+        <button onClick={onClose} className="text-gray-500 hover:text-gray-300 transition-colors" title="Cancel">
+          <X size={16} />
+        </button>
+      </div>
+
+      {draft.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {draft.length > 1 && <span className="text-[10px] text-gray-600 self-center mr-0.5">drag to reorder:</span>}
+          {draft.map((name, i) => (
+            <span key={name}
+              draggable
+              onDragStart={() => setDragChip(i)}
+              onDragOver={e => e.preventDefault()}
+              onDrop={() => { setDraft(d => (dragChip !== null && dragChip !== i ? reorder(d, dragChip, i) : d)); setDragChip(null); }}
+              onDragEnd={() => setDragChip(null)}
+              className={`flex items-center gap-1.5 text-xs font-mono bg-brand-900/20 text-brand-200 border border-brand-500/30 rounded-full pl-2 pr-1.5 py-1 cursor-grab active:cursor-grabbing ${dragChip === i ? "opacity-40" : ""}`}>
+              <GripVertical size={11} className="text-brand-400/50" />
+              <span className="text-brand-500 tabular-nums">{i + 1}</span>
+              {name}
+              <button onClick={() => toggle(name)} className="text-brand-400/70 hover:text-brand-200 transition-colors" title="Remove">
+                <X size={11} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      <input
+        type="text"
+        value={filter}
+        onChange={e => setFilter(e.target.value)}
+        placeholder="Filter pools…"
+        className="w-full bg-gray-900/60 border border-gray-700/60 rounded-lg px-3 py-2 text-xs font-mono text-gray-200 placeholder-gray-600 focus:outline-none focus:border-brand-500/50"
+      />
+
+      <div className="max-h-64 overflow-y-auto rounded-lg border border-gray-800/60 divide-y divide-gray-800/40">
+        {filtered.length === 0 ? (
+          <div className="px-3 py-4 text-xs text-gray-600">No pools match “{filter}”.</div>
+        ) : filtered.map(name => {
+          const isSel = draft.includes(name);
+          const disabled = !isSel && atMax;
+          return (
+            <button
+              key={name}
+              onClick={() => toggle(name)}
+              disabled={disabled}
+              className={`flex items-center gap-2 w-full text-left px-3 py-2 text-xs font-mono transition-colors ${
+                isSel ? "bg-brand-900/15 text-brand-200" : disabled ? "text-gray-700 cursor-not-allowed" : "text-gray-300 hover:bg-gray-800/40"
+              }`}>
+              <span className={`flex items-center justify-center w-3.5 h-3.5 rounded border flex-shrink-0 ${
+                isSel ? "bg-brand-500 border-brand-500" : "border-gray-600"
+              }`}>
+                {isSel && <Check size={10} className="text-white" />}
+              </span>
+              {name}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex items-center justify-between gap-3 pt-1">
+        <button
+          onClick={() => setDraft(defaults)}
+          className="flex items-center gap-1.5 text-[11px] text-gray-500 hover:text-gray-300 transition-colors">
+          <RotateCcw size={11} /> Reset to default
+        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={onClose} className="text-xs text-gray-400 hover:text-gray-200 px-3 py-1.5 transition-colors">
+            Cancel
+          </button>
+          <button
+            onClick={() => onSave(draft)}
+            disabled={draft.length === 0}
+            className="flex items-center gap-1.5 text-xs font-medium bg-brand-500/15 text-brand-200 border border-brand-500/30 rounded-lg px-3 py-1.5 hover:bg-brand-500/25 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+            <Check size={12} /> Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PinnedGrid({ pools, pending, sources, onReorder }: {
+  pools: PoolHealth[];
+  pending: Record<string, number | null>;
+  sources: Record<string, PoolSources>;
+  onReorder: (names: string[]) => void;
+}) {
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [overIdx, setOverIdx] = useState<number | null>(null);
+  const cols = pools.length >= 4 ? "md:grid-cols-2 xl:grid-cols-4" : "md:grid-cols-3";
+
+  const drop = (to: number) => {
+    if (dragIdx !== null && dragIdx !== to) onReorder(reorder(pools.map(p => p.name), dragIdx, to));
+    setDragIdx(null);
+    setOverIdx(null);
+  };
+
+  return (
+    <div className={`grid grid-cols-1 gap-4 ${cols}`}>
+      {pools.map((pool, i) => (
+        <div key={pool.name}
+          draggable
+          onDragStart={() => setDragIdx(i)}
+          onDragOver={e => { e.preventDefault(); if (overIdx !== i) setOverIdx(i); }}
+          onDrop={e => { e.preventDefault(); drop(i); }}
+          onDragEnd={() => { setDragIdx(null); setOverIdx(null); }}
+          className={`group relative rounded-xl cursor-grab active:cursor-grabbing transition-all ${
+            dragIdx === i ? "opacity-40" : ""
+          } ${overIdx === i && dragIdx !== null && dragIdx !== i ? "ring-2 ring-brand-500/60" : ""}`}>
+          <div className="absolute top-2.5 right-2.5 z-10 text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+            <GripVertical size={14} />
+          </div>
+          <PinnedCard pool={pool} pending={pending[pool.name] ?? null} sources={sources[pool.name]} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function Pools() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -597,7 +824,31 @@ export function Pools() {
   const [androidPoolData, setAndroidPoolData] = useState<CloudPool[]>([]);
   const [branchOverrides, setBranchOverrides] = useState<FleetSummary["branch_overrides"] | null>(null);
   const [roninPRs, setRoninPRs] = useState<RoninPR[]>([]);
+  const [pinnedPools, setPinnedPools] = useState<string[]>([]);
+  const [editingPinned, setEditingPinned] = useState(false);
   const toggleOther = useCallback(() => setShowOther(v => !v), []);
+
+  const persistPinned = useCallback((next: string[]) => {
+    setPinnedPools(next);
+    savePinned(section, next);
+  }, [section]);
+
+  const updatePinned = useCallback((next: string[]) => {
+    persistPinned(next);
+    setEditingPinned(false);
+  }, [persistPinned]);
+
+  // Load the tracked set for the active section once pools are available.
+  useEffect(() => {
+    if (pools.length === 0) return;
+    const avail = pools
+      .filter(p => section === "linux" ? isLinuxPool(p.name)
+        : section === "windows" ? isWindowsPool(p.name)
+        : !isLinuxPool(p.name) && !isWindowsPool(p.name))
+      .map(p => p.name);
+    setPinnedPools(loadPinned(section, avail));
+    setEditingPinned(false);
+  }, [section, pools]);
 
   useEffect(() => {
     api.fleet.pools()
@@ -609,11 +860,6 @@ export function Pools() {
       .then(d => setPending(d.pending_counts))
       .catch(() => {});
 
-    for (const poolName of PINNED_POOLS) {
-      api.fleet.poolSources(poolName)
-        .then(s => setSources(prev => ({ ...prev, [poolName]: s })))
-        .catch(() => {});
-    }
     api.fleet.cloudPools()
       .then(d => setCloudPoolData(d.pools))
       .catch(() => {});
@@ -627,6 +873,14 @@ export function Pools() {
       .then(d => setRoninPRs(d.prs))
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    for (const poolName of pinnedPools) {
+      api.fleet.poolSources(poolName)
+        .then(s => setSources(prev => ({ ...prev, [poolName]: s })))
+        .catch(() => {});
+    }
+  }, [pinnedPools]);
 
   useEffect(() => {
     const names = pools.filter(p => isLinuxPool(p.name) || isWindowsPool(p.name)).map(p => p.name);
@@ -652,7 +906,7 @@ export function Pools() {
     </div>
   );
 
-  const pinnedData = PINNED_POOLS.map(name => pools.find(p => p.name === name)).filter(Boolean) as PoolHealth[];
+  const pinnedData = pinnedPools.map(name => pools.find(p => p.name === name)).filter(Boolean) as PoolHealth[];
 
   const linuxHwPools   = pools.filter(p => isLinuxPool(p.name));
   const windowsHwPools = pools.filter(p => isWindowsPool(p.name));
@@ -662,6 +916,11 @@ export function Pools() {
   const builderPools = macPools.filter(p => !p.name.includes("signing") && !p.name.endsWith("-vms") && p.name.includes("-b-"));
   const testerPools  = macPools.filter(p => !p.name.includes("signing") && !p.name.endsWith("-vms") && !p.name.includes("-b-") && p.name.includes("-t-"));
   const otherPools   = macPools.filter(p => !p.name.includes("signing") && !p.name.endsWith("-vms") && !p.name.includes("-b-") && !p.name.includes("-t-"));
+
+  // Tracked-pool support per section (mac / linux / windows)
+  const trackSection = section === "mac" || section === "linux" || section === "windows";
+  const sectionTrackPools = section === "linux" ? linuxHwPools : section === "windows" ? windowsHwPools : macPools;
+  const sectionTrackDefaults = defaultPinned(section, sectionTrackPools.map(p => p.name));
 
   const showCloud = section === "" || section === "linux";
 
@@ -687,9 +946,12 @@ export function Pools() {
   return (
     <div className="p-8 space-y-8 max-w-7xl">
       <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-white tracking-tight">Pool Health</h1>
-          <p className="text-gray-500 text-sm mt-0.5">{sectionPoolCount} pools · {sectionWorkerCount.toLocaleString()} workers</p>
+        <div className="flex items-center gap-3">
+          <span className="w-1 h-9 rounded-full flex-shrink-0" style={{ backgroundImage: FF_GRADIENT }} />
+          <div>
+            <h1 className="text-2xl font-light text-white tracking-tight">Pool Health</h1>
+            <p className="text-gray-500 text-sm mt-0.5">{sectionPoolCount} pools · {sectionWorkerCount.toLocaleString()} workers</p>
+          </div>
         </div>
         {section === "mac" && (
           <div className="flex items-center gap-3">
@@ -707,12 +969,32 @@ export function Pools() {
         )}
       </div>
 
-      {section === "mac" && pinnedData.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {pinnedData.map(pool => (
-            <PinnedCard key={pool.name} pool={pool} pending={pending[pool.name] ?? null}
-              sources={sources[pool.name]} />
-          ))}
+      {trackSection && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] text-gray-600">
+              Tracked pools{pinnedData.length > 1 ? " · drag to reorder" : ""}
+            </span>
+            {!editingPinned && (
+              <button
+                onClick={() => setEditingPinned(true)}
+                className="flex items-center gap-1.5 text-[11px] text-gray-500 hover:text-gray-300 transition-colors">
+                <Pencil size={11} /> Edit tracked pools
+              </button>
+            )}
+          </div>
+          {editingPinned && (
+            <PinnedEditor
+              allPools={sectionTrackPools}
+              selected={pinnedPools}
+              defaults={sectionTrackDefaults}
+              onSave={updatePinned}
+              onClose={() => setEditingPinned(false)}
+            />
+          )}
+          {pinnedData.length > 0 && (
+            <PinnedGrid pools={pinnedData} pending={pending} sources={sources} onReorder={persistPinned} />
+          )}
         </div>
       )}
 
@@ -818,12 +1100,6 @@ export function Pools() {
 
       {section === "linux" && linuxHwPools.length > 0 && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {linuxHwPools.map(pool => (
-              <PinnedCard key={pool.name} pool={pool} pending={pending[pool.name] ?? null}
-                sources={sources[pool.name]} />
-            ))}
-          </div>
           <div>
             <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
               <Terminal size={12} /> All Linux Hardware Pools
@@ -838,12 +1114,6 @@ export function Pools() {
 
       {section === "windows" && windowsHwPools.length > 0 && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {windowsHwPools.map(pool => (
-              <PinnedCard key={pool.name} pool={pool} pending={pending[pool.name] ?? null}
-                sources={sources[pool.name]} />
-            ))}
-          </div>
           <div>
             <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
               <Terminal size={12} /> All Windows Hardware Pools
