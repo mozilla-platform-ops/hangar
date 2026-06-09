@@ -6,7 +6,6 @@ import { Overview } from "./pages/Overview";
 import { Workers } from "./pages/Workers";
 import { WorkerDetail } from "./pages/WorkerDetail";
 import { Alerts } from "./pages/Alerts";
-import { Consolidation } from "./pages/Consolidation";
 import { Pools } from "./pages/Pools";
 
 export default function App() {
@@ -21,7 +20,6 @@ export default function App() {
           <Route path="workers/:hostname" element={<WorkerDetail />} />
           <Route path="alerts" element={<Alerts />} />
           <Route path="pools" element={<Pools />} />
-          <Route path="consolidation" element={<Consolidation />} />
         </Route>
       </Routes>
     </BrowserRouter>
