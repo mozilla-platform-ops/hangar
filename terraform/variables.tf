@@ -64,3 +64,13 @@ variable "cloud_run_image" {
   type        = string
   default     = ""
 }
+
+variable "iap_audience" {
+  description = <<-EOT
+    Google IAP audience used by the backend to verify per-user identity assertions.
+    Leave blank on the first apply, then set it from `terraform output iap_audience`
+    and apply again (kept as a var to avoid a Cloud Run <-> backend-service dependency cycle).
+  EOT
+  type        = string
+  default     = ""
+}
