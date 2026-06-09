@@ -40,6 +40,16 @@ async function patch<T>(path: string, body: unknown): Promise<T> {
   return res.json();
 }
 
+async function put<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return res.json();
+}
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export interface WorkerMDM {
@@ -238,6 +248,11 @@ export interface LoadHistory {
   pools: PoolLoadSnapshot[];
 }
 
+export interface MonitoredPoolsResponse {
+  email: string;
+  pools: string[];
+}
+
 // ── API calls ──────────────────────────────────────────────────────────────
 
 export const api = {
@@ -269,5 +284,9 @@ export const api = {
   },
   sync: {
     run: () => post<{ status: string }>("/sync/run"),
+  },
+  me: {
+    monitoredPools: () => get<MonitoredPoolsResponse>("/me/monitored-pools"),
+    setMonitoredPools: (pools: string[]) => put<MonitoredPoolsResponse>("/me/monitored-pools", { pools }),
   },
 };

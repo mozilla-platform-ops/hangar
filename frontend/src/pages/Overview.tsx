@@ -96,11 +96,12 @@ function HealthRing({ pct, children }: { pct: number; children: React.ReactNode 
   );
 }
 
-// ── Monitored pools (user-pinned, dashboard-only; empty until the user opts in) ──
-const MONITOR_KEY = "hangar.monitoredPools";
+// ── Monitored pools (user-pinned; follows the IAP-authenticated user across devices) ──
+const MONITOR_KEY = "hangar.monitoredPools"; // legacy per-browser store, migrated once into the backend
 const MONITOR_MAX = 8;
 
-function loadMonitored(): string[] {
+// Read any pins from the old localStorage store, for one-time migration to the per-user backend.
+function legacyLocalPins(): string[] {
   try {
     const raw = localStorage.getItem(MONITOR_KEY);
     if (raw) {
@@ -110,9 +111,6 @@ function loadMonitored(): string[] {
   } catch { /* ignore */ }
   return [];
 }
-function saveMonitored(next: string[]) {
-  try { localStorage.setItem(MONITOR_KEY, JSON.stringify(next)); } catch { /* ignore */ }
-}
 function reorderList<T>(list: T[], from: number, to: number): T[] {
   const n = [...list];
   const [m] = n.splice(from, 1);
@@ -121,14 +119,31 @@ function reorderList<T>(list: T[], from: number, to: number): T[] {
 }
 
 function MonitoredPools({ load }: { load: LoadHistory | null }) {
-  const [monitored, setMonitored] = useState<string[]>(loadMonitored);
+  const [monitored, setMonitored] = useState<string[]>([]);
   const [editing, setEditing] = useState(false);
   const [filter, setFilter] = useState("");
   const [dragIdx, setDragIdx] = useState<number | null>(null);
 
+  // Load this user's pins from the backend; migrate legacy localStorage pins on first run.
+  useEffect(() => {
+    let cancelled = false;
+    api.me.monitoredPools().then(async d => {
+      let pools = d.pools;
+      if (pools.length === 0) {
+        const legacy = legacyLocalPins();
+        if (legacy.length > 0) {
+          try { pools = (await api.me.setMonitoredPools(legacy)).pools; } catch { pools = legacy; }
+          try { localStorage.removeItem(MONITOR_KEY); } catch { /* ignore */ }
+        }
+      }
+      if (!cancelled) setMonitored(pools);
+    }).catch(() => { /* leave empty on error */ });
+    return () => { cancelled = true; };
+  }, []);
+
   const byName = new Map((load?.pools ?? []).map(p => [p.pool, p] as const));
   const available = (load?.pools ?? []).map(p => p.pool);
-  const persist = (next: string[]) => { setMonitored(next); saveMonitored(next); };
+  const persist = (next: string[]) => { setMonitored(next); api.me.setMonitoredPools(next).catch(() => {}); };
   const toggle = (name: string) =>
     persist(monitored.includes(name)
       ? monitored.filter(n => n !== name)

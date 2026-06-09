@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .api.alerts import router as alerts_router
 from .api.fleet import router as fleet_router
+from .api.me import router as me_router
 from .api.prs import router as prs_router
 from .api.workers import router as workers_router
 from .config import settings
@@ -83,6 +84,7 @@ app.include_router(workers_router, prefix="/api")
 app.include_router(fleet_router, prefix="/api")
 app.include_router(alerts_router, prefix="/api")
 app.include_router(prs_router, prefix="/api")
+app.include_router(me_router, prefix="/api")
 
 
 @app.post("/api/sync/run")
