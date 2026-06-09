@@ -127,3 +127,19 @@ class FailureEvent(Base):
     state: Mapped[str] = mapped_column(String(20))           # "failed" | "exception"
     reason_resolved: Mapped[str | None] = mapped_column(String(100))
     failed_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+
+
+class PoolLoadSample(Base):
+    """Time-series sample of per-pool load, recorded each sampler tick.
+
+    Source is the same Taskcluster Queue/Worker data Grafana (Yardstick) charts;
+    we persist it so the dashboard can draw its own short-horizon load trends.
+    """
+    __tablename__ = "pool_load_samples"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    pool: Mapped[str] = mapped_column(String(255), index=True)
+    ts: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    pending: Mapped[int | None] = mapped_column(Integer)
+    running: Mapped[int | None] = mapped_column(Integer)
+    capacity: Mapped[int | None] = mapped_column(Integer)

@@ -125,6 +125,7 @@ export interface SyncStatus {
 export interface FleetSummary {
   total_workers: number;
   by_generation: Record<string, number>;
+  by_generation_mdm: Record<string, number>;
   by_state: Record<string, number>;
   by_pool: Record<string, number>;
   by_os: Record<string, number>;
@@ -214,12 +215,26 @@ export interface RoninPRsResponse {
   prs: RoninPR[];
 }
 
-export interface ConsolidationData {
-  r8: { total: number; by_state: Record<string, number>; by_pool: Record<string, number>; inactive_30d_count: number; inactive_30d_sample: string[] };
-  m4: { total: number; by_state: Record<string, number>; by_pool: Record<string, number>; inactive_30d_count: number; inactive_30d_sample: string[] };
-  retirement_candidates: string[];
-  retirement_candidate_count: number;
-  analysis: { r8_production_count: number; m4_production_count: number; r8_safe_to_retire_estimate: number };
+export interface LoadPoint {
+  ts: string;
+  pending: number;
+  running: number;
+}
+
+export interface PoolLoadSnapshot {
+  pool: string;
+  pending: number | null;
+  running: number | null;
+  capacity: number | null;
+  ts: string;
+}
+
+export interface LoadHistory {
+  hours: number;
+  since: string;
+  sample_count: number;
+  totals: LoadPoint[];
+  pools: PoolLoadSnapshot[];
 }
 
 // ── API calls ──────────────────────────────────────────────────────────────
@@ -231,10 +246,10 @@ export const api = {
     pendingCounts: () => get<PendingCountsResponse>("/fleet/pending-counts"),
     poolSources: (pool: string) => get<PoolSources>("/fleet/pool-sources", { pool }),
     failures: (days = 7, platform?: string) => get<FailureInsights>("/fleet/failures", { days, platform }),
+    loadHistory: (hours = 48) => get<LoadHistory>("/fleet/load-history", { hours }),
     cloudPools: () => get<CloudPoolsResponse>("/fleet/cloud-pools"),
     androidPools: () => get<CloudPoolsResponse>("/fleet/android-pools"),
     androidPoolSources: (pool: string) => get<PoolSources>("/fleet/android-pool-sources", { pool }),
-    consolidation: () => get<ConsolidationData>("/fleet/consolidation"),
   },
   workers: {
     list: (params?: Parameters<typeof get>[1]) => get<WorkerListResponse>("/workers", params),

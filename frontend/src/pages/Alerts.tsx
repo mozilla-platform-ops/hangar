@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { CheckCircle2, Eye, Pencil, X, ShieldAlert } from "lucide-react";
+import { CheckCircle2, Eye, Pencil, X } from "lucide-react";
 import { api } from "../api";
 import type { Alert } from "../api";
+import { FF_GRADIENT } from "../lib/brand";
 import { Badge } from "../components/Badge";
 
 const TYPE_CFG: Record<string, { label: string; color: "red" | "orange" | "yellow" | "gray"; rowBg: string }> = {
@@ -138,13 +139,14 @@ export function Alerts() {
     <div className="p-8 space-y-6 max-w-7xl">
       {/* Header */}
       <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-white tracking-tight flex items-center gap-2">
-            <ShieldAlert size={18} className="text-red-400" /> Alerts
-          </h1>
-          <p className="text-gray-500 text-sm mt-0.5">
-            {visibleAlerts.length}{total !== visibleAlerts.length ? ` of ${total}` : ""} {activeOnly ? "active" : "total"} alerts
-          </p>
+        <div className="flex items-center gap-3">
+          <span className="w-1 h-9 rounded-full flex-shrink-0" style={{ backgroundImage: FF_GRADIENT }} />
+          <div>
+            <h1 className="text-2xl font-light text-white tracking-tight">Alerts</h1>
+            <p className="text-gray-500 text-sm mt-0.5">
+              {visibleAlerts.length}{total !== visibleAlerts.length ? ` of ${total}` : ""} {activeOnly ? "active" : "total"} alerts
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-4">
           <label className="flex items-center gap-2 text-xs text-gray-500 hover:text-gray-300 cursor-pointer transition-colors">
