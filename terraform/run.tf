@@ -67,6 +67,14 @@ resource "google_cloud_run_v2_service" "hangar" {
         }
       }
 
+      # Google IAP audience for verifying the signed per-user identity assertion.
+      # Value comes from `terraform output iap_audience` after the backend service exists
+      # (kept as a var to avoid a dependency cycle: Cloud Run → backend service → NEG → Cloud Run).
+      env {
+        name  = "IAP_AUDIENCE"
+        value = var.iap_audience
+      }
+
       # Taskcluster
       env {
         name  = "TC_ROOT_URL"

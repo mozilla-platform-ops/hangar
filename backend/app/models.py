@@ -129,6 +129,15 @@ class FailureEvent(Base):
     failed_at: Mapped[datetime] = mapped_column(DateTime, index=True)
 
 
+class UserPref(Base):
+    """Per-user dashboard preferences, keyed by the IAP-authenticated email."""
+    __tablename__ = "user_prefs"
+
+    email: Mapped[str] = mapped_column(String(255), primary_key=True)
+    monitored_pools: Mapped[str | None] = mapped_column(Text)  # JSON list of pool names
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class PoolLoadSample(Base):
     """Time-series sample of per-pool load, recorded each sampler tick.
 

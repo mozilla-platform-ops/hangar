@@ -64,3 +64,14 @@ variable "cloud_run_image" {
   type        = string
   default     = ""
 }
+
+variable "iap_audience" {
+  description = <<-EOT
+    Google IAP audience used by the backend to verify per-user identity assertions.
+    Default is this deployment's value; the `iap_audience` output recomputes it from the
+    backend service as a cross-check. Kept as a var (not a direct reference) to avoid a
+    Cloud Run <-> backend-service dependency cycle. Not a secret — just resource IDs.
+  EOT
+  type        = string
+  default     = "/projects/488152629256/global/backendServices/8358478090234365077"
+}

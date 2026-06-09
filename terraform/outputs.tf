@@ -13,6 +13,11 @@ output "cloud_run_url" {
   value       = google_cloud_run_v2_service.hangar.uri
 }
 
+output "iap_audience" {
+  description = "Set this as the `iap_audience` var (then re-apply) so the backend verifies IAP identity"
+  value       = "/projects/${data.google_project.project.number}/global/backendServices/${google_compute_backend_service.hangar.generated_id}"
+}
+
 output "db_private_ip" {
   description = "Cloud SQL private IP (reachable only from the VPC)"
   value       = google_sql_database_instance.hangar.private_ip_address

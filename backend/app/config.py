@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     # Comma-separated allowed CORS origins. Use "*" for local dev only.
     cors_origins: str = "*"
 
+    # Google IAP audience for verifying the signed identity assertion, of the form
+    # "/projects/<PROJECT_NUMBER>/global/backendServices/<BACKEND_SERVICE_ID>".
+    # When unset (local dev), identity falls back to the X-Goog-Authenticated-User-Email header.
+    iap_audience: str = ""
+
     # Logging: set LOG_JSON=true in production for Cloud Logging structured output.
     log_json: bool = False
 
