@@ -253,6 +253,11 @@ export interface MonitoredPoolsResponse {
   pools: string[];
 }
 
+export interface TrackedPoolsResponse {
+  email: string;
+  tracked: Record<string, string[]>;
+}
+
 // ── API calls ──────────────────────────────────────────────────────────────
 
 export const api = {
@@ -288,5 +293,8 @@ export const api = {
   me: {
     monitoredPools: () => get<MonitoredPoolsResponse>("/me/monitored-pools"),
     setMonitoredPools: (pools: string[]) => put<MonitoredPoolsResponse>("/me/monitored-pools", { pools }),
+    trackedPools: () => get<TrackedPoolsResponse>("/me/tracked-pools"),
+    setTrackedPools: (section: string, pools: string[]) =>
+      put<TrackedPoolsResponse>("/me/tracked-pools", { section, pools }),
   },
 };

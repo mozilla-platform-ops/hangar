@@ -134,7 +134,8 @@ class UserPref(Base):
     __tablename__ = "user_prefs"
 
     email: Mapped[str] = mapped_column(String(255), primary_key=True)
-    monitored_pools: Mapped[str | None] = mapped_column(Text)  # JSON list of pool names
+    monitored_pools: Mapped[str | None] = mapped_column(Text)  # JSON list (Overview dashboard)
+    tracked_pools: Mapped[str | None] = mapped_column(Text)     # JSON {section: [pool, ...]} (Pool Health tabs)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 

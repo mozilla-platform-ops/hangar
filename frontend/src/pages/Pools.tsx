@@ -27,7 +27,8 @@ function defaultPinned(section: string, available: string[]): string[] {
   return SECTION_DEFAULTS[section] ?? available.slice(0, 3);
 }
 
-function loadPinned(section: string, available: string[]): string[] {
+// Legacy per-browser store — read-only now, used once to migrate pins into the per-user backend.
+function legacyLocalPinned(section: string): string[] {
   try {
     const raw = localStorage.getItem(pinnedStorageKey(section));
     if (raw) {
@@ -37,17 +38,9 @@ function loadPinned(section: string, available: string[]): string[] {
       }
     }
   } catch {
-    /* fall through to default */
+    /* ignore */
   }
-  return defaultPinned(section, available);
-}
-
-function savePinned(section: string, next: string[]): void {
-  try {
-    localStorage.setItem(pinnedStorageKey(section), JSON.stringify(next));
-  } catch {
-    /* localStorage unavailable — selection persists for the session only */
-  }
+  return [];
 }
 
 function reorder<T>(list: T[], from: number, to: number): T[] {
@@ -882,12 +875,14 @@ export function Pools() {
   const [summary, setSummary] = useState<FleetSummary | null>(null);
   const [roninPRs, setRoninPRs] = useState<RoninPR[]>([]);
   const [pinnedPools, setPinnedPools] = useState<string[]>([]);
+  const [trackedMap, setTrackedMap] = useState<Record<string, string[]> | null>(null);
   const [editingPinned, setEditingPinned] = useState(false);
   const toggleOther = useCallback(() => setShowOther(v => !v), []);
 
   const persistPinned = useCallback((next: string[]) => {
     setPinnedPools(next);
-    savePinned(section, next);
+    setTrackedMap(m => ({ ...(m ?? {}), [section]: next }));
+    api.me.setTrackedPools(section, next).catch(() => {});
   }, [section]);
 
   const updatePinned = useCallback((next: string[]) => {
@@ -895,17 +890,38 @@ export function Pools() {
     setEditingPinned(false);
   }, [persistPinned]);
 
-  // Load the tracked set for the active section once pools are available.
+  // The user's tracked pools (per section) follow them via the IAP-backed backend store.
   useEffect(() => {
-    if (pools.length === 0) return;
+    api.me.trackedPools().then(d => setTrackedMap(d.tracked ?? {})).catch(() => setTrackedMap({}));
+  }, []);
+
+  // Close the editor when switching tabs.
+  useEffect(() => { setEditingPinned(false); }, [section]);
+
+  // Resolve the active section's pinned set once pools + the user's tracked map are loaded.
+  useEffect(() => {
+    if (pools.length === 0 || trackedMap === null) return;
     const avail = pools
       .filter(p => section === "linux" ? isLinuxPool(p.name)
         : section === "windows" ? isWindowsPool(p.name)
         : !isLinuxPool(p.name) && !isWindowsPool(p.name))
       .map(p => p.name);
-    setPinnedPools(loadPinned(section, avail));
-    setEditingPinned(false);
-  }, [section, pools]);
+    const saved = trackedMap[section];
+    if (saved && saved.length > 0) {
+      setPinnedPools(saved.slice(0, MAX_PINNED));
+      return;
+    }
+    // No server-side set yet — migrate any legacy localStorage pins, else fall back to defaults.
+    const legacy = legacyLocalPinned(section);
+    if (legacy.length > 0) {
+      setPinnedPools(legacy);
+      setTrackedMap(m => ({ ...(m ?? {}), [section]: legacy }));
+      api.me.setTrackedPools(section, legacy).catch(() => {});
+      try { localStorage.removeItem(pinnedStorageKey(section)); } catch { /* ignore */ }
+    } else {
+      setPinnedPools(defaultPinned(section, avail));
+    }
+  }, [section, pools, trackedMap]);
 
   useEffect(() => {
     api.fleet.pools()
