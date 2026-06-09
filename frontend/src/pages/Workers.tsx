@@ -9,6 +9,7 @@ import { Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, X }
 import { api } from "../api";
 import type { Worker } from "../api";
 import { stateBadge, tcStatusBadge, enrollmentBadge, SourceBadges } from "../components/Badge";
+import { FF_GRADIENT } from "../lib/brand";
 
 type HealthStatus = "healthy" | "degraded" | "critical" | null;
 
@@ -224,10 +225,13 @@ export function Workers() {
 
   return (
     <div className="p-8 space-y-5 max-w-[1400px]">
-      <div className="flex items-baseline justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-white tracking-tight">Workers</h1>
-          <p className="text-gray-500 text-sm mt-0.5">{total.toLocaleString()} workers total</p>
+      <div className="flex items-start justify-between">
+        <div className="flex items-center gap-3">
+          <span className="w-1 h-9 rounded-full flex-shrink-0" style={{ backgroundImage: FF_GRADIENT }} />
+          <div>
+            <h1 className="text-2xl font-light text-white tracking-tight">Workers</h1>
+            <p className="text-gray-500 text-sm mt-0.5">{total.toLocaleString()} workers total</p>
+          </div>
         </div>
       </div>
 
