@@ -133,6 +133,7 @@ def fleet_summary(db: Session = Depends(get_db)) -> dict[str, Any]:
 
     mdm_unenrolled = 0
     quarantined_non_staging = 0
+    mac_quarantined = 0
     branch_by_branch: dict[str, int] = {}
     branch_by_pool: dict[str, int] = {}
     branch_total = 0
@@ -157,6 +158,8 @@ def fleet_summary(db: Session = Depends(get_db)) -> dict[str, Any]:
 
         if w.tc_quarantined and state != "staging":
             quarantined_non_staging += 1
+            if w.platform == "mac":
+                mac_quarantined += 1
 
         if _is_branch_override(w.branch):
             branch_total += 1
@@ -173,6 +176,18 @@ def fleet_summary(db: Session = Depends(get_db)) -> dict[str, Any]:
 
     quarantined = _active_alert_count("quarantined")
     missing_from_tc = _active_alert_count("missing_from_tc")
+
+    # macOS-hardware-scoped "missing from TC" (join the alert back to its worker's platform)
+    mac_missing_from_tc = (
+        db.query(func.count(Alert.id))
+        .join(Worker, Worker.hostname == Alert.hostname)
+        .filter(
+            Alert.alert_type == "missing_from_tc",
+            Alert.resolved_at == None,  # noqa: E711
+            Worker.platform == "mac",
+        )
+        .scalar() or 0
+    )
 
     # Sync status
     sync_status = {}
@@ -200,6 +215,10 @@ def fleet_summary(db: Session = Depends(get_db)) -> dict[str, Any]:
             "quarantined_non_staging": quarantined_non_staging,
             "missing_from_tc": missing_from_tc,
             "mdm_unenrolled": mdm_unenrolled,
+        },
+        "attention_mac": {
+            "quarantined": mac_quarantined,
+            "missing_from_tc": mac_missing_from_tc,
         },
         "branch_overrides": {
             "total": branch_total,
