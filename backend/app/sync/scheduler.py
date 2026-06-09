@@ -56,6 +56,12 @@ def _run_prune() -> None:
         reconcile.run_sync(db)
 
 
+def _run_load_sampler() -> None:
+    from . import load_sampler
+    with SessionLocal() as db:
+        load_sampler.run_sync(db)
+
+
 def run_all_sync() -> None:
     """Run all sync jobs sequentially (used for manual trigger).
 
@@ -63,7 +69,7 @@ def run_all_sync() -> None:
     judges presence against up-to-date sync timestamps.
     """
     log.info("Manual sync: starting all sources")
-    for fn in (_run_puppet, _run_windows_inventory, _run_simplemdm, _run_taskcluster, _run_sheets, _run_github_prs, _run_prune):
+    for fn in (_run_puppet, _run_windows_inventory, _run_simplemdm, _run_taskcluster, _run_load_sampler, _run_sheets, _run_github_prs, _run_prune):
         try:
             fn()
         except Exception:
@@ -82,6 +88,7 @@ def start_scheduler() -> None:
     _scheduler.add_job(_run_sheets, IntervalTrigger(seconds=settings.sync_interval_sheets), id="sheets", replace_existing=True)
     _scheduler.add_job(_run_github_prs, IntervalTrigger(seconds=settings.sync_interval_github_prs), id="github_prs", replace_existing=True)
     _scheduler.add_job(_run_prune, IntervalTrigger(seconds=settings.sync_interval_prune), id="prune", replace_existing=True)
+    _scheduler.add_job(_run_load_sampler, IntervalTrigger(seconds=settings.sync_interval_load), id="load_sampler", replace_existing=True)
 
     _scheduler.start()
     log.info("Background sync scheduler started")

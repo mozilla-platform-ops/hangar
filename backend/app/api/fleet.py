@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..database import get_db
-from ..models import Alert, FailureEvent, SyncLog, Worker
+from ..models import Alert, FailureEvent, PoolLoadSample, SyncLog, Worker
 from ..sync.taskcluster import HW_WORKER_POOLS
 
 HW_POOL_PROVISIONERS: dict[str, str] = {worker_type: provisioner for provisioner, worker_type in HW_WORKER_POOLS}
@@ -125,6 +125,8 @@ def fleet_summary(db: Session = Depends(get_db)) -> dict[str, Any]:
 
     # Counts by generation
     by_generation: dict[str, int] = {}
+    # Same, but only workers present in SimpleMDM (MDM is source of truth for hardware counts)
+    by_generation_mdm: dict[str, int] = {}
     by_state: dict[str, int] = {}
     by_pool: dict[str, int] = {}
     by_os: dict[str, int] = {}
@@ -138,6 +140,8 @@ def fleet_summary(db: Session = Depends(get_db)) -> dict[str, Any]:
     for w in workers:
         gen = w.generation or "unknown"
         by_generation[gen] = by_generation.get(gen, 0) + 1
+        if w.mdm_id is not None:
+            by_generation_mdm[gen] = by_generation_mdm.get(gen, 0) + 1
 
         state = w.effective_state
         by_state[state] = by_state.get(state, 0) + 1
@@ -187,6 +191,7 @@ def fleet_summary(db: Session = Depends(get_db)) -> dict[str, Any]:
     return {
         "total_workers": len(workers),
         "by_generation": by_generation,
+        "by_generation_mdm": by_generation_mdm,
         "by_state": by_state,
         "by_pool": by_pool,
         "by_os": by_os,
@@ -411,6 +416,48 @@ def pending_counts() -> dict[str, Any]:
             worker_type, count = fut.result()
             results[worker_type] = count
     return {"pending_counts": results}
+
+
+@router.get("/load-history")
+def load_history(hours: int = 48, db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Per-pool load time series from our local sampler — fast, no external calls.
+
+    Returns a compact fleet-wide totals series (one point per sampler tick) plus the
+    latest per-pool snapshot. Backed by the indexed pool_load_samples table so the
+    dashboard stays snappy; Yardstick/Grafana remains the deep-history tool.
+    """
+    hours = max(1, min(hours, 24 * 14))
+    since = datetime.utcnow() - timedelta(hours=hours)
+    rows = (
+        db.query(PoolLoadSample)
+        .filter(PoolLoadSample.ts >= since)
+        .order_by(PoolLoadSample.ts)
+        .all()
+    )
+
+    # Fleet-wide totals per tick (rows are ascending by ts, so dict preserves order)
+    totals: dict[str, dict[str, Any]] = {}
+    latest: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        key = r.ts.isoformat()
+        t = totals.setdefault(key, {"ts": key, "pending": 0, "running": 0})
+        t["pending"] += r.pending or 0
+        t["running"] += r.running or 0
+        latest[r.pool] = {
+            "pool": r.pool,
+            "pending": r.pending,
+            "running": r.running,
+            "capacity": r.capacity,
+            "ts": key,
+        }
+
+    return {
+        "hours": hours,
+        "since": since.isoformat(),
+        "sample_count": len(rows),
+        "totals": list(totals.values()),
+        "pools": sorted(latest.values(), key=lambda x: (x["pending"] or 0), reverse=True),
+    }
 
 
 def _fetch_cloud_pool(provisioner: str, worker_type: str) -> dict[str, Any]:

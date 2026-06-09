@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     sync_interval_windows_inventory: int = 3600
     sync_interval_github_prs: int = 1800
     sync_interval_prune: int = 3600
+    sync_interval_load: int = 300   # per-pool load time-series sampler
 
     # Alert thresholds
     tc_missing_threshold_hours: int = 24
