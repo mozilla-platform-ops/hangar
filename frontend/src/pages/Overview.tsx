@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ShieldOff, Cpu, FlaskConical, ArrowUpRight, Gauge, Pin, Plus, X, Check, GripVertical, Pencil } from "lucide-react";
+import { Cpu, FlaskConical, ArrowUpRight, Gauge, Pin, Plus, X, Check, GripVertical, Pencil } from "lucide-react";
 import { api } from "../api";
 import type { FleetSummary, FailureInsights, LoadHistory } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
@@ -293,12 +293,8 @@ export function Overview() {
   })();
   const platformTotal = platforms.reduce((s, p) => s + p.value, 0) || 1;
 
-  // "Needs attention" is scoped to macOS hardware — the fleet RelOps actually owns — to cut noise.
-  const attentionItems = [
-    { label: "Quarantined",     value: data.attention_mac.quarantined,     color: "text-red-400",    to: "/workers?tc_quarantined=true" },
-    { label: "Missing from TC", value: data.attention_mac.missing_from_tc, color: "text-orange-400", to: "/alerts" },
-  ];
-  const attention = attentionItems.reduce((s, a) => s + a.value, 0);
+  // Health ring is scoped to macOS hardware — the fleet RelOps actually owns — to cut noise.
+  const attention = data.attention_mac.quarantined + data.attention_mac.missing_from_tc;
   const macTotal = platforms.find(p => p.name === "macOS")?.value ?? 0;
   const healthPct = macTotal > 0 ? Math.round((1 - attention / macTotal) * 100) : 100;
 
@@ -529,52 +525,6 @@ export function Overview() {
               </table>
             )}
           </div>
-        </div>
-      </div>
-
-      {/* Mac hardware (MDM) + needs-attention */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <div className="card p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
-              <Cpu size={13} className="text-gray-500" /> Mac Hardware
-            </h3>
-            <span className="text-[10px] font-medium text-gray-600 uppercase tracking-wider bg-gray-800/60 border border-gray-700/50 rounded px-2 py-0.5">source: MDM</span>
-          </div>
-          <div className="grid grid-cols-2 divide-x divide-gray-800">
-            <div className="pr-5">
-              <div className="text-3xl font-bold tabular-nums text-indigo-400">{(data.by_generation_mdm.r8 ?? 0).toLocaleString()}</div>
-              <div className="text-xs font-mono text-gray-500 mt-1">r8 <span className="text-gray-600">· Intel Mac mini</span></div>
-            </div>
-            <div className="pl-5">
-              <div className="text-3xl font-bold tabular-nums text-emerald-400">{(data.by_generation_mdm.m4 ?? 0).toLocaleString()}</div>
-              <div className="text-xs font-mono text-gray-500 mt-1">m4 <span className="text-gray-600">· Apple Silicon</span></div>
-            </div>
-          </div>
-        </div>
-
-        <div className="card p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
-              <ShieldOff size={13} className="text-gray-500" /> Needs Attention
-              <span className="text-[10px] font-medium text-gray-600 normal-case tracking-normal">· macOS hardware</span>
-            </h3>
-            <Link to="/alerts" className="text-[11px] text-brand-400 hover:text-brand-300 transition-colors">View alerts →</Link>
-          </div>
-          {attention === 0 ? (
-            <div className="flex items-center gap-2 text-sm text-emerald-400 py-3">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Nothing needs attention
-            </div>
-          ) : (
-            <div className="space-y-2.5">
-              {attentionItems.map(item => (
-                <Link key={item.label} to={item.to} className="flex items-center justify-between group">
-                  <span className="text-xs text-gray-400 group-hover:text-gray-200 transition-colors">{item.label}</span>
-                  <span className={`text-lg font-bold tabular-nums ${item.value > 0 ? item.color : "text-gray-700"}`}>{item.value}</span>
-                </Link>
-              ))}
-            </div>
-          )}
         </div>
       </div>
     </div>
