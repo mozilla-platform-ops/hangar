@@ -10,7 +10,9 @@ const yardstickAll = `${YARDSTICK_BASE}&var-provisioner=$__all&var-workerType=$_
 const yardstickPool = (pool: string) =>
   `${YARDSTICK_BASE}&var-provisioner=$__all&var-workerType=${encodeURIComponent(pool)}`;
 
-const PLATFORM_COLORS = { macOS: "#6366f1", Linux: "#10b981", Windows: "#3b82f6" } as const;
+// Mapped across the Firefox gradient (orange → magenta → violet) so the meter echoes the
+// health ring / sparkline accents and leaves emerald free for "healthy"/production.
+const PLATFORM_COLORS = { macOS: "#FF9400", Linux: "#FF1AD9", Windows: "#9059FF" } as const;
 
 function timeAgo(iso: string | null) {
   if (!iso) return "never";
@@ -291,12 +293,14 @@ export function Overview() {
   })();
   const platformTotal = platforms.reduce((s, p) => s + p.value, 0) || 1;
 
+  // "Needs attention" is scoped to macOS hardware — the fleet RelOps actually owns — to cut noise.
   const attentionItems = [
-    { label: "Quarantined",     value: data.alerts.quarantined_non_staging, color: "text-red-400",    to: "/workers?tc_quarantined=true" },
-    { label: "Missing from TC", value: data.alerts.missing_from_tc,         color: "text-orange-400", to: "/alerts" },
+    { label: "Quarantined",     value: data.attention_mac.quarantined,     color: "text-red-400",    to: "/workers?tc_quarantined=true" },
+    { label: "Missing from TC", value: data.attention_mac.missing_from_tc, color: "text-orange-400", to: "/alerts" },
   ];
   const attention = attentionItems.reduce((s, a) => s + a.value, 0);
-  const healthPct = data.total_workers > 0 ? Math.round((1 - attention / data.total_workers) * 100) : 100;
+  const macTotal = platforms.find(p => p.name === "macOS")?.value ?? 0;
+  const healthPct = macTotal > 0 ? Math.round((1 - attention / macTotal) * 100) : 100;
 
   const lastSync = Object.values(data.sync_status).map(s => s.last_success).filter(Boolean).sort().pop() ?? null;
 
@@ -344,10 +348,6 @@ export function Overview() {
                 <div className="text-4xl font-bold text-white tabular-nums leading-none">{data.total_workers.toLocaleString()}</div>
                 <div className="text-[11px] text-gray-500 uppercase tracking-wider mt-1.5">Total workers</div>
               </div>
-              <Link to="/alerts" className="group">
-                <div className={`text-2xl font-bold tabular-nums leading-none ${attention > 0 ? "text-red-400" : "text-gray-300"}`}>{attention.toLocaleString()}</div>
-                <div className="text-[11px] text-gray-500 uppercase tracking-wider mt-1.5 group-hover:text-gray-300 transition-colors">Need attention →</div>
-              </Link>
             </div>
 
             <div className="pt-4 border-t border-gray-800/60">
@@ -557,6 +557,7 @@ export function Overview() {
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
               <ShieldOff size={13} className="text-gray-500" /> Needs Attention
+              <span className="text-[10px] font-medium text-gray-600 normal-case tracking-normal">· macOS hardware</span>
             </h3>
             <Link to="/alerts" className="text-[11px] text-brand-400 hover:text-brand-300 transition-colors">View alerts →</Link>
           </div>
