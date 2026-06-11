@@ -284,6 +284,41 @@ export interface ReleaseSchedule {
   sources: string[];
 }
 
+// ── Showcase (team-impact rollups for the Overview) ──────────────────────────
+
+export interface ShowcaseAxis {
+  workers: number;
+  production: number;
+  running: number;
+  worker_hours: number;
+}
+export interface ShowcaseData {
+  scale: {
+    workers: number;
+    pools: number;
+    running_now: number;
+    worker_hours: number;
+    window_hours: number;
+    since: string | null;
+  };
+  migration: {
+    intel: ShowcaseAxis;
+    m4: ShowcaseAxis;
+    m4_vm: ShowcaseAxis;
+    catalina: ShowcaseAxis;
+    modern_load_pct: number;
+    intel_load_pct: number;
+  };
+  capacity: {
+    over_provisioned: Array<{ pool: string; workers: number; production: number; running: number; util: number }>;
+    backed_up: Array<{ pool: string; pending: number; workers: number; running: number }>;
+  };
+  vms: {
+    pools: Array<{ pool: string; kind: string; workers: number; running: number }>;
+    total_workers: number;
+  };
+}
+
 // ── Weather (opt-in) ─────────────────────────────────────────────────────────
 
 export interface WeatherNow {
@@ -326,6 +361,7 @@ export const api = {
     cloudPools: () => get<CloudPoolsResponse>("/fleet/cloud-pools"),
     androidPools: () => get<CloudPoolsResponse>("/fleet/android-pools"),
     androidPoolSources: (pool: string) => get<PoolSources>("/fleet/android-pool-sources", { pool }),
+    showcase: () => get<ShowcaseData>("/fleet/showcase"),
   },
   workers: {
     list: (params?: Parameters<typeof get>[1]) => get<WorkerListResponse>("/workers", params),

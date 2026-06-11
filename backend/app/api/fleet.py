@@ -479,6 +479,140 @@ def load_history(hours: int = 48, db: Session = Depends(get_db)) -> dict[str, An
     }
 
 
+# ── Showcase: team-impact rollups for the Overview headliners ──────────────────
+
+def _macos_axis(pool: str) -> str | None:
+    """Classify a macOS test pool onto the Intel→Apple-Silicon migration axis.
+
+    None means the pool isn't part of that migration story.
+    """
+    if "osx-1400-r8" in pool:    return "intel"     # Intel Sonoma — retiring
+    if "osx-1015-r8" in pool:    return "catalina"  # Catalina — ESR-only, deprecating
+    if "osx-1500-m-vms" in pool: return "m4_vm"     # Apple Silicon Tart VMs
+    if "osx-1500-m4" in pool:    return "m4"         # Apple Silicon bare metal
+    return None
+
+
+def _vm_pool_kind(pool: str) -> str | None:
+    if "osx-1500-m-vms" in pool:  return "tester"
+    if "b-osx-arm64-vms" in pool: return "builder"
+    return None
+
+
+@router.get("/showcase")
+def fleet_showcase(db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Team-impact rollups for the Overview showcase headliners.
+
+    Entirely from the local DB + sampler (no external calls): fleet scale,
+    the macOS Intel→Apple-Silicon migration load-shift, capacity efficiency,
+    and the Tart VM fleet.
+    """
+    now = datetime.utcnow()
+    t_24h = now - timedelta(hours=24)
+
+    # ── Per-pool current state ──
+    pools: dict[str, dict] = {}
+    for w in db.query(Worker).all():
+        pool = w.worker_pool or "unknown"
+        p = pools.setdefault(pool, {"pool": pool, "workers": 0, "production": 0,
+                                    "active_24h": 0, "running": 0, "quarantined": 0})
+        p["workers"] += 1
+        if w.effective_state == "production":
+            p["production"] += 1
+        if w.tc_quarantined:
+            p["quarantined"] += 1
+        if w.tc_last_active is not None and w.tc_last_active >= t_24h:
+            p["active_24h"] += 1
+        if (w.tc_latest_task_state or "").upper() == "RUNNING":
+            p["running"] += 1
+    total_workers = sum(p["workers"] for p in pools.values())
+
+    # ── Latest per-pool pending/capacity from the sampler ──
+    latest_sample: dict[str, PoolLoadSample] = {}
+    for r in (db.query(PoolLoadSample)
+                .filter(PoolLoadSample.ts >= now - timedelta(hours=3))
+                .order_by(PoolLoadSample.ts).all()):
+        latest_sample[r.pool] = r  # ascending → keeps the most recent
+    for pool, p in pools.items():
+        s = latest_sample.get(pool)
+        p["pending"] = (s.pending or 0) if s else 0
+        p["util"] = round(p["running"] / p["production"], 3) if p["production"] else 0.0
+
+    # ── Worker-hours delivered: integrate running-workers over the sampled window ──
+    hist = (db.query(PoolLoadSample)
+              .filter(PoolLoadSample.ts >= now - timedelta(days=14))
+              .order_by(PoolLoadSample.ts).all())
+    ticks = sorted({r.ts for r in hist})
+    CAP_H = 0.25  # cap per-tick interval at 15 min so sampler downtime doesn't inflate totals
+    dt: dict[datetime, float] = {}
+    for i, ts in enumerate(ticks):
+        gap = (ticks[i + 1] - ts).total_seconds() / 3600.0 if i + 1 < len(ticks) else CAP_H
+        dt[ts] = min(gap, CAP_H)
+    fleet_hours = 0.0
+    axis_hours: dict[str, float] = {}
+    for r in hist:
+        h = (r.running or 0) * dt.get(r.ts, 0.0)
+        fleet_hours += h
+        axis = _macos_axis(r.pool)
+        if axis:
+            axis_hours[axis] = axis_hours.get(axis, 0.0) + h
+    window_hours = round((ticks[-1] - ticks[0]).total_seconds() / 3600.0, 1) if len(ticks) >= 2 else 0.0
+
+    scale = {
+        "workers": total_workers,
+        "pools": len(pools),
+        "running_now": sum(p["running"] for p in pools.values()),
+        "worker_hours": round(fleet_hours),
+        "window_hours": window_hours,
+        "since": ticks[0].isoformat() if ticks else None,
+    }
+
+    # ── macOS migration axis ──
+    def _axis_rollup(axis: str) -> dict[str, Any]:
+        ps = [p for pool, p in pools.items() if _macos_axis(pool) == axis]
+        return {
+            "workers": sum(p["workers"] for p in ps),
+            "production": sum(p["production"] for p in ps),
+            "running": sum(p["running"] for p in ps),
+            "worker_hours": round(axis_hours.get(axis, 0.0)),
+        }
+    migration = {k: _axis_rollup(k) for k in ("intel", "m4", "m4_vm", "catalina")}
+    intel_h = migration["intel"]["worker_hours"]
+    modern_h = migration["m4"]["worker_hours"] + migration["m4_vm"]["worker_hours"]
+    denom = intel_h + modern_h or 1
+    migration["modern_load_pct"] = round(modern_h / denom * 100)
+    migration["intel_load_pct"] = round(intel_h / denom * 100)
+
+    # ── Capacity: over-provisioned (idle headroom) vs backed-up (starved) ──
+    over, backed = [], []
+    for pool, p in pools.items():
+        # Over-provisioned = alive but idle with no queue (reclaimable headroom),
+        # not just offline/staging or temporarily low-concurrency-with-a-backlog.
+        if (p["production"] >= 20 and p["util"] < 0.25
+                and p["active_24h"] >= 10 and p["pending"] < p["active_24h"]):
+            over.append({"pool": pool, "workers": p["workers"], "production": p["production"],
+                         "running": p["running"], "util": p["util"]})
+        if p["pending"] > 0 and p["active_24h"] > 0 and p["pending"] >= p["active_24h"]:
+            backed.append({"pool": pool, "pending": p["pending"], "workers": p["workers"],
+                           "running": p["running"]})
+    over.sort(key=lambda x: x["production"], reverse=True)
+    backed.sort(key=lambda x: x["pending"], reverse=True)
+
+    # ── Tart VM fleet ──
+    vm_pools = [
+        {"pool": pool, "kind": _vm_pool_kind(pool), "workers": p["workers"], "running": p["running"]}
+        for pool, p in pools.items() if _vm_pool_kind(pool)
+    ]
+    vm_pools.sort(key=lambda x: x["workers"], reverse=True)
+
+    return {
+        "scale": scale,
+        "migration": migration,
+        "capacity": {"over_provisioned": over[:5], "backed_up": backed[:5]},
+        "vms": {"pools": vm_pools, "total_workers": sum(v["workers"] for v in vm_pools)},
+    }
+
+
 def _fetch_cloud_pool(provisioner: str, worker_type: str) -> dict[str, Any]:
     pending = _fetch_pending_count(provisioner, worker_type)[1] or 0
     running, total = 0, 0
