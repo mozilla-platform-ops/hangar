@@ -26,3 +26,16 @@
   .card-glow-red   { box-shadow: 0 0 0 1px #c9192222, 0 4px 24px #ef444410; }
   .card-glow-yellow{ box-shadow: 0 0 0 1px #d9770622, 0 4px 24px #f59e0b10; }
 }
+
+/* Fleet-load sparkline draw-on: a left-to-right clip wipe reveals the line + fill.
+   Clip-based (not stroke-dash) so it's resolution-independent under the chart's
+   non-uniform scaling, and the end-dot stays clipped until the wipe reaches it. */
+@keyframes spark-wipe { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes spark-fade { from { opacity: 0; } to { opacity: 1; } }
+.spark-svg { clip-path: inset(0 100% 0 0); animation: spark-wipe 1.2s cubic-bezier(0.45, 0, 0.2, 1) forwards; }
+.spark-dot { opacity: 0; animation: spark-fade 0.3s ease-out 1.1s forwards; }
+
+@media (prefers-reduced-motion: reduce) {
+  .spark-svg { clip-path: none; animation: none; }
+  .spark-dot { opacity: 1; animation: none; }
+}
