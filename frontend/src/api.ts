@@ -258,6 +258,61 @@ export interface TrackedPoolsResponse {
   tracked: Record<string, string[]>;
 }
 
+// ── Release schedule ─────────────────────────────────────────────────────────
+
+export interface ReleaseChannel {
+  channel: string;
+  label: string;
+  version: string;
+  release_notes: string | null;
+}
+export interface ReleaseMilestone {
+  key: string;
+  label: string;
+  date: string;
+}
+export interface UpcomingRelease {
+  version: string;
+  date: string;
+  release_notes: string;
+}
+export interface ReleaseSchedule {
+  next_release: { version: string; date: string | null; release_notes: string | null } | null;
+  channels: ReleaseChannel[];
+  milestones: ReleaseMilestone[];
+  upcoming: UpcomingRelease[];
+  sources: string[];
+}
+
+// ── Weather (opt-in) ─────────────────────────────────────────────────────────
+
+export interface WeatherNow {
+  temp: number | null;
+  feels_like: number | null;
+  code: number | null;
+  is_day: boolean;
+  wind: number | null;
+  humidity: number | null;
+  temp_unit: string;
+  wind_unit: string;
+  observed_at: string | null;
+}
+export interface GeocodeResult {
+  name: string;
+  admin1: string | null;
+  country: string | null;
+  country_code: string | null;
+  lat: number;
+  lon: number;
+}
+export interface WeatherPref {
+  enabled: boolean;
+  label: string;
+  lat: number | null;
+  lon: number | null;
+  unit: string;
+}
+
 // ── API calls ──────────────────────────────────────────────────────────────
 
 export const api = {
@@ -287,6 +342,14 @@ export const api = {
     upvote: (n: number) => post<RoninPR>(`/prs/ronin/${n}/upvote`),
     downvote: (n: number) => post<RoninPR>(`/prs/ronin/${n}/downvote`),
   },
+  releases: {
+    schedule: () => get<ReleaseSchedule>("/releases"),
+  },
+  weather: {
+    current: (lat: number, lon: number, unit: string) =>
+      get<WeatherNow>("/weather", { lat, lon, unit }),
+    geocode: (q: string) => get<{ results: GeocodeResult[] }>("/weather/geocode", { q }),
+  },
   sync: {
     run: () => post<{ status: string }>("/sync/run"),
   },
@@ -296,5 +359,7 @@ export const api = {
     trackedPools: () => get<TrackedPoolsResponse>("/me/tracked-pools"),
     setTrackedPools: (section: string, pools: string[]) =>
       put<TrackedPoolsResponse>("/me/tracked-pools", { section, pools }),
+    weather: () => get<{ email: string; weather: WeatherPref }>("/me/weather"),
+    setWeather: (w: WeatherPref) => put<{ email: string; weather: WeatherPref }>("/me/weather", w),
   },
 };

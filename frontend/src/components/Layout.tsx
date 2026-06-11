@@ -1,8 +1,35 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { LayoutDashboard, Monitor, AlertTriangle, RefreshCw, Layers, ChevronDown, Smartphone, Terminal, Apple, Menu, X, Laptop } from "lucide-react";
 import { clsx } from "clsx";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useId } from "react";
 import { api } from "../api";
+import { FF_GRADIENT } from "../lib/brand";
+
+// Hangar mark — a paper-plane dart filled with the Firefox gradient, matching the
+// Overview accents. useId keeps the gradient unique per instance (the sidebar and
+// mobile-bar logos both live in the DOM at once).
+function HangarLogo({ size = 34 }: { size?: number }) {
+  const gid = useId();
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} className="flex-shrink-0" aria-hidden>
+      <defs>
+        <linearGradient id={gid} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#FF9400" />
+          <stop offset="50%" stopColor="#FF1AD9" />
+          <stop offset="100%" stopColor="#9059FF" />
+        </linearGradient>
+      </defs>
+      {/* Gradient dart with a shaded underside facet for a folded-paper look. */}
+      <path d="M22 2 15 22 11 13 2 9Z" fill={`url(#${gid})`} />
+      <path d="M22 2 11 13 2 9Z" fill="#000" opacity="0.22" />
+    </svg>
+  );
+}
+
+const Wordmark = ({ className = "text-base" }: { className?: string }) => (
+  <span className={`${className} font-semibold leading-none tracking-tight bg-clip-text text-transparent`}
+    style={{ backgroundImage: FF_GRADIENT }}>Hangar</span>
+);
 
 function timeAgo(iso: string | null) {
   if (!iso) return "never";
@@ -81,12 +108,9 @@ export function Layout() {
         {/* Brand */}
         <div className="px-4 py-5 border-b border-gray-800/60">
           <div className="flex items-center gap-2.5">
-            <svg viewBox="0 0 48 32" width="36" height="24" xmlns="http://www.w3.org/2000/svg" className="flex-shrink-0">
-              <path d="M3,26 Q14,5 45,13 Q31,17 29,26 Z" fill="#378ADD"/>
-              <path d="M3,26 Q14,8 45,13 Q36,11 34,20 Z" fill="#85B7EB"/>
-            </svg>
+            <HangarLogo size={32} />
             <div className="flex-1">
-              <div className="text-base font-medium text-brand-500 leading-none tracking-tight">Hangar</div>
+              <Wordmark />
               <div className="text-[10px] font-mono text-gray-600 leading-none mt-1 tracking-wide">CI FLEET MANAGER</div>
             </div>
             <button
@@ -189,11 +213,8 @@ export function Layout() {
           >
             <Menu size={20} />
           </button>
-          <svg viewBox="0 0 48 32" width="28" height="18" xmlns="http://www.w3.org/2000/svg" className="flex-shrink-0">
-            <path d="M3,26 Q14,5 45,13 Q31,17 29,26 Z" fill="#378ADD"/>
-            <path d="M3,26 Q14,8 45,13 Q36,11 34,20 Z" fill="#85B7EB"/>
-          </svg>
-          <span className="text-sm font-medium text-brand-400 tracking-tight">Hangar</span>
+          <HangarLogo size={24} />
+          <Wordmark className="text-sm" />
         </div>
         <div className="flex-1 overflow-auto">
           <Outlet />

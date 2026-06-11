@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Link } from "react-router-dom";
-import { Cpu, FlaskConical, ArrowUpRight, Gauge, Pin, Plus, X, Check, GripVertical, Pencil } from "lucide-react";
+import { Cpu, FlaskConical, ArrowUpRight, Gauge, Pin, Plus, X, Check, GripVertical, Pencil, Rocket, CalendarClock, ExternalLink,
+  Sun, Moon, Cloud, CloudSun, CloudMoon, CloudRain, CloudDrizzle, CloudSnow, CloudLightning, CloudFog, Search, LocateFixed, LoaderCircle } from "lucide-react";
 import { api } from "../api";
-import type { FleetSummary, FailureInsights, LoadHistory } from "../api";
+import type { FleetSummary, FailureInsights, LoadHistory, ReleaseSchedule, WeatherNow, WeatherPref, GeocodeResult } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
 
 const YARDSTICK_BASE = "https://yardstick.mozilla.org/d/ieg6Sho5/workers?orgId=1&from=now-2d&to=now&timezone=browser&refresh=5m";
@@ -21,6 +22,29 @@ function timeAgo(iso: string | null) {
   if (mins < 2) return "just now";
   if (mins < 60) return `${mins}m ago`;
   return `${Math.round(mins / 60)}h ago`;
+}
+
+// Parse "2026-06-16" as a *local* date (avoids the UTC-midnight off-by-one of new Date(iso)).
+function parseDate(iso: string): Date {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+function fmtDate(iso: string | null): string {
+  if (!iso) return "TBD";
+  const d = parseDate(iso);
+  const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
+  if (d.getFullYear() !== new Date().getFullYear()) opts.year = "numeric";
+  return d.toLocaleDateString(undefined, opts);
+}
+function daysUntil(iso: string | null): string {
+  if (!iso) return "";
+  const today = new Date();
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const days = Math.round((parseDate(iso).getTime() - start.getTime()) / 86400000);
+  if (days < 0) return "shipped";
+  if (days === 0) return "today";
+  if (days === 1) return "tomorrow";
+  return `in ${days} days`;
 }
 
 function shortTaskName(name: string): string {
@@ -54,7 +78,7 @@ function Sparkline({ points }: { points: number[] }) {
   const area = `${line} L ${W} ${H} L 0 ${H} Z`;
   const [lx, ly] = xy[xy.length - 1];
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="w-full h-16">
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="w-full h-16 spark-svg">
       <defs>
         <linearGradient id="sparkStroke" x1="0" y1="0" x2="1" y2="0">
           <stop offset="0%" stopColor="#FF9400" />
@@ -69,7 +93,7 @@ function Sparkline({ points }: { points: number[] }) {
       <path d={area} fill="url(#sparkFill)" />
       <path d={line} fill="none" stroke="url(#sparkStroke)" strokeWidth={2} vectorEffect="non-scaling-stroke"
         strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx={lx} cy={ly} r={3.5} fill="#FF1AD9" vectorEffect="non-scaling-stroke" />
+      <circle cx={lx} cy={ly} r={3.5} fill="#FF1AD9" vectorEffect="non-scaling-stroke" className="spark-dot" />
     </svg>
   );
 }
@@ -268,6 +292,300 @@ function MonitoredPools({ load }: { load: LoadHistory | null }) {
   );
 }
 
+// ── Firefox release schedule (product-details + whattrainisitnow) ────────────
+function ReleaseScheduleCard() {
+  const [sched, setSched] = useState<ReleaseSchedule | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    api.releases.schedule().then(setSched).catch(() => setFailed(true));
+  }, []);
+
+  if (failed) return null; // never block the Overview on this reference data
+  const grad = { backgroundImage: FF_GRADIENT } as const;
+
+  if (!sched) {
+    return (
+      <div className="card p-5">
+        <div className="text-xs text-gray-600 flex items-center gap-2">
+          <span className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-pulse" /> Loading release schedule…
+        </div>
+      </div>
+    );
+  }
+
+  const next = sched.next_release;
+  // In-flight train milestones plus the release itself, in date order, for the timeline rail.
+  const railUpcoming = sched.upcoming.slice(0, 6);
+
+  return (
+    <div className="card p-5 relative overflow-hidden">
+      <div className="absolute top-0 inset-x-0 h-0.5 opacity-80" style={grad} />
+      <div className="flex items-center justify-between mb-5">
+        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
+          <Rocket size={13} className="text-gray-500" /> Firefox Release Schedule
+        </h3>
+        <a href="https://whattrainisitnow.com/calendar/" target="_blank" rel="noopener noreferrer"
+          className="text-[11px] text-brand-400 hover:text-brand-300 transition-colors flex items-center gap-1">
+          Full calendar <ArrowUpRight size={12} />
+        </a>
+      </div>
+
+      <div className="flex flex-col lg:flex-row gap-6">
+        {/* Next release headline + in-flight milestones */}
+        <div className="lg:w-[42%] lg:border-r lg:border-gray-800/60 lg:pr-6">
+          <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-2">Next release</div>
+          {next ? (
+            <a
+              href={next.release_notes ?? undefined}
+              target="_blank" rel="noopener noreferrer"
+              className={`group block ${next.release_notes ? "" : "pointer-events-none"}`}
+            >
+              <div className="flex items-baseline gap-3">
+                <span className="text-4xl font-bold tabular-nums bg-clip-text text-transparent leading-none" style={grad}>
+                  {next.version}
+                </span>
+                <span className="text-sm text-gray-400">{fmtDate(next.date)}</span>
+              </div>
+              <div className="flex items-center gap-2 mt-2">
+                <span className="text-[11px] font-medium text-gray-300">{daysUntil(next.date)}</span>
+                {next.release_notes && (
+                  <span className="text-[11px] text-brand-400 group-hover:text-brand-300 transition-colors flex items-center gap-1">
+                    · release notes <ExternalLink size={10} />
+                  </span>
+                )}
+              </div>
+            </a>
+          ) : (
+            <div className="text-sm text-gray-500">Schedule unavailable</div>
+          )}
+
+          {sched.milestones.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-gray-800/60 space-y-2">
+              <div className="text-[10px] text-gray-600 uppercase tracking-wider flex items-center gap-1.5">
+                <CalendarClock size={11} /> Leading up
+              </div>
+              {sched.milestones.map(m => (
+                <div key={m.key} className="flex items-center justify-between text-xs">
+                  <span className="text-gray-400">{m.label}</span>
+                  <span className="text-gray-500 tabular-nums">{fmtDate(m.date)} <span className="text-gray-700">· {daysUntil(m.date)}</span></span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Channels + upcoming timeline */}
+        <div className="flex-1 space-y-5">
+          <div>
+            <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-2">Current versions</div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {sched.channels.map(c => {
+                const inner = (
+                  <>
+                    <div className="text-[10px] text-gray-500 uppercase tracking-wider truncate">{c.label}</div>
+                    <div className="text-sm font-mono font-semibold text-gray-200 truncate flex items-center gap-1">
+                      {c.version}
+                      {c.release_notes && <ExternalLink size={9} className="text-gray-600 group-hover:text-brand-400 transition-colors flex-shrink-0" />}
+                    </div>
+                  </>
+                );
+                return c.release_notes ? (
+                  <a key={c.channel} href={c.release_notes} target="_blank" rel="noopener noreferrer"
+                    className="group rounded-lg border border-gray-800 bg-gray-900/60 px-3 py-2 hover:border-gray-700 transition-colors">
+                    {inner}
+                  </a>
+                ) : (
+                  <div key={c.channel} className="rounded-lg border border-gray-800 bg-gray-900/60 px-3 py-2">
+                    {inner}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {railUpcoming.length > 0 && (
+            <div>
+              <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-2">Upcoming releases</div>
+              <div className="flex flex-wrap gap-2">
+                {railUpcoming.map(u => (
+                  <a key={u.version} href={u.release_notes} target="_blank" rel="noopener noreferrer"
+                    className="group flex items-center gap-2 rounded-full border border-gray-800 bg-gray-900/60 pl-3 pr-2.5 py-1 hover:border-brand-500/40 transition-colors">
+                    <span className="text-xs font-mono font-semibold text-gray-200">{u.version}</span>
+                    <span className="text-[11px] text-gray-500 tabular-nums">{fmtDate(u.date)}</span>
+                    <ExternalLink size={9} className="text-gray-600 group-hover:text-brand-400 transition-colors" />
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Weather (opt-in greeting chip) ───────────────────────────────────────────
+// WMO weather code → icon + label (https://open-meteo.com/en/docs#weathervariables).
+function wmo(code: number | null, isDay: boolean): { Icon: typeof Sun; label: string } {
+  const c = code ?? -1;
+  if (c === 0) return isDay ? { Icon: Sun, label: "Clear" } : { Icon: Moon, label: "Clear" };
+  if (c === 1 || c === 2) return isDay ? { Icon: CloudSun, label: "Partly cloudy" } : { Icon: CloudMoon, label: "Partly cloudy" };
+  if (c === 3) return { Icon: Cloud, label: "Overcast" };
+  if (c === 45 || c === 48) return { Icon: CloudFog, label: "Fog" };
+  if (c >= 51 && c <= 57) return { Icon: CloudDrizzle, label: "Drizzle" };
+  if ((c >= 61 && c <= 67) || (c >= 80 && c <= 82)) return { Icon: CloudRain, label: "Rain" };
+  if ((c >= 71 && c <= 77) || c === 85 || c === 86) return { Icon: CloudSnow, label: "Snow" };
+  if (c >= 95) return { Icon: CloudLightning, label: "Thunderstorm" };
+  return { Icon: Cloud, label: "" };
+}
+
+function placeLabel(r: GeocodeResult): string {
+  return [r.name, r.admin1, r.country_code].filter(Boolean).join(", ");
+}
+
+const DEFAULT_WEATHER: WeatherPref = { enabled: false, label: "", lat: null, lon: null, unit: "fahrenheit" };
+
+function WeatherChip() {
+  const [pref, setPref] = useState<WeatherPref | null>(null);
+  const [now, setNow] = useState<WeatherNow | null>(null);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<GeocodeResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [locating, setLocating] = useState(false);
+  const popRef = useRef<HTMLDivElement>(null);
+
+  // Load this user's saved preference once (IAP-backed, follows them across devices).
+  useEffect(() => {
+    api.me.weather().then(d => setPref(d.weather)).catch(() => setPref(DEFAULT_WEATHER));
+  }, []);
+
+  // Fetch current conditions whenever an enabled pref with coordinates is present.
+  useEffect(() => {
+    if (pref?.enabled && pref.lat != null && pref.lon != null) {
+      setNow(null);
+      api.weather.current(pref.lat, pref.lon, pref.unit).then(setNow).catch(() => setNow(null));
+    } else {
+      setNow(null);
+    }
+  }, [pref?.enabled, pref?.lat, pref?.lon, pref?.unit]);
+
+  // Debounced city search.
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) { setResults([]); return; }
+    setSearching(true);
+    const t = setTimeout(() => {
+      api.weather.geocode(q).then(d => setResults(d.results)).catch(() => setResults([])).finally(() => setSearching(false));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  // Dismiss the popover on an outside click.
+  useEffect(() => {
+    if (!open) return;
+    const onClick = (e: MouseEvent) => { if (popRef.current && !popRef.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, [open]);
+
+  if (!pref) return null; // still loading — render nothing to avoid flicker
+
+  const persist = (next: WeatherPref) => { setPref(next); api.me.setWeather(next).catch(() => {}); };
+  const pick = (r: GeocodeResult) => {
+    persist({ enabled: true, label: placeLabel(r), lat: r.lat, lon: r.lon, unit: pref.unit });
+    setQuery(""); setResults([]); setOpen(false);
+  };
+  const useMyLocation = () => {
+    if (!navigator.geolocation) return;
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        persist({ enabled: true, label: "Current location",
+          lat: +pos.coords.latitude.toFixed(3), lon: +pos.coords.longitude.toFixed(3), unit: pref.unit });
+        setLocating(false); setOpen(false);
+      },
+      () => setLocating(false),
+      { timeout: 8000 },
+    );
+  };
+  const disable = () => { persist({ ...pref, enabled: false }); setOpen(false); };
+
+  const configured = pref.enabled && pref.lat != null && pref.lon != null;
+  const { Icon, label } = now ? wmo(now.code, now.is_day) : { Icon: Cloud, label: "" };
+
+  return (
+    <div className="relative" ref={popRef}>
+      {configured ? (
+        <button onClick={() => setOpen(o => !o)}
+          className="flex items-center gap-1.5 text-[11px] text-gray-400 hover:text-gray-200 transition-colors"
+          title={`${label}${now?.feels_like != null ? ` · feels ${Math.round(now.feels_like)}${now.temp_unit}` : ""} · ${pref.label}`}>
+          <Icon size={14} className="text-brand-400" />
+          {now ? (
+            <span className="tabular-nums font-medium">{Math.round(now.temp ?? 0)}{now.temp_unit}</span>
+          ) : (
+            <LoaderCircle size={12} className="animate-spin text-gray-600" />
+          )}
+          <span className="text-gray-600 hidden sm:inline truncate max-w-[120px]">{pref.label}</span>
+        </button>
+      ) : (
+        <button onClick={() => setOpen(o => !o)}
+          className="flex items-center gap-1 text-[11px] text-gray-600 hover:text-brand-300 transition-colors">
+          <Plus size={11} /> Weather
+        </button>
+      )}
+
+      {open && (
+        <div className="absolute right-0 mt-2 w-72 z-30 card p-3 shadow-xl">
+          <div className="flex items-center justify-between mb-2.5">
+            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Weather</span>
+            <div className="flex items-center gap-1.5">
+              <div className="flex items-center rounded-md border border-gray-800 overflow-hidden">
+                {(["fahrenheit", "celsius"] as const).map(u => (
+                  <button key={u} onClick={() => persist({ ...pref, unit: u })}
+                    className={`px-1.5 py-0.5 text-[10px] font-medium transition-colors ${pref.unit === u ? "bg-gray-700 text-white" : "text-gray-500 hover:text-gray-300"}`}>
+                    {u === "fahrenheit" ? "°F" : "°C"}
+                  </button>
+                ))}
+              </div>
+              <button onClick={() => setOpen(false)} className="text-gray-600 hover:text-gray-300 p-0.5"><X size={13} /></button>
+            </div>
+          </div>
+
+          <button onClick={useMyLocation} disabled={locating}
+            className="flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-xs text-gray-300 hover:bg-gray-800/60 transition-colors mb-2 disabled:opacity-50">
+            {locating ? <LoaderCircle size={13} className="animate-spin" /> : <LocateFixed size={13} className="text-brand-400" />}
+            Use my location
+          </button>
+
+          <div className="relative">
+            <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-600" />
+            <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search city…" autoFocus
+              className="w-full bg-gray-900/60 border border-gray-700/60 rounded-lg pl-7 pr-3 py-1.5 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:border-brand-500/50" />
+          </div>
+
+          {(results.length > 0 || searching) && (
+            <div className="mt-2 max-h-48 overflow-y-auto rounded-lg border border-gray-800/60 divide-y divide-gray-800/40">
+              {searching && results.length === 0 && <div className="px-3 py-2 text-[11px] text-gray-600">Searching…</div>}
+              {results.map((r, i) => (
+                <button key={`${r.lat},${r.lon},${i}`} onClick={() => pick(r)}
+                  className="block w-full text-left px-3 py-2 text-xs text-gray-300 hover:bg-gray-800/40 transition-colors truncate">
+                  {placeLabel(r)}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {configured && (
+            <button onClick={disable} className="mt-3 text-[10px] text-gray-600 hover:text-red-400 transition-colors">Turn off weather</button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Overview() {
   const [data, setData] = useState<FleetSummary | null>(null);
   const [failures, setFailures] = useState<FailureInsights | null>(null);
@@ -339,48 +657,16 @@ export function Overview() {
           <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-gray-600">{dateStr}</div>
           <h1 className="text-3xl font-light text-white tracking-tight">{greeting}</h1>
         </div>
-        <span className="text-[11px] text-gray-600 flex items-center gap-1.5 whitespace-nowrap">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/80" /> synced {timeAgo(lastSync)}
-        </span>
-      </div>
-
-      {/* Fleet health hero */}
-      <div className="card p-6 relative overflow-hidden">
-        <div className="absolute top-0 inset-x-0 h-0.5 opacity-80" style={grad} />
-        <div className="flex flex-col md:flex-row items-center gap-8">
-          <HealthRing pct={healthPct}>
-            <span className="text-2xl font-bold text-white tabular-nums leading-none">{healthPct}%</span>
-            <span className="text-[10px] uppercase tracking-wider text-gray-500 mt-1">healthy</span>
-          </HealthRing>
-
-          <div className="flex-1 w-full space-y-5">
-            <div className="flex flex-wrap items-end gap-x-10 gap-y-4">
-              <div>
-                <div className="text-4xl font-bold text-white tabular-nums leading-none">{data.total_workers.toLocaleString()}</div>
-                <div className="text-[11px] text-gray-500 uppercase tracking-wider mt-1.5">Total workers</div>
-              </div>
-            </div>
-
-            <div className="pt-4 border-t border-gray-800/60">
-              <div className="flex w-full h-2.5 rounded-full overflow-hidden gap-px">
-                {platforms.map(p => (
-                  <div key={p.name} style={{ width: `${(p.value / platformTotal) * 100}%`, backgroundColor: p.color }} title={`${p.name}: ${p.value}`} />
-                ))}
-              </div>
-              <div className="flex flex-wrap gap-x-6 gap-y-1.5 mt-3">
-                {platforms.map(p => (
-                  <div key={p.name} className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: p.color }} />
-                    <span className="text-xs text-gray-300">{p.name}</span>
-                    <span className="text-xs font-mono text-gray-400 tabular-nums">{p.value.toLocaleString()}</span>
-                    <span className="text-[10px] text-gray-600 tabular-nums">{Math.round((p.value / platformTotal) * 100)}%</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+        <div className="flex items-center gap-4">
+          <WeatherChip />
+          <span className="text-[11px] text-gray-600 flex items-center gap-1.5 whitespace-nowrap">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/80" /> synced {timeAgo(lastSync)}
+          </span>
         </div>
       </div>
+
+      {/* Firefox release schedule */}
+      <ReleaseScheduleCard />
 
       {/* Fleet load */}
       <div className="card p-5">
@@ -453,6 +739,43 @@ export function Overview() {
 
       {/* Monitored pools — user-pinned */}
       <MonitoredPools load={load} />
+
+      {/* Total workers breakdown */}
+      <div className="card p-6">
+        <div className="flex flex-col md:flex-row items-center gap-8">
+          <HealthRing pct={healthPct}>
+            <span className="text-2xl font-bold text-white tabular-nums leading-none">{healthPct}%</span>
+            <span className="text-[10px] uppercase tracking-wider text-gray-500 mt-1">healthy</span>
+          </HealthRing>
+
+          <div className="flex-1 w-full space-y-5">
+            <div className="flex flex-wrap items-end gap-x-10 gap-y-4">
+              <div>
+                <div className="text-4xl font-bold text-white tabular-nums leading-none">{data.total_workers.toLocaleString()}</div>
+                <div className="text-[11px] text-gray-500 uppercase tracking-wider mt-1.5">Total workers</div>
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-gray-800/60">
+              <div className="flex w-full h-2.5 rounded-full overflow-hidden gap-px">
+                {platforms.map(p => (
+                  <div key={p.name} style={{ width: `${(p.value / platformTotal) * 100}%`, backgroundColor: p.color }} title={`${p.name}: ${p.value}`} />
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-x-6 gap-y-1.5 mt-3">
+                {platforms.map(p => (
+                  <div key={p.name} className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: p.color }} />
+                    <span className="text-xs text-gray-300">{p.name}</span>
+                    <span className="text-xs font-mono text-gray-400 tabular-nums">{p.value.toLocaleString()}</span>
+                    <span className="text-[10px] text-gray-600 tabular-nums">{Math.round((p.value / platformTotal) * 100)}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* Failure Insights */}
       <div className="pt-2">
