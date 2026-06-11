@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Monitor, AlertTriangle, RefreshCw, Layers, ChevronDown, Smartphone, Terminal, Apple, Menu, X, Laptop } from "lucide-react";
+import { LayoutDashboard, Monitor, AlertTriangle, RefreshCw, Smartphone, Terminal, Apple, Menu, X, Laptop } from "lucide-react";
 import { clsx } from "clsx";
 import { useState, useEffect, useId } from "react";
 import { api } from "../api";
@@ -39,19 +39,34 @@ function timeAgo(iso: string | null) {
   return `${Math.round(mins / 60)}h ago`;
 }
 
-const NAV = [
-  { to: "/", icon: LayoutDashboard, label: "Overview" },
-  { to: "/workers", icon: Monitor, label: "Workers" },
-  { to: "/alerts", icon: AlertTriangle, label: "Alerts" },
+const POOL_SECTIONS = [
+  { section: "android", label: "Android",  icon: Smartphone },
+  { section: "linux",   label: "Linux",    icon: Terminal },
+  { section: "mac",     label: "macOS",    icon: Apple },
+  { section: "windows", label: "Windows",  icon: Laptop },
 ];
 
-const POOL_SECTIONS = [
-  { section: "",        label: "Overview",  icon: Layers },
-  { section: "mac",     label: "macOS",     icon: Apple },
-  { section: "linux",   label: "Linux",     icon: Terminal },
-  { section: "windows", label: "Windows",   icon: Laptop },
-  { section: "android", label: "Android",   icon: Smartphone },
-];
+// Shared styling for sidebar items (NavLink anchors and query-param pool buttons alike).
+const navItemClass = (active: boolean) => clsx(
+  "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 relative",
+  active ? "bg-brand-500/10 text-brand-300 border border-brand-500/20"
+         : "text-gray-500 hover:text-gray-200 hover:bg-gray-800/60 border border-transparent"
+);
+const ActiveBar = () => <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 bg-brand-400 rounded-full" />;
+
+// A top-level sidebar link with the active accent bar.
+function NavLinkItem({ to, icon: Icon, label, end }: { to: string; icon: typeof Monitor; label: string; end?: boolean }) {
+  return (
+    <NavLink to={to} end={end} className={({ isActive }) => navItemClass(isActive)}>
+      {({ isActive }) => (<>{isActive && <ActiveBar />}<Icon size={15} />{label}</>)}
+    </NavLink>
+  );
+}
+
+// Small grouping label between nav sections.
+function SectionLabel({ children }: { children: string }) {
+  return <div className="px-3 pt-4 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-gray-600">{children}</div>;
+}
 
 export function Layout() {
   const [syncing, setSyncing] = useState(false);
@@ -71,7 +86,7 @@ export function Layout() {
     setSidebarOpen(false);
   }, [location.pathname, location.search]);
   const onPools = location.pathname.startsWith("/pools");
-  const currentSection = new URLSearchParams(location.search).get("section") ?? "";
+  const currentSection = new URLSearchParams(location.search).get("section") || "mac";
 
   async function triggerSync() {
     setSyncing(true);
@@ -123,70 +138,29 @@ export function Layout() {
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 px-2 py-3 space-y-0.5">
-          {NAV.slice(0, 2).map(({ to, icon: Icon, label }) => (
-            <NavLink key={to} to={to} end={to === "/"}
-              className={({ isActive }) => clsx(
-                "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 relative",
-                isActive ? "bg-brand-500/10 text-brand-300 border border-brand-500/20"
-                         : "text-gray-500 hover:text-gray-200 hover:bg-gray-800/60 border border-transparent"
-              )}>
-              {({ isActive }) => (<>
-                {isActive && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 bg-brand-400 rounded-full" />}
-                <Icon size={15} />{label}
-              </>)}
-            </NavLink>
-          ))}
+        <nav className="flex-1 px-2 py-3 overflow-y-auto">
+          <NavLinkItem to="/" icon={LayoutDashboard} label="Overview" end />
 
-          {/* Pool Health with sub-nav */}
-          <div>
-            <button onClick={() => navigate("/pools")}
-              className={clsx(
-                "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 relative",
-                onPools ? "bg-brand-500/10 text-brand-300 border border-brand-500/20"
-                        : "text-gray-500 hover:text-gray-200 hover:bg-gray-800/60 border border-transparent"
-              )}>
-              {onPools && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 bg-brand-400 rounded-full" />}
-              <Layers size={15} />
-              <span className="flex-1 text-left">Pool Health</span>
-              <ChevronDown size={11} className={clsx("transition-transform text-gray-600", onPools && "rotate-180")} />
-            </button>
-            {onPools && (
-              <div className="mt-0.5 ml-3 pl-3 border-l border-gray-800 space-y-0.5">
-                {POOL_SECTIONS.map(({ section, label, icon: Icon }) => {
-                  const isActive = currentSection === section;
-                  const to = section ? `/pools?section=${section}` : "/pools";
-                  return (
-                    <button key={section} onClick={() => navigate(to)}
-                      className={clsx(
-                        "w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all",
-                        isActive ? "bg-brand-500/10 text-brand-300" : "text-gray-600 hover:text-gray-300 hover:bg-gray-800/40"
-                      )}>
-                      <Icon size={11} />{label}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+          <SectionLabel>Platforms</SectionLabel>
+          <div className="space-y-0.5">
+            {POOL_SECTIONS.map(({ section, label, icon: Icon }) => {
+              const active = onPools && currentSection === section;
+              return (
+                <button key={section} onClick={() => navigate(`/pools?section=${section}`)} className={clsx("w-full text-left", navItemClass(active))}>
+                  {active && <ActiveBar />}
+                  <Icon size={15} />{label}
+                </button>
+              );
+            })}
           </div>
 
-          {NAV.slice(2).map(({ to, icon: Icon, label }) => (
-            <NavLink key={to} to={to}
-              className={({ isActive }) => clsx(
-                "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 relative",
-                isActive ? "bg-brand-500/10 text-brand-300 border border-brand-500/20"
-                         : "text-gray-500 hover:text-gray-200 hover:bg-gray-800/60 border border-transparent"
-              )}>
-              {({ isActive }) => (<>
-                {isActive && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 bg-brand-400 rounded-full" />}
-                <Icon size={15} />{label}
-              </>)}
-            </NavLink>
-          ))}
+          <SectionLabel>Monitoring</SectionLabel>
+          <NavLinkItem to="/alerts" icon={AlertTriangle} label="Alerts" />
         </nav>
 
-        {/* Sync */}
-        <div className="px-3 pb-4 border-t border-gray-800/60 pt-3">
+        {/* Footer — low-priority destination + utility */}
+        <div className="border-t border-gray-800/60 px-2 pt-2 pb-3 space-y-1">
+          <NavLinkItem to="/workers" icon={Monitor} label="Workers" />
           <button
             onClick={triggerSync}
             disabled={syncing}
@@ -194,7 +168,7 @@ export function Layout() {
           >
             <RefreshCw size={12} className={syncing ? "animate-spin" : ""} />
             <div className="flex flex-col items-start gap-0.5">
-              <span>{syncing ? "Syncing…" : syncMsg || "Sync All Sources"}</span>
+              <span>{syncing ? "Syncing…" : syncMsg || "Sync sources"}</span>
               {!syncing && !syncMsg && tcSync?.last_success && (
                 <span className="text-[10px] text-gray-700 font-normal">TC {timeAgo(tcSync.last_success)}</span>
               )}

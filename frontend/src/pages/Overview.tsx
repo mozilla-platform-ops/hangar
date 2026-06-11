@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Cpu, FlaskConical, ArrowUpRight, Gauge, Pin, Plus, X, Check, GripVertical, Pencil, Rocket, CalendarClock, ExternalLink,
   Sun, Moon, Cloud, CloudSun, CloudMoon, CloudRain, CloudDrizzle, CloudSnow, CloudLightning, CloudFog, Search, LocateFixed, LoaderCircle } from "lucide-react";
 import { api } from "../api";
-import type { FleetSummary, FailureInsights, LoadHistory, ReleaseSchedule, WeatherNow, WeatherPref, GeocodeResult } from "../api";
+import type { FleetSummary, FailureInsights, LoadHistory, ReleaseSchedule, WeatherNow, WeatherPref, GeocodeResult, ShowcaseData } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
 
 const YARDSTICK_BASE = "https://yardstick.mozilla.org/d/ieg6Sho5/workers?orgId=1&from=now-2d&to=now&timezone=browser&refresh=5m";
@@ -590,12 +590,14 @@ export function Overview() {
   const [data, setData] = useState<FleetSummary | null>(null);
   const [failures, setFailures] = useState<FailureInsights | null>(null);
   const [load, setLoad] = useState<LoadHistory | null>(null);
+  const [scale, setScale] = useState<ShowcaseData["scale"] | null>(null);
   const [failurePlatform, setFailurePlatform] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
     api.fleet.summary().then(setData).catch(e => setError(e.message));
     api.fleet.loadHistory(48).then(setLoad).catch(() => {});
+    api.fleet.showcase().then(d => setScale(d.scale)).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -686,7 +688,7 @@ export function Overview() {
         <div className="flex flex-col lg:flex-row gap-6">
           {/* Current + trend */}
           <div className="lg:w-1/2">
-            <div className="flex items-end gap-8">
+            <div className="flex items-end gap-6">
               <div>
                 <div className="text-4xl font-bold tabular-nums bg-clip-text text-transparent leading-none" style={grad}>
                   {curPending === null ? "—" : curPending.toLocaleString()}
@@ -696,6 +698,12 @@ export function Overview() {
               <div>
                 <div className="text-2xl font-bold text-gray-200 tabular-nums leading-none">{curRunning === null ? "—" : curRunning.toLocaleString()}</div>
                 <div className="text-[11px] text-gray-500 uppercase tracking-wider mt-1.5">running</div>
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-gray-200 tabular-nums leading-none">{scale ? scale.worker_hours.toLocaleString() : "—"}</div>
+                <div className="text-[11px] text-gray-500 uppercase tracking-wider mt-1.5">
+                  worker-hrs{scale ? <span className="text-gray-600 normal-case"> · last {Math.round(scale.window_hours)}h</span> : null}
+                </div>
               </div>
             </div>
             <div className="mt-4 h-16">

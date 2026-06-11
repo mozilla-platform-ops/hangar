@@ -4,13 +4,7 @@ import { Pin, AlertTriangle, GitBranch, Users, Lock, Hammer, FlaskConical, Chevr
 import { api } from "../api";
 import type { PoolHealth, PoolSources, CloudPool, FleetSummary, RoninPR } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
-
-const OVERVIEW_EXCLUDED_POOLS = new Set([
-  "gecko-t-osx-1500-m4-ipv6",
-  "gecko-t-osx-1500-m4-staging",
-  "gecko-t-osx-1400-r8-staging",
-  "gecko-t-osx-1015-r8-staging",
-]);
+import { MacMigrationCard } from "../components/Showcase";
 
 const MAX_PINNED = 4;
 
@@ -541,62 +535,6 @@ function CloudPoolCard({ pool, sources }: { pool: CloudPool; sources?: PoolSourc
   );
 }
 
-function PoolStatusTile({ pool, pending: pendingCount }: { pool: PoolHealth; pending: number | null }) {
-  const navigate = useNavigate();
-  const pct = Math.round(pool.health_score * 100);
-  const color = pool.health_score >= 0.9 ? "#10b981" : pool.health_score >= 0.7 ? "#eab308" : pool.health_score >= 0.5 ? "#f97316" : "#ef4444";
-  const r = 28, circ = 2 * Math.PI * r;
-  const utilPct = pool.active_24h > 0 ? Math.round(((pool.running_tasks ?? 0) / pool.active_24h) * 100) : 0;
-  return (
-    <div className="card p-5 flex flex-col gap-4 cursor-pointer hover:border-gray-700 transition-all"
-      onClick={() => navigate(`/workers?worker_pool=${encodeURIComponent(pool.name)}`)}
-      title={hardwarePoolId(pool)}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-sm font-mono font-semibold text-white truncate">{pool.name}</div>
-          <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
-            {pool.provisioner && (
-              <span className="max-w-full truncate text-[10px] font-mono text-emerald-300 bg-emerald-950/35 border border-emerald-900/40 rounded px-1.5 py-0.5">
-                {pool.provisioner}
-              </span>
-            )}
-            <span className={`text-xs font-mono ${GEN_COLOR[poolGeneration(pool)] || "text-gray-500"}`}>
-              {poolGeneration(pool) || "—"}
-            </span>
-          </div>
-        </div>
-        <div className="relative w-16 h-16 flex-shrink-0">
-          <svg width="64" height="64" viewBox="0 0 64 64" className="-rotate-90">
-            <circle cx="32" cy="32" r={r} fill="none" stroke="#1f2937" strokeWidth="5" />
-            <circle cx="32" cy="32" r={r} fill="none" stroke={color} strokeWidth="5"
-              strokeDasharray={`${(pct / 100) * circ} ${circ}`} strokeLinecap="round" />
-          </svg>
-          <span className="absolute inset-0 flex items-center justify-center text-sm font-bold" style={{ color }}>{pct}%</span>
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-3 bg-gray-800/30 rounded-lg p-3 border border-gray-700/30">
-        <div>
-          <div className={`text-2xl font-bold tabular-nums ${pendingColor(pendingCount)}`}>
-            {pendingCount === null ? "—" : pendingCount.toLocaleString()}
-          </div>
-          <div className="text-[10px] text-gray-500 uppercase tracking-wider mt-0.5">pending tasks</div>
-        </div>
-        <div>
-          <div className="text-2xl font-bold tabular-nums text-white">
-            {pool.running_tasks ?? 0}
-            <span className="text-sm font-normal text-gray-500"> / {pool.active_24h}</span>
-          </div>
-          <div className="text-[10px] text-gray-500 uppercase tracking-wider mt-0.5">workers running</div>
-          <div className="mt-1.5 w-full bg-gray-700/60 rounded-full h-1 overflow-hidden">
-            <div className={`h-1 rounded-full transition-all ${utilPct >= 90 ? "bg-orange-400" : utilPct >= 70 ? "bg-yellow-400" : "bg-emerald-400"}`}
-              style={{ width: `${Math.min(utilPct, 100)}%` }} />
-          </div>
-          <div className="text-[10px] text-gray-600 mt-0.5">{utilPct}% utilized</div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function AndroidPoolCards({ pools, sources }: { pools: CloudPool[]; sources: Record<string, PoolSources> }) {
   return (
@@ -755,9 +693,8 @@ function PinnedEditor({ allPools, selected, defaults, onSave, onClose }: {
           </button>
           <button
             onClick={() => onSave(draft)}
-            disabled={draft.length === 0}
-            className="flex items-center gap-1.5 text-xs font-medium bg-brand-500/15 text-brand-200 border border-brand-500/30 rounded-lg px-3 py-1.5 hover:bg-brand-500/25 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-            <Check size={12} /> Save
+            className="flex items-center gap-1.5 text-xs font-medium bg-brand-500/15 text-brand-200 border border-brand-500/30 rounded-lg px-3 py-1.5 hover:bg-brand-500/25 transition-colors">
+            <Check size={12} /> {draft.length === 0 ? "Save (none)" : "Save"}
           </button>
         </div>
       </div>
@@ -862,7 +799,7 @@ function PinnedGrid({ pools, pending, sources, onReorder }: {
 export function Pools() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const section = searchParams.get("section") ?? "";
+  const section = searchParams.get("section") || "mac";
   const [pools, setPools] = useState<PoolHealth[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -907,7 +844,8 @@ export function Pools() {
         : !isLinuxPool(p.name) && !isWindowsPool(p.name))
       .map(p => p.name);
     const saved = trackedMap[section];
-    if (saved && saved.length > 0) {
+    if (saved !== undefined) {
+      // Respect an explicit set — including an empty one (the user chose to track nothing).
       setPinnedPools(saved.slice(0, MAX_PINNED));
       return;
     }
@@ -995,8 +933,6 @@ export function Pools() {
   const sectionTrackPools = section === "linux" ? linuxHwPools : section === "windows" ? windowsHwPools : macPools;
   const sectionTrackDefaults = defaultPinned(section, sectionTrackPools.map(p => p.name));
 
-  const showCloud = section === "" || section === "linux";
-
   const totalWorkers = pools.reduce((s, p) => s + p.total, 0);
   const linuxCloudWorkers = cloudPoolData.reduce((s, p) => s + p.total, 0);
   const totalIssues  = testerPools.reduce((s, p) => s + p.quarantined + p.mdm_unenrolled, 0);
@@ -1044,18 +980,20 @@ export function Pools() {
 
       {trackSection && (
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] text-gray-600">
-              Tracked pools{pinnedData.length > 1 ? " · drag to reorder" : ""}
-            </span>
-            {!editingPinned && (
-              <button
-                onClick={() => setEditingPinned(true)}
-                className="flex items-center gap-1.5 text-[11px] text-gray-500 hover:text-gray-300 transition-colors">
-                <Pencil size={11} /> Edit tracked pools
-              </button>
-            )}
-          </div>
+          {(pinnedData.length > 0 || editingPinned) && (
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] text-gray-600">
+                Tracked pools{pinnedData.length > 1 ? " · drag to reorder" : ""}
+              </span>
+              {!editingPinned && (
+                <button
+                  onClick={() => setEditingPinned(true)}
+                  className="flex items-center gap-1.5 text-[11px] text-gray-500 hover:text-gray-300 transition-colors">
+                  <Pencil size={11} /> Edit tracked pools
+                </button>
+              )}
+            </div>
+          )}
           {editingPinned && (
             <PinnedEditor
               allPools={sectionTrackPools}
@@ -1065,9 +1003,15 @@ export function Pools() {
               onClose={() => setEditingPinned(false)}
             />
           )}
-          {pinnedData.length > 0 && (
+          {pinnedData.length > 0 ? (
             <PinnedGrid pools={pinnedData} pending={pending} sources={sources} onReorder={persistPinned} />
-          )}
+          ) : !editingPinned ? (
+            <button
+              onClick={() => setEditingPinned(true)}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-dashed border-gray-800/80 text-[11px] text-gray-600 hover:border-gray-700 hover:text-gray-400 transition-colors">
+              <Pin size={12} /> Track pools to pin them here
+            </button>
+          ) : null}
         </div>
       )}
 
@@ -1078,63 +1022,7 @@ export function Pools() {
         </div>
       )}
 
-      {/* Overview: compact status tiles per platform */}
-      {section === "" && (
-        <div className="space-y-8">
-          {testerPools.length > 0 && (
-            <div>
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-0.5 h-5 bg-indigo-500 rounded-full" />
-                <span className="text-sm font-semibold text-gray-300 tracking-tight">macOS Hardware</span>
-                <span className="text-xs text-gray-600">{testerPools.filter(p => !OVERVIEW_EXCLUDED_POOLS.has(p.name)).length} pools</span>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {testerPools.filter(p => !OVERVIEW_EXCLUDED_POOLS.has(p.name)).map(pool => (
-                  <PoolStatusTile key={pool.name} pool={pool} pending={pending[pool.name] ?? null} />
-                ))}
-              </div>
-            </div>
-          )}
-          {linuxHwPools.length > 0 && (
-            <div>
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-0.5 h-5 bg-emerald-500 rounded-full" />
-                <span className="text-sm font-semibold text-gray-300 tracking-tight">Linux Hardware</span>
-                <span className="text-xs text-gray-600">{linuxHwPools.length} pools · releng-hardware</span>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {linuxHwPools.map(pool => (
-                  <PoolStatusTile key={pool.name} pool={pool} pending={pending[pool.name] ?? null} />
-                ))}
-              </div>
-            </div>
-          )}
-          {windowsHwPools.length > 0 && (
-            <div>
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-0.5 h-5 bg-sky-500 rounded-full" />
-                <span className="text-sm font-semibold text-gray-300 tracking-tight">Windows Hardware</span>
-                <span className="text-xs text-gray-600">{windowsHwPools.length} pools</span>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {windowsHwPools.map(pool => (
-                  <PoolStatusTile key={pool.name} pool={pool} pending={pending[pool.name] ?? null} />
-                ))}
-              </div>
-            </div>
-          )}
-          {androidPoolData.length > 0 && (
-            <div>
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-0.5 h-5 bg-green-500 rounded-full" />
-                <span className="text-sm font-semibold text-gray-300 tracking-tight">Android Hardware</span>
-                <span className="text-xs text-gray-600">{androidPoolData.length} pools</span>
-              </div>
-              <AndroidPoolCards pools={androidPoolData} sources={{}} />
-            </div>
-          )}
-        </div>
-      )}
+      {section === "mac" && <MacMigrationCard />}
 
       {/* macOS sub-page: full detail */}
       {section === "mac" && testerPools.length > 0 && (
@@ -1203,7 +1091,7 @@ export function Pools() {
         </div>
       )}
 
-      {showCloud && cloudPoolData.length > 0 && (
+      {section === "linux" && cloudPoolData.length > 0 && (
         <div className="space-y-4">
           <div className="flex items-center gap-3 mb-4">
             <div className="w-0.5 h-5 bg-teal-500 rounded-full" />
