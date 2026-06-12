@@ -1,9 +1,11 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { LayoutDashboard, Monitor, AlertTriangle, RefreshCw, Smartphone, Terminal, Apple, Menu, X, Laptop } from "lucide-react";
 import { clsx } from "clsx";
-import { useState, useEffect, useId } from "react";
+import { Suspense, useState, useEffect, useId } from "react";
 import { api } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
+import { isSigningWorker } from "../lib/alerts";
+import { usePoll, useNow } from "../lib/useLive";
 
 // Hangar mark — a paper-plane dart filled with the Firefox gradient, matching the
 // Overview accents. useId keeps the gradient unique per instance (the sidebar and
@@ -31,9 +33,9 @@ const Wordmark = ({ className = "text-base" }: { className?: string }) => (
     style={{ backgroundImage: FF_GRADIENT }}>Hangar</span>
 );
 
-function timeAgo(iso: string | null) {
+function timeAgo(iso: string | null, now = Date.now()) {
   if (!iso) return "never";
-  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  const mins = Math.round((now - new Date(iso).getTime()) / 60000);
   if (mins < 2) return "just now";
   if (mins < 60) return `${mins}m ago`;
   return `${Math.round(mins / 60)}h ago`;
@@ -54,11 +56,21 @@ const navItemClass = (active: boolean) => clsx(
 );
 const ActiveBar = () => <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 bg-brand-400 rounded-full" />;
 
-// A top-level sidebar link with the active accent bar.
-function NavLinkItem({ to, icon: Icon, label, end }: { to: string; icon: typeof Monitor; label: string; end?: boolean }) {
+// A top-level sidebar link with the active accent bar and an optional count badge.
+function NavLinkItem({ to, icon: Icon, label, end, badge }: { to: string; icon: typeof Monitor; label: string; end?: boolean; badge?: number }) {
   return (
     <NavLink to={to} end={end} className={({ isActive }) => navItemClass(isActive)}>
-      {({ isActive }) => (<>{isActive && <ActiveBar />}<Icon size={15} />{label}</>)}
+      {({ isActive }) => (
+        <>
+          {isActive && <ActiveBar />}
+          <Icon size={15} />{label}
+          {badge ? (
+            <span className="ml-auto text-[10px] font-semibold tabular-nums leading-none bg-red-500/15 text-red-400 border border-red-500/30 rounded-full px-1.5 py-0.5">
+              {badge}
+            </span>
+          ) : null}
+        </>
+      )}
     </NavLink>
   );
 }
@@ -72,13 +84,25 @@ export function Layout() {
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState("");
   const [tcSync, setTcSync] = useState<{ last_success: string | null } | null>(null);
+  const [alertCount, setAlertCount] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const now = useNow(30_000);
 
-  useEffect(() => {
+  const refreshShell = () => {
     api.fleet.summary()
       .then(d => setTcSync(d.sync_status["taskcluster"] ?? null))
       .catch(() => {});
-  }, []);
+    api.alerts.list(true)
+      .then(d => setAlertCount(d.alerts.filter(a => !isSigningWorker(a)).length))
+      .catch(() => {});
+  };
+  useEffect(refreshShell, []);
+  usePoll(refreshShell, 60_000);
+
+  // Surface the alert count in the tab title so a pinned Hangar tab signals trouble.
+  useEffect(() => {
+    document.title = alertCount > 0 ? `(${alertCount}) Hangar` : "Hangar";
+  }, [alertCount]);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -155,7 +179,7 @@ export function Layout() {
           </div>
 
           <SectionLabel>Monitoring</SectionLabel>
-          <NavLinkItem to="/alerts" icon={AlertTriangle} label="Alerts" />
+          <NavLinkItem to="/alerts" icon={AlertTriangle} label="Alerts" badge={alertCount} />
         </nav>
 
         {/* Footer — low-priority destination + utility */}
@@ -170,7 +194,7 @@ export function Layout() {
             <div className="flex flex-col items-start gap-0.5">
               <span>{syncing ? "Syncing…" : syncMsg || "Sync sources"}</span>
               {!syncing && !syncMsg && tcSync?.last_success && (
-                <span className="text-[10px] text-gray-700 font-normal">TC {timeAgo(tcSync.last_success)}</span>
+                <span className="text-[10px] text-gray-700 font-normal">TC {timeAgo(tcSync.last_success, now)}</span>
               )}
             </div>
           </button>
@@ -191,7 +215,16 @@ export function Layout() {
           <Wordmark className="text-sm" />
         </div>
         <div className="flex-1 overflow-auto">
-          <Outlet />
+          <Suspense
+            fallback={
+              <div className="p-8 flex items-center gap-3 text-gray-500 text-sm">
+                <span className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-pulse" />
+                Loading…
+              </div>
+            }
+          >
+            <Outlet />
+          </Suspense>
         </div>
       </main>
     </div>

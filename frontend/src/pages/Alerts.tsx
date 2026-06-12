@@ -5,6 +5,8 @@ import { api } from "../api";
 import type { Alert } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
 import { Badge } from "../components/Badge";
+import { isSigningWorker } from "../lib/alerts";
+import { usePoll } from "../lib/useLive";
 
 const TYPE_CFG: Record<string, { label: string; color: "red" | "orange" | "yellow" | "gray"; rowBg: string }> = {
   missing_from_tc: { label: "Missing from TC",  color: "red",    rowBg: "border-l-2 border-l-red-700/60" },
@@ -83,12 +85,6 @@ function NoteCell({ hostname, initialNote, onSaved }: { hostname: string; initia
   );
 }
 
-function isSigningWorker(alert: Alert) {
-  if (!alert.hostname.startsWith("macmini-")) return true;
-  if (alert.worker?.worker_pool?.includes("signing")) return true;
-  return false;
-}
-
 export function Alerts() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [total, setTotal] = useState(0);
@@ -98,8 +94,8 @@ export function Alerts() {
   const [notes, setNotes] = useState<Record<string, string | null>>({});
   const navigate = useNavigate();
 
-  async function load() {
-    setLoading(true);
+  async function load(silent = false) {
+    if (!silent) setLoading(true);
     try {
       const data = await api.alerts.list(activeOnly);
       setAlerts(data.alerts);
@@ -117,6 +113,7 @@ export function Alerts() {
   }
 
   useEffect(() => { load(); }, [activeOnly]);
+  usePoll(() => load(true), 60_000);
 
   async function resolve(id: number) {
     await api.alerts.resolve(id);

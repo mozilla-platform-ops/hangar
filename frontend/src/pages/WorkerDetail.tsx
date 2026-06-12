@@ -4,6 +4,7 @@ import { ArrowLeft, ExternalLink, Pencil, CheckCircle2, X } from "lucide-react";
 import { api } from "../api";
 import type { Worker } from "../api";
 import { stateBadge, tcStatusBadge, enrollmentBadge, SourceBadges } from "../components/Badge";
+import { usePoll } from "../lib/useLive";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -91,6 +92,10 @@ export function WorkerDetail() {
   useEffect(() => {
     if (hostname) api.workers.get(hostname).then(setWorker).catch(e => setError(e.message));
   }, [hostname]);
+  // Live-refresh so you can watch a worker come back (quarantine lift, TC re-claim) without reloading.
+  usePoll(() => {
+    if (hostname) api.workers.get(hostname).then(setWorker).catch(() => {});
+  }, 60_000);
 
   if (error) return (
     <div className="p-8">

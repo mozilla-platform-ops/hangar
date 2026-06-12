@@ -20,7 +20,7 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8000}:8000"
     env_file: .env
     environment:
       DATABASE_URL: postgresql://relops:relops@db:5432/relops

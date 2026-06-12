@@ -5,6 +5,7 @@ import { Cpu, FlaskConical, ArrowUpRight, Gauge, Pin, Plus, X, Check, GripVertic
 import { api } from "../api";
 import type { FleetSummary, FailureInsights, LoadHistory, ReleaseSchedule, WeatherNow, WeatherPref, GeocodeResult, ShowcaseData } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
+import { usePoll, useNow } from "../lib/useLive";
 
 const YARDSTICK_BASE = "https://yardstick.mozilla.org/d/ieg6Sho5/workers?orgId=1&from=now-2d&to=now&timezone=browser&refresh=5m";
 const yardstickAll = `${YARDSTICK_BASE}&var-provisioner=$__all&var-workerType=$__all`;
@@ -15,9 +16,9 @@ const yardstickPool = (pool: string) =>
 // health ring / sparkline accents and leaves emerald free for "healthy"/production.
 const PLATFORM_COLORS = { macOS: "#FF9400", Linux: "#FF1AD9", Windows: "#9059FF" } as const;
 
-function timeAgo(iso: string | null) {
+function timeAgo(iso: string | null, now = Date.now()) {
   if (!iso) return "never";
-  const diff = Date.now() - new Date(iso).getTime();
+  const diff = now - new Date(iso).getTime();
   const mins = Math.round(diff / 60000);
   if (mins < 2) return "just now";
   if (mins < 60) return `${mins}m ago`;
@@ -471,6 +472,13 @@ function WeatherChip() {
     }
   }, [pref?.enabled, pref?.lat, pref?.lon, pref?.unit]);
 
+  // Conditions change; refresh them through the day (silently — keep the old reading on error).
+  usePoll(() => {
+    if (pref?.enabled && pref.lat != null && pref.lon != null) {
+      api.weather.current(pref.lat, pref.lon, pref.unit).then(setNow).catch(() => {});
+    }
+  }, 900_000);
+
   // Debounced city search.
   useEffect(() => {
     const q = query.trim();
@@ -594,6 +602,8 @@ export function Overview() {
   const [failurePlatform, setFailurePlatform] = useState("");
   const [error, setError] = useState("");
 
+  const nowTick = useNow(30_000);
+
   useEffect(() => {
     api.fleet.summary().then(setData).catch(e => setError(e.message));
     api.fleet.loadHistory(48).then(setLoad).catch(() => {});
@@ -604,6 +614,14 @@ export function Overview() {
     setFailures(null);
     api.fleet.failures(7, failurePlatform || undefined).then(setFailures).catch(() => {});
   }, [failurePlatform]);
+
+  // Keep the dashboard live: silently refresh everything while the tab is visible.
+  usePoll(() => {
+    api.fleet.summary().then(setData).catch(() => {});
+    api.fleet.loadHistory(48).then(setLoad).catch(() => {});
+    api.fleet.showcase().then(d => setScale(d.scale)).catch(() => {});
+    api.fleet.failures(7, failurePlatform || undefined).then(setFailures).catch(() => {});
+  }, 60_000);
 
   if (error) return <div className="p-8 text-red-400 text-sm">{error}</div>;
   if (!data) return (
@@ -662,7 +680,7 @@ export function Overview() {
         <div className="flex items-center gap-4">
           <WeatherChip />
           <span className="text-[11px] text-gray-600 flex items-center gap-1.5 whitespace-nowrap">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/80" /> synced {timeAgo(lastSync)}
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/80" /> synced {timeAgo(lastSync, nowTick)}
           </span>
         </div>
       </div>

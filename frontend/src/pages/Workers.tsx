@@ -10,6 +10,7 @@ import { api } from "../api";
 import type { Worker } from "../api";
 import { stateBadge, tcStatusBadge, enrollmentBadge, SourceBadges } from "../components/Badge";
 import { FF_GRADIENT } from "../lib/brand";
+import { usePoll } from "../lib/useLive";
 
 type HealthStatus = "healthy" | "degraded" | "critical" | null;
 
@@ -76,8 +77,8 @@ export function Workers() {
     mdm: "mdm_enrollment_status",
   };
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const sortCol = sorting[0];
       const result = await api.workers.list({
@@ -100,6 +101,7 @@ export function Workers() {
   }, [search, generation, state, pool, page, sorting]);
 
   useEffect(() => { load(); }, [load]);
+  usePoll(() => load(true), 60_000);
 
   function setFilter(key: string, val: string) {
     setPage(0);

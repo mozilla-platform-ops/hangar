@@ -7,7 +7,7 @@ from typing import Any
 
 import requests
 from fastapi import APIRouter, Depends
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from ..config import settings
@@ -447,34 +447,52 @@ def load_history(hours: int = 48, db: Session = Depends(get_db)) -> dict[str, An
     """
     hours = max(1, min(hours, 24 * 14))
     since = datetime.utcnow() - timedelta(hours=hours)
-    rows = (
-        db.query(PoolLoadSample)
+
+    # Fleet-wide totals per tick, aggregated in SQL so we never materialize
+    # hours × pools individual sample rows in Python.
+    totals_rows = (
+        db.query(
+            PoolLoadSample.ts,
+            func.sum(PoolLoadSample.pending).label("pending"),
+            func.sum(PoolLoadSample.running).label("running"),
+            func.count(PoolLoadSample.id).label("n"),
+        )
         .filter(PoolLoadSample.ts >= since)
+        .group_by(PoolLoadSample.ts)
         .order_by(PoolLoadSample.ts)
         .all()
     )
+    totals = [
+        {"ts": r.ts.isoformat(), "pending": int(r.pending or 0), "running": int(r.running or 0)}
+        for r in totals_rows
+    ]
 
-    # Fleet-wide totals per tick (rows are ascending by ts, so dict preserves order)
-    totals: dict[str, dict[str, Any]] = {}
+    # Latest sample per pool within the window
+    last_ts = (
+        db.query(PoolLoadSample.pool, func.max(PoolLoadSample.ts).label("max_ts"))
+        .filter(PoolLoadSample.ts >= since)
+        .group_by(PoolLoadSample.pool)
+        .subquery()
+    )
     latest: dict[str, dict[str, Any]] = {}
-    for r in rows:
-        key = r.ts.isoformat()
-        t = totals.setdefault(key, {"ts": key, "pending": 0, "running": 0})
-        t["pending"] += r.pending or 0
-        t["running"] += r.running or 0
+    for r in (
+        db.query(PoolLoadSample)
+        .join(last_ts, (PoolLoadSample.pool == last_ts.c.pool) & (PoolLoadSample.ts == last_ts.c.max_ts))
+        .all()
+    ):
         latest[r.pool] = {
             "pool": r.pool,
             "pending": r.pending,
             "running": r.running,
             "capacity": r.capacity,
-            "ts": key,
+            "ts": r.ts.isoformat(),
         }
 
     return {
         "hours": hours,
         "since": since.isoformat(),
-        "sample_count": len(rows),
-        "totals": list(totals.values()),
+        "sample_count": int(sum(r.n for r in totals_rows)),
+        "totals": totals,
         "pools": sorted(latest.values(), key=lambda x: (x["pending"] or 0), reverse=True),
     }
 
@@ -491,6 +509,11 @@ def _macos_axis(pool: str) -> str | None:
     if "osx-1500-m-vms" in pool: return "m4_vm"     # Apple Silicon Tart VMs
     if "osx-1500-m4" in pool:    return "m4"         # Apple Silicon bare metal
     return None
+
+
+# Pool-name fragments that place a pool on the migration axis — must stay in
+# sync with _macos_axis above (used to pre-filter the SQL aggregation).
+_MACOS_AXIS_FRAGMENTS = ("osx-1400-r8", "osx-1015-r8", "osx-1500-m-vms", "osx-1500-m4")
 
 
 def _vm_pool_kind(pool: str) -> str | None:
@@ -539,23 +562,31 @@ def fleet_showcase(db: Session = Depends(get_db)) -> dict[str, Any]:
         p["util"] = round(p["running"] / p["production"], 3) if p["production"] else 0.0
 
     # ── Worker-hours delivered: integrate running-workers over the sampled window ──
-    hist = (db.query(PoolLoadSample)
-              .filter(PoolLoadSample.ts >= now - timedelta(days=14))
-              .order_by(PoolLoadSample.ts).all())
-    ticks = sorted({r.ts for r in hist})
+    # Aggregated in SQL (one row per tick + one per tick×migration-pool) instead of
+    # loading every raw sample — this table grows by pools×288 rows a day.
+    since_14d = now - timedelta(days=14)
+    tick_rows = (db.query(PoolLoadSample.ts, func.sum(PoolLoadSample.running).label("running"))
+                   .filter(PoolLoadSample.ts >= since_14d)
+                   .group_by(PoolLoadSample.ts)
+                   .order_by(PoolLoadSample.ts).all())
+    ticks = [r.ts for r in tick_rows]
     CAP_H = 0.25  # cap per-tick interval at 15 min so sampler downtime doesn't inflate totals
     dt: dict[datetime, float] = {}
     for i, ts in enumerate(ticks):
         gap = (ticks[i + 1] - ts).total_seconds() / 3600.0 if i + 1 < len(ticks) else CAP_H
         dt[ts] = min(gap, CAP_H)
-    fleet_hours = 0.0
+    fleet_hours = sum((r.running or 0) * dt[r.ts] for r in tick_rows)
+
+    axis_rows = (db.query(PoolLoadSample.ts, PoolLoadSample.pool,
+                          func.sum(PoolLoadSample.running).label("running"))
+                   .filter(PoolLoadSample.ts >= since_14d,
+                           or_(*[PoolLoadSample.pool.like(f"%{frag}%") for frag in _MACOS_AXIS_FRAGMENTS]))
+                   .group_by(PoolLoadSample.ts, PoolLoadSample.pool).all())
     axis_hours: dict[str, float] = {}
-    for r in hist:
-        h = (r.running or 0) * dt.get(r.ts, 0.0)
-        fleet_hours += h
+    for r in axis_rows:
         axis = _macos_axis(r.pool)
         if axis:
-            axis_hours[axis] = axis_hours.get(axis, 0.0) + h
+            axis_hours[axis] = axis_hours.get(axis, 0.0) + (r.running or 0) * dt.get(r.ts, 0.0)
     window_hours = round((ticks[-1] - ticks[0]).total_seconds() / 3600.0, 1) if len(ticks) >= 2 else 0.0
 
     scale = {

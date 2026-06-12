@@ -3,6 +3,7 @@ import { TrendingUp, Zap } from "lucide-react";
 import { api } from "../api";
 import type { ShowcaseData } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
+import { usePoll } from "../lib/useLive";
 
 // ── Curated milestones ────────────────────────────────────────────────────────
 // EDIT THESE: facts drawn from RelOps handoffs, NOT auto-derived from fleet data.
@@ -23,6 +24,7 @@ export function MacMigrationCard() {
   useEffect(() => {
     api.fleet.showcase().then(setData).catch(() => {});
   }, []);
+  usePoll(() => api.fleet.showcase().then(setData).catch(() => {}), 120_000);
 
   if (!data) return null;
 
