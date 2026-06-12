@@ -5,6 +5,7 @@ import { api } from "../api";
 import type { PoolHealth, PoolSources, CloudPool, FleetSummary, RoninPR } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
 import { MacMigrationCard } from "../components/Showcase";
+import { usePoll } from "../lib/useLive";
 
 const MAX_PINNED = 4;
 
@@ -885,6 +886,18 @@ export function Pools() {
       .catch(() => {});
   }, []);
 
+  // Keep the dashboard live. DB-backed endpoints poll faster than the ones that
+  // fan out to live Taskcluster queries server-side.
+  usePoll(() => {
+    api.fleet.pools().then(d => setPools(d.pools)).catch(() => {});
+    api.fleet.pendingCounts().then(d => setPending(d.pending_counts)).catch(() => {});
+    api.fleet.summary().then(d => { setBranchOverrides(d.branch_overrides); setSummary(d); }).catch(() => {});
+  }, 120_000);
+  usePoll(() => {
+    api.fleet.cloudPools().then(d => setCloudPoolData(d.pools)).catch(() => {});
+    api.fleet.androidPools().then(d => setAndroidPoolData(d.pools)).catch(() => {});
+  }, 300_000);
+
   useEffect(() => {
     for (const poolName of pinnedPools) {
       api.fleet.poolSources(poolName)
@@ -893,22 +906,25 @@ export function Pools() {
     }
   }, [pinnedPools]);
 
+  // Keyed on the name set (not array identity) so polling refreshes above don't
+  // re-trigger the expensive per-pool task sampling.
+  const linuxWindowsNames = pools.filter(p => isLinuxPool(p.name) || isWindowsPool(p.name)).map(p => p.name).sort().join(",");
   useEffect(() => {
-    const names = pools.filter(p => isLinuxPool(p.name) || isWindowsPool(p.name)).map(p => p.name);
-    for (const poolName of names) {
+    for (const poolName of linuxWindowsNames.split(",").filter(Boolean)) {
       api.fleet.poolSources(poolName)
         .then(s => setSources(prev => ({ ...prev, [poolName]: s })))
         .catch(() => {});
     }
-  }, [pools]);
+  }, [linuxWindowsNames]);
 
+  const androidNames = androidPoolData.map(p => p.name).sort().join(",");
   useEffect(() => {
-    for (const pool of androidPoolData) {
-      api.fleet.androidPoolSources(pool.name)
-        .then(s => setSources(prev => ({ ...prev, [pool.name]: s })))
+    for (const poolName of androidNames.split(",").filter(Boolean)) {
+      api.fleet.androidPoolSources(poolName)
+        .then(s => setSources(prev => ({ ...prev, [poolName]: s })))
         .catch(() => {});
     }
-  }, [androidPoolData]);
+  }, [androidNames]);
 
   if (error) return <div className="p-8 text-red-400 text-sm">{error}</div>;
   if (loading) return (
