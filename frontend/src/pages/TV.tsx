@@ -5,7 +5,7 @@ import { api } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
 import { usePoll, useNow } from "../lib/useLive";
 import { isSigningWorker } from "../lib/alerts";
-import { fleetCounts } from "../lib/health";
+import { fleetCounts, inFleetMap } from "../lib/health";
 import { FleetHeatmap, HeatmapLegend } from "../components/FleetHeatmap";
 import { Sparkline } from "../components/Sparkline";
 
@@ -18,7 +18,7 @@ export function TV() {
   const now = useNow(1_000);
 
   const refresh = (silent = false) => {
-    api.workers.list({ limit: 2000 }).then(d => setWorkers(d.workers)).catch(() => {});
+    api.workers.list({ limit: 2000 }).then(d => setWorkers(d.workers.filter(inFleetMap))).catch(() => {});
     api.fleet.loadHistory(48).then(setLoad).catch(() => {});
     api.alerts.list(true).then(setAlerts).catch(() => {});
     void silent;

@@ -3,7 +3,7 @@ import type { Worker } from "../api";
 import { api } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
 import { usePoll } from "../lib/useLive";
-import { fleetCounts } from "../lib/health";
+import { fleetCounts, inFleetMap } from "../lib/health";
 import { FleetHeatmap, HeatmapLegend } from "../components/FleetHeatmap";
 
 const PLATFORMS = [
@@ -20,7 +20,7 @@ export function Heatmap() {
 
   const load = (silent = false) => {
     api.workers.list({ limit: 2000 })
-      .then(d => setWorkers(d.workers))
+      .then(d => setWorkers(d.workers.filter(inFleetMap)))
       .catch(e => { if (!silent) setError(e.message); });
   };
   useEffect(() => load(), []);
