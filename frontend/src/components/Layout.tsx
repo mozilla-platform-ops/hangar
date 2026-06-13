@@ -167,7 +167,7 @@ export function Layout() {
         {/* Nav */}
         <nav className="flex-1 px-2 py-3 overflow-y-auto">
           <NavLinkItem to="/" icon={LayoutDashboard} label="Overview" end />
-          <NavLinkItem to="/map" icon={Grid3x3} label="Fleet Map" />
+          <NavLinkItem to="/fleet" icon={Grid3x3} label="Fleet" />
 
           <SectionLabel>Platforms</SectionLabel>
           <div className="space-y-0.5">
@@ -188,7 +188,6 @@ export function Layout() {
 
         {/* Footer — low-priority destination + utility */}
         <div className="border-t border-gray-800/60 px-2 pt-2 pb-3 space-y-1">
-          <NavLinkItem to="/workers" icon={Monitor} label="Workers" />
           <a href="/tv" target="_blank" rel="noopener noreferrer"
             className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-gray-500 hover:text-gray-200 hover:bg-gray-800/60 transition-all border border-transparent hover:border-gray-700/50">
             <Tv size={15} /> TV Mode

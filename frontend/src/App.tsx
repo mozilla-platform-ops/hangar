@@ -1,5 +1,5 @@
 import { lazy } from "react";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Layout } from "./components/Layout";
 import { CommandPalette } from "./components/CommandPalette";
 import { KeyboardShortcuts } from "./components/KeyboardShortcuts";
@@ -7,11 +7,10 @@ import { KeyboardShortcuts } from "./components/KeyboardShortcuts";
 // Route-level code splitting: each page loads on first visit, so the initial
 // bundle is just the shell + the landing page.
 const Overview = lazy(() => import("./pages/Overview").then(m => ({ default: m.Overview })));
-const Workers = lazy(() => import("./pages/Workers").then(m => ({ default: m.Workers })));
+const Fleet = lazy(() => import("./pages/Fleet").then(m => ({ default: m.Fleet })));
 const WorkerDetail = lazy(() => import("./pages/WorkerDetail").then(m => ({ default: m.WorkerDetail })));
 const Alerts = lazy(() => import("./pages/Alerts").then(m => ({ default: m.Alerts })));
 const Pools = lazy(() => import("./pages/Pools").then(m => ({ default: m.Pools })));
-const Heatmap = lazy(() => import("./pages/Heatmap").then(m => ({ default: m.Heatmap })));
 const TV = lazy(() => import("./pages/TV").then(m => ({ default: m.TV })));
 
 export default function App() {
@@ -22,8 +21,10 @@ export default function App() {
       <Routes>
         <Route element={<Layout />}>
           <Route index element={<Overview />} />
-          <Route path="map" element={<Heatmap />} />
-          <Route path="workers" element={<Workers />} />
+          <Route path="fleet" element={<Fleet />} />
+          {/* Fleet Map and Workers merged into /fleet — keep old links working. */}
+          <Route path="map" element={<Navigate to="/fleet?view=map" replace />} />
+          <Route path="workers" element={<Navigate to="/fleet?view=table" replace />} />
           <Route path="workers/:hostname" element={<WorkerDetail />} />
           <Route path="alerts" element={<Alerts />} />
           <Route path="pools" element={<Pools />} />

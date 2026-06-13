@@ -9,7 +9,6 @@ import { Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, X }
 import { api } from "../api";
 import type { Worker } from "../api";
 import { stateBadge, tcStatusBadge, enrollmentBadge, SourceBadges } from "../components/Badge";
-import { FF_GRADIENT } from "../lib/brand";
 import { usePoll } from "../lib/useLive";
 
 type HealthStatus = "healthy" | "degraded" | "critical" | null;
@@ -46,7 +45,7 @@ function timeAgo(iso: string | null) {
   return `${Math.round(hrs / 24)}d ago`;
 }
 
-export function Workers() {
+export function WorkersTableView() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
@@ -66,6 +65,7 @@ export function Workers() {
   const generation = searchParams.get("generation") || "";
   const state = searchParams.get("state") || "";
   const pool = searchParams.get("worker_pool") || "";
+  const view = searchParams.get("view") || "";  // preserved on Clear so we stay on the Fleet table tab
 
   const SORT_MAP: Record<string, string> = {
     hostname: "hostname",
@@ -226,16 +226,8 @@ export function Workers() {
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
   return (
-    <div className="p-8 space-y-5 max-w-[1400px]">
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-3">
-          <span className="w-1 h-9 rounded-full flex-shrink-0" style={{ backgroundImage: FF_GRADIENT }} />
-          <div>
-            <h1 className="text-2xl font-light text-white tracking-tight">Workers</h1>
-            <p className="text-gray-500 text-sm mt-0.5">{total.toLocaleString()} workers total</p>
-          </div>
-        </div>
-      </div>
+    <>
+      <p className="text-gray-500 text-sm">{total.toLocaleString()} workers · searchable inventory</p>
 
       {/* Quick pool filters */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -332,7 +324,7 @@ export function Workers() {
         {hasFilters && (
           <button
             className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-200 bg-gray-800/60 hover:bg-gray-800 px-3 py-2 rounded-lg transition-all border border-gray-700/50"
-            onClick={() => { setSearchParams({}); setPage(0); }}
+            onClick={() => { setSearchParams(view ? { view } : {}); setPage(0); }}
           >
             <X size={11} /> Clear
           </button>
@@ -433,6 +425,6 @@ export function Workers() {
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }

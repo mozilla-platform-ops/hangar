@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Worker } from "../api";
 import { api } from "../api";
-import { FF_GRADIENT } from "../lib/brand";
 import { usePoll } from "../lib/useLive";
 import { fleetCounts, inFleetMap } from "../lib/health";
 import { FleetHeatmap, HeatmapLegend } from "../components/FleetHeatmap";
@@ -15,7 +14,8 @@ const PLATFORMS = [
   { key: "windows", label: "Windows" },
 ];
 
-export function Heatmap() {
+/** Body-only fleet heatmap view — rendered inside the Fleet page (Map tab). */
+export function FleetMapView() {
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [error, setError] = useState("");
   const [platform, setPlatform] = useState("");
@@ -37,7 +37,7 @@ export function Heatmap() {
     return c;
   }, [workers]);
 
-  if (error) return <div className="p-8 text-red-400 text-sm">{error}</div>;
+  if (error) return <div className="text-red-400 text-sm">{error}</div>;
 
   const filtered = platform
     ? workers.filter(w => w.platform === platform)
@@ -45,15 +45,10 @@ export function Heatmap() {
   const counts = fleetCounts(filtered);
 
   return (
-    <div className="p-8 space-y-6 max-w-[1400px]">
-      <div className="flex items-start justify-between flex-wrap gap-4">
-        <div className="flex items-center gap-3">
-          <span className="w-1 h-9 rounded-full flex-shrink-0" style={{ backgroundImage: FF_GRADIENT }} />
-          <div>
-            <h1 className="text-2xl font-light text-white tracking-tight">Fleet Map</h1>
-            <p className="text-gray-500 text-sm mt-0.5">{filtered.length.toLocaleString()} workers · one cell each · worst pools first</p>
-          </div>
-        </div>
+    <>
+      {/* Controls row: platform filter + count */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <p className="text-gray-500 text-sm">{filtered.length.toLocaleString()} workers · one cell each · worst pools first</p>
         <div className="flex items-center gap-1 bg-gray-900 border border-gray-800 rounded-lg p-0.5">
           {PLATFORMS.map(({ key, label }) => {
             const n = platformCount[key] ?? 0;
@@ -83,6 +78,6 @@ export function Heatmap() {
           <FleetHeatmap workers={filtered} />
         )}
       </div>
-    </div>
+    </>
   );
 }
