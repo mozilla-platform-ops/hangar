@@ -2,9 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { Pin, AlertTriangle, GitBranch, Users, Lock, Hammer, FlaskConical, ChevronDown, Terminal, Smartphone, Monitor, Pencil, Check, X, RotateCcw, GripVertical, ShieldOff, Cpu } from "lucide-react";
 import { api } from "../api";
-import type { PoolHealth, PoolSources, CloudPool, FleetSummary, RoninPR } from "../api";
+import type { PoolHealth, PoolSources, CloudPool, FleetSummary, RoninPR, PoolSeries } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
 import { MacMigrationCard } from "../components/Showcase";
+import { Sparkline } from "../components/Sparkline";
 import { usePoll } from "../lib/useLive";
 
 const MAX_PINNED = 4;
@@ -202,10 +203,11 @@ function HealthRing({ score }: { score: number }) {
   );
 }
 
-function PinnedCard({ pool, pending, sources }: {
+function PinnedCard({ pool, pending, sources, series }: {
   pool: PoolHealth;
   pending: number | null;
   sources: PoolSources | null | undefined;
+  series?: PoolSeries;
 }) {
   const navigate = useNavigate();
   const staleAll = pool.stale_1_7d + pool.stale_7_30d + pool.stale_30d_plus + pool.never_seen;
@@ -257,6 +259,17 @@ function PinnedCard({ pool, pending, sources }: {
       </div>
 
       <ActivityBar pool={pool} height="h-2" />
+
+      {(() => {
+        const pts = (series?.pending ?? []).map(v => v ?? 0);
+        if (pts.length < 2) return null;
+        return (
+          <div>
+            <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-1">Pending · last 24h</div>
+            <Sparkline points={pts} className="w-full h-10" animate={false} />
+          </div>
+        );
+      })()}
 
       <div>
         <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-2">Job Sources</div>
@@ -759,10 +772,11 @@ function NeedsAttentionCard({ summary }: { summary: FleetSummary }) {
   );
 }
 
-function PinnedGrid({ pools, pending, sources, onReorder }: {
+function PinnedGrid({ pools, pending, sources, seriesMap, onReorder }: {
   pools: PoolHealth[];
   pending: Record<string, number | null>;
   sources: Record<string, PoolSources>;
+  seriesMap: Record<string, PoolSeries>;
   onReorder: (names: string[]) => void;
 }) {
   const [dragIdx, setDragIdx] = useState<number | null>(null);
@@ -790,7 +804,7 @@ function PinnedGrid({ pools, pending, sources, onReorder }: {
           <div className="absolute top-2.5 right-2.5 z-10 text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
             <GripVertical size={14} />
           </div>
-          <PinnedCard pool={pool} pending={pending[pool.name] ?? null} sources={sources[pool.name]} />
+          <PinnedCard pool={pool} pending={pending[pool.name] ?? null} sources={sources[pool.name]} series={seriesMap?.[pool.name]} />
         </div>
       ))}
     </div>
@@ -807,6 +821,7 @@ export function Pools() {
   const [showOther, setShowOther] = useState(false);
   const [pending, setPending] = useState<Record<string, number | null>>({});
   const [sources, setSources] = useState<Record<string, PoolSources>>({});
+  const [seriesMap, setSeriesMap] = useState<Record<string, PoolSeries>>({});
   const [cloudPoolData, setCloudPoolData] = useState<CloudPool[]>([]);
   const [androidPoolData, setAndroidPoolData] = useState<CloudPool[]>([]);
   const [branchOverrides, setBranchOverrides] = useState<FleetSummary["branch_overrides"] | null>(null);
@@ -872,6 +887,10 @@ export function Pools() {
       .then(d => setPending(d.pending_counts))
       .catch(() => {});
 
+    api.fleet.loadHistory(24, true)
+      .then(d => setSeriesMap(d.pool_series ?? {}))
+      .catch(() => {});
+
     api.fleet.cloudPools()
       .then(d => setCloudPoolData(d.pools))
       .catch(() => {});
@@ -891,6 +910,7 @@ export function Pools() {
   usePoll(() => {
     api.fleet.pools().then(d => setPools(d.pools)).catch(() => {});
     api.fleet.pendingCounts().then(d => setPending(d.pending_counts)).catch(() => {});
+    api.fleet.loadHistory(24, true).then(d => setSeriesMap(d.pool_series ?? {})).catch(() => {});
     api.fleet.summary().then(d => { setBranchOverrides(d.branch_overrides); setSummary(d); }).catch(() => {});
   }, 120_000);
   usePoll(() => {
@@ -1020,7 +1040,7 @@ export function Pools() {
             />
           )}
           {pinnedData.length > 0 ? (
-            <PinnedGrid pools={pinnedData} pending={pending} sources={sources} onReorder={persistPinned} />
+            <PinnedGrid pools={pinnedData} pending={pending} sources={sources} seriesMap={seriesMap} onReorder={persistPinned} />
           ) : !editingPinned ? (
             <button
               onClick={() => setEditingPinned(true)}

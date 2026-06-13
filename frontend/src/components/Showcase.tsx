@@ -17,6 +17,34 @@ const TEAM = {
 
 const grad = { backgroundImage: FF_GRADIENT } as const;
 
+/** Apple-Silicon-share-of-load trend line with a 50% reference, anchored 0–100. */
+function ModernShareTrend({ series }: { series: ShowcaseData["migration"]["series"] }) {
+  const pts = series.map(s => s.modern_pct).filter((v): v is number => v !== null);
+  const W = 560, H = 56;
+  const dx = W / (pts.length - 1);
+  const y = (v: number) => H - (v / 100) * H;
+  const line = pts.map((v, i) => `${i ? "L" : "M"}${(i * dx).toFixed(1)} ${y(v).toFixed(1)}`).join(" ");
+  const area = `${line} L ${W} ${H} L 0 ${H} Z`;
+  const last = pts[pts.length - 1];
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="w-full h-14">
+      <defs>
+        <linearGradient id="mig-stroke" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="#FF9400" /><stop offset="50%" stopColor="#FF1AD9" /><stop offset="100%" stopColor="#9059FF" />
+        </linearGradient>
+        <linearGradient id="mig-fill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#FF1AD9" stopOpacity="0.2" /><stop offset="100%" stopColor="#FF1AD9" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {/* 50% parity reference */}
+      <line x1="0" y1={y(50)} x2={W} y2={y(50)} stroke="#4b5563" strokeWidth="1" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
+      <path d={area} fill="url(#mig-fill)" />
+      <path d={line} fill="none" stroke="url(#mig-stroke)" strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={(pts.length - 1) * dx} cy={y(last)} r="3.5" fill="#FF1AD9" vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
+}
+
 /** macOS Intel → Apple Silicon migration story — lives on the Pool Health macOS page. */
 export function MacMigrationCard() {
   const [data, setData] = useState<ShowcaseData | null>(null);
@@ -55,6 +83,14 @@ export function MacMigrationCard() {
         <div style={{ width: `${m.intel_load_pct}%`, backgroundColor: "#4b5563" }} title={`Intel: ${m.intel_load_pct}%`} />
       </div>
       <div className="text-[10px] text-gray-600 mt-1.5">by worker-hours over the last {Math.round(data.scale.window_hours)}h · Intel {m.intel_load_pct}%</div>
+
+      {/* Trend: Apple-Silicon share over the sampled window — the migration moving, not a snapshot */}
+      {m.series && m.series.filter(s => s.modern_pct !== null).length >= 2 && (
+        <div className="mt-4">
+          <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-1.5">Apple Silicon share — trend</div>
+          <ModernShareTrend series={m.series} />
+        </div>
+      )}
 
       {/* Worker distribution across the migration axis */}
       <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2">

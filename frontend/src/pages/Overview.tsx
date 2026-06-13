@@ -6,6 +6,7 @@ import { api } from "../api";
 import type { FleetSummary, FailureInsights, LoadHistory, ReleaseSchedule, WeatherNow, WeatherPref, GeocodeResult, ShowcaseData } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
 import { usePoll, useNow } from "../lib/useLive";
+import { AnimatedNumber } from "../components/AnimatedNumber";
 
 const YARDSTICK_BASE = "https://yardstick.mozilla.org/d/ieg6Sho5/workers?orgId=1&from=now-2d&to=now&timezone=browser&refresh=5m";
 const yardstickAll = `${YARDSTICK_BASE}&var-provisioner=$__all&var-workerType=$__all`;
@@ -709,12 +710,12 @@ export function Overview() {
             <div className="flex items-end gap-6">
               <div>
                 <div className="text-4xl font-bold tabular-nums bg-clip-text text-transparent leading-none" style={grad}>
-                  {curPending === null ? "—" : curPending.toLocaleString()}
+                  {curPending === null ? "—" : <AnimatedNumber value={curPending} />}
                 </div>
                 <div className="text-[11px] text-gray-500 uppercase tracking-wider mt-1.5">pending tasks</div>
               </div>
               <div>
-                <div className="text-2xl font-bold text-gray-200 tabular-nums leading-none">{curRunning === null ? "—" : curRunning.toLocaleString()}</div>
+                <div className="text-2xl font-bold text-gray-200 tabular-nums leading-none">{curRunning === null ? "—" : <AnimatedNumber value={curRunning} />}</div>
                 <div className="text-[11px] text-gray-500 uppercase tracking-wider mt-1.5">running</div>
               </div>
               <div>
@@ -777,7 +778,7 @@ export function Overview() {
           <div className="flex-1 w-full space-y-5">
             <div className="flex flex-wrap items-end gap-x-10 gap-y-4">
               <div>
-                <div className="text-4xl font-bold text-white tabular-nums leading-none">{data.total_workers.toLocaleString()}</div>
+                <div className="text-4xl font-bold text-white tabular-nums leading-none"><AnimatedNumber value={data.total_workers} /></div>
                 <div className="text-[11px] text-gray-500 uppercase tracking-wider mt-1.5">Total workers</div>
               </div>
             </div>

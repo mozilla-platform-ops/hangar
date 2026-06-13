@@ -1,10 +1,11 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Monitor, AlertTriangle, RefreshCw, Smartphone, Terminal, Apple, Menu, X, Laptop } from "lucide-react";
+import { LayoutDashboard, Monitor, AlertTriangle, RefreshCw, Smartphone, Terminal, Apple, Menu, X, Laptop, Grid3x3, Tv } from "lucide-react";
 import { clsx } from "clsx";
 import { Suspense, useState, useEffect, useId } from "react";
 import { api } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
 import { isSigningWorker } from "../lib/alerts";
+import { setFavicon } from "../lib/favicon";
 import { usePoll, useNow } from "../lib/useLive";
 
 // Hangar mark — a paper-plane dart filled with the Firefox gradient, matching the
@@ -99,9 +100,11 @@ export function Layout() {
   useEffect(refreshShell, []);
   usePoll(refreshShell, 60_000);
 
-  // Surface the alert count in the tab title so a pinned Hangar tab signals trouble.
+  // Surface the alert count in the tab title (and favicon, for pinned tabs that
+  // hide the title) so a backgrounded Hangar tab still signals trouble.
   useEffect(() => {
     document.title = alertCount > 0 ? `(${alertCount}) Hangar` : "Hangar";
+    setFavicon(alertCount);
   }, [alertCount]);
   const location = useLocation();
   const navigate = useNavigate();
@@ -164,6 +167,7 @@ export function Layout() {
         {/* Nav */}
         <nav className="flex-1 px-2 py-3 overflow-y-auto">
           <NavLinkItem to="/" icon={LayoutDashboard} label="Overview" end />
+          <NavLinkItem to="/fleet" icon={Grid3x3} label="Fleet" />
 
           <SectionLabel>Platforms</SectionLabel>
           <div className="space-y-0.5">
@@ -184,7 +188,10 @@ export function Layout() {
 
         {/* Footer — low-priority destination + utility */}
         <div className="border-t border-gray-800/60 px-2 pt-2 pb-3 space-y-1">
-          <NavLinkItem to="/workers" icon={Monitor} label="Workers" />
+          <a href="/tv" target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-gray-500 hover:text-gray-200 hover:bg-gray-800/60 transition-all border border-transparent hover:border-gray-700/50">
+            <Tv size={15} /> TV Mode
+          </a>
           <button
             onClick={triggerSync}
             disabled={syncing}

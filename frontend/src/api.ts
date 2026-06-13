@@ -240,12 +240,19 @@ export interface PoolLoadSnapshot {
   ts: string;
 }
 
+export interface PoolSeries {
+  ts: string[];
+  pending: (number | null)[];
+  running: (number | null)[];
+}
+
 export interface LoadHistory {
   hours: number;
   since: string;
   sample_count: number;
   totals: LoadPoint[];
   pools: PoolLoadSnapshot[];
+  pool_series?: Record<string, PoolSeries>;
 }
 
 export interface MonitoredPoolsResponse {
@@ -308,6 +315,7 @@ export interface ShowcaseData {
     catalina: ShowcaseAxis;
     modern_load_pct: number;
     intel_load_pct: number;
+    series: Array<{ ts: string; modern_pct: number | null; modern: number; intel: number }>;
   };
   capacity: {
     over_provisioned: Array<{ pool: string; workers: number; production: number; running: number; util: number }>;
@@ -357,7 +365,8 @@ export const api = {
     pendingCounts: () => get<PendingCountsResponse>("/fleet/pending-counts"),
     poolSources: (pool: string) => get<PoolSources>("/fleet/pool-sources", { pool }),
     failures: (days = 7, platform?: string) => get<FailureInsights>("/fleet/failures", { days, platform }),
-    loadHistory: (hours = 48) => get<LoadHistory>("/fleet/load-history", { hours }),
+    loadHistory: (hours = 48, includeSeries = false) =>
+      get<LoadHistory>("/fleet/load-history", { hours, include_series: includeSeries || undefined }),
     cloudPools: () => get<CloudPoolsResponse>("/fleet/cloud-pools"),
     androidPools: () => get<CloudPoolsResponse>("/fleet/android-pools"),
     androidPoolSources: (pool: string) => get<PoolSources>("/fleet/android-pool-sources", { pool }),

@@ -68,7 +68,7 @@ export function CommandPalette() {
 
   function go(item: Item) {
     if (item.kind === "pool") {
-      navigate(`/workers?worker_pool=${encodeURIComponent(item.pool.name)}`);
+      navigate(`/fleet?view=table&worker_pool=${encodeURIComponent(item.pool.name)}`);
     } else {
       navigate(`/workers/${encodeURIComponent(item.worker.hostname)}`);
     }
