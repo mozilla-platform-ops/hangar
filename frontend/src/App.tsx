@@ -11,6 +11,8 @@ const Workers = lazy(() => import("./pages/Workers").then(m => ({ default: m.Wor
 const WorkerDetail = lazy(() => import("./pages/WorkerDetail").then(m => ({ default: m.WorkerDetail })));
 const Alerts = lazy(() => import("./pages/Alerts").then(m => ({ default: m.Alerts })));
 const Pools = lazy(() => import("./pages/Pools").then(m => ({ default: m.Pools })));
+const Heatmap = lazy(() => import("./pages/Heatmap").then(m => ({ default: m.Heatmap })));
+const TV = lazy(() => import("./pages/TV").then(m => ({ default: m.TV })));
 
 export default function App() {
   return (
@@ -20,11 +22,14 @@ export default function App() {
       <Routes>
         <Route element={<Layout />}>
           <Route index element={<Overview />} />
+          <Route path="map" element={<Heatmap />} />
           <Route path="workers" element={<Workers />} />
           <Route path="workers/:hostname" element={<WorkerDetail />} />
           <Route path="alerts" element={<Alerts />} />
           <Route path="pools" element={<Pools />} />
         </Route>
+        {/* Chromeless wall-monitor view — no sidebar, lives outside Layout. */}
+        <Route path="/tv" element={<TV />} />
       </Routes>
     </BrowserRouter>
   );

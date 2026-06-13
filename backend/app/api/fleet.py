@@ -438,7 +438,7 @@ def pending_counts() -> dict[str, Any]:
 
 
 @router.get("/load-history")
-def load_history(hours: int = 48, db: Session = Depends(get_db)) -> dict[str, Any]:
+def load_history(hours: int = 48, include_series: bool = False, db: Session = Depends(get_db)) -> dict[str, Any]:
     """Per-pool load time series from our local sampler — fast, no external calls.
 
     Returns a compact fleet-wide totals series (one point per sampler tick) plus the
@@ -488,13 +488,31 @@ def load_history(hours: int = 48, db: Session = Depends(get_db)) -> dict[str, An
             "ts": r.ts.isoformat(),
         }
 
-    return {
+    # Optional compact per-pool series (parallel ts/pending/running arrays) for
+    # sparklines. Tuple query, not ORM objects, to keep it light.
+    pool_series: dict[str, dict[str, list[Any]]] = {}
+    if include_series:
+        for pool, ts, pending, running in (
+            db.query(PoolLoadSample.pool, PoolLoadSample.ts, PoolLoadSample.pending, PoolLoadSample.running)
+            .filter(PoolLoadSample.ts >= since)
+            .order_by(PoolLoadSample.ts)
+            .all()
+        ):
+            s = pool_series.setdefault(pool, {"ts": [], "pending": [], "running": []})
+            s["ts"].append(ts.isoformat())
+            s["pending"].append(pending)
+            s["running"].append(running)
+
+    out: dict[str, Any] = {
         "hours": hours,
         "since": since.isoformat(),
         "sample_count": int(sum(r.n for r in totals_rows)),
         "totals": totals,
         "pools": sorted(latest.values(), key=lambda x: (x["pending"] or 0), reverse=True),
     }
+    if include_series:
+        out["pool_series"] = pool_series
+    return out
 
 
 # ── Showcase: team-impact rollups for the Overview headliners ──────────────────
@@ -613,6 +631,35 @@ def fleet_showcase(db: Session = Depends(get_db)) -> dict[str, Any]:
     denom = intel_h + modern_h or 1
     migration["modern_load_pct"] = round(modern_h / denom * 100)
     migration["intel_load_pct"] = round(intel_h / denom * 100)
+
+    # Hourly Apple-Silicon share of macOS test load across the window — the
+    # migration as a trend line rather than a snapshot.
+    hour = func.date_trunc("hour", PoolLoadSample.ts)
+    hour_axis: dict[datetime, dict[str, int]] = {}
+    for ts_hour, pool, running in (
+        db.query(hour, PoolLoadSample.pool, func.sum(PoolLoadSample.running))
+        .filter(PoolLoadSample.ts >= since_14d,
+                or_(*[PoolLoadSample.pool.like(f"%{frag}%") for frag in _MACOS_AXIS_FRAGMENTS]))
+        .group_by(hour, PoolLoadSample.pool)
+        .all()
+    ):
+        axis = _macos_axis(pool)
+        if axis:
+            bucket = hour_axis.setdefault(ts_hour, {})
+            bucket[axis] = bucket.get(axis, 0) + int(running or 0)
+    series = []
+    for h in sorted(hour_axis):
+        bucket = hour_axis[h]
+        modern = bucket.get("m4", 0) + bucket.get("m4_vm", 0)
+        intel = bucket.get("intel", 0)
+        total = modern + intel
+        series.append({
+            "ts": h.isoformat(),
+            "modern_pct": round(modern / total * 100, 1) if total else None,
+            "modern": modern,
+            "intel": intel,
+        })
+    migration["series"] = series
 
     # ── Capacity: over-provisioned (idle headroom) vs backed-up (starved) ──
     over, backed = [], []
