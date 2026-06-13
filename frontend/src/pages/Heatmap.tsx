@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Worker } from "../api";
 import { api } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
@@ -6,11 +6,13 @@ import { usePoll } from "../lib/useLive";
 import { fleetCounts, inFleetMap } from "../lib/health";
 import { FleetHeatmap, HeatmapLegend } from "../components/FleetHeatmap";
 
+// Filter on the worker's server-derived platform field (mac/linux/windows) —
+// robust where pool-name substrings aren't (e.g. Windows nuc* boxes).
 const PLATFORMS = [
   { key: "",        label: "All" },
-  { key: "osx",     label: "macOS" },
+  { key: "mac",     label: "macOS" },
   { key: "linux",   label: "Linux" },
-  { key: "win",     label: "Windows" },
+  { key: "windows", label: "Windows" },
 ];
 
 export function Heatmap() {
@@ -26,10 +28,19 @@ export function Heatmap() {
   useEffect(() => load(), []);
   usePoll(() => load(true), 60_000);
 
+  const platformCount = useMemo(() => {
+    const c: Record<string, number> = { "": workers.length };
+    for (const w of workers) {
+      const p = w.platform || "other";
+      c[p] = (c[p] || 0) + 1;
+    }
+    return c;
+  }, [workers]);
+
   if (error) return <div className="p-8 text-red-400 text-sm">{error}</div>;
 
   const filtered = platform
-    ? workers.filter(w => (w.worker_pool || "").includes(platform))
+    ? workers.filter(w => w.platform === platform)
     : workers;
   const counts = fleetCounts(filtered);
 
@@ -44,14 +55,18 @@ export function Heatmap() {
           </div>
         </div>
         <div className="flex items-center gap-1 bg-gray-900 border border-gray-800 rounded-lg p-0.5">
-          {PLATFORMS.map(({ key, label }) => (
-            <button key={key} onClick={() => setPlatform(key)}
-              className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
-                platform === key ? "bg-gray-700 text-white" : "text-gray-500 hover:text-gray-300"
-              }`}>
-              {label}
-            </button>
-          ))}
+          {PLATFORMS.map(({ key, label }) => {
+            const n = platformCount[key] ?? 0;
+            return (
+              <button key={key} onClick={() => setPlatform(key)}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-all flex items-center gap-1.5 ${
+                  platform === key ? "bg-gray-700 text-white" : "text-gray-500 hover:text-gray-300"
+                }`}>
+                {label}
+                <span className={`tabular-nums ${platform === key ? "text-gray-300" : "text-gray-600"}`}>{n.toLocaleString()}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 

@@ -7,9 +7,11 @@ export interface HealthCounts { healthy: number; degraded: number; critical: num
 // test capacity and just add noise. Substring match (case-insensitive).
 const MAP_EXCLUDED = ["signing", "deploystudio", "gecko-1-b-osx-arm64-vms-host"];
 
-/** True if a worker belongs on the fleet map (i.e. not a signing/infra-host pool). */
+/** True if a worker belongs on the fleet map: has a pool, and isn't a
+ *  signing/infra-host pool. Unassigned (no-pool) workers are dropped. */
 export function inFleetMap(w: Worker): boolean {
   const pool = (w.worker_pool || "").toLowerCase();
+  if (!pool) return false;
   return !MAP_EXCLUDED.some(frag => pool.includes(frag));
 }
 
