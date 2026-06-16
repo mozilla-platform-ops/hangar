@@ -153,7 +153,7 @@ export function Layout() {
             <HangarLogo size={32} />
             <div className="flex-1">
               <Wordmark />
-              <div className="text-[10px] font-mono text-gray-600 leading-none mt-1 tracking-wide">CI FLEET MANAGER</div>
+              <div className="text-[10px] font-mono text-gray-600 leading-none mt-1 tracking-wide">CI RADAR</div>
             </div>
             <button
               className="md:hidden p-1 text-gray-600 hover:text-gray-300 transition-colors"
