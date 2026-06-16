@@ -107,16 +107,38 @@ def _parse_future_releases(ics_text: str) -> list[dict[str, Any]]:
 def _build_schedule(versions: dict[str, str], future_ics: str | None) -> dict[str, Any]:
     upcoming = _parse_future_releases(future_ics) if future_ics else []
 
-    # Headline: the imminent major release. Prefer product-details' precise date;
-    # fall back to the first future-calendar entry.
-    beta = versions.get("FIREFOX_DEVEDITION") or versions.get("LATEST_FIREFOX_DEVEL_VERSION") or ""
-    next_version = beta.split("b", 1)[0] if beta else (upcoming[0]["version"] + ".0" if upcoming else "")
-    next_date = versions.get("NEXT_RELEASE_DATE") or (upcoming[0]["date"] if upcoming else None)
-    next_release = {
-        "version": next_version,
-        "date": next_date,
-        "release_notes": _notes_url(next_version) if next_version else None,
-    } if next_version else None
+    release_major = int(_major(versions["LATEST_FIREFOX_VERSION"])) \
+        if versions.get("LATEST_FIREFOX_VERSION") else None
+
+    # Headline: the imminent *next* major release. The forward calendar is the
+    # source of truth for the version — the DevEdition/beta string is unreliable
+    # around merge day (it can still read the just-shipped major, e.g.
+    # "152.0b10" on the day 152.0 ships), which would mislabel the current
+    # release as the next one. Take the first calendar entry strictly newer than
+    # the current release, then use product-details' precise date for it.
+    next_entry = next(
+        (e for e in upcoming
+         if release_major is None or int(e["version"]) > release_major),
+        None,
+    )
+
+    # Fallback when the calendar is unavailable: derive from beta, but only if it
+    # is genuinely ahead of the current release.
+    if next_entry is None:
+        beta = versions.get("FIREFOX_DEVEDITION") or versions.get("LATEST_FIREFOX_DEVEL_VERSION") or ""
+        beta_major = beta.split("b", 1)[0].split(".", 1)[0] if beta else ""
+        if beta_major and (release_major is None or int(beta_major) > release_major):
+            next_entry = {"version": beta_major, "date": None}
+
+    if next_entry:
+        next_version = next_entry["version"] + ".0"
+        next_release = {
+            "version": next_version,
+            "date": versions.get("NEXT_RELEASE_DATE") or next_entry["date"],
+            "release_notes": _notes_url(next_version),
+        }
+    else:
+        next_release = None
 
     # In-flight train prep dates leading up to the next release.
     milestones = [
