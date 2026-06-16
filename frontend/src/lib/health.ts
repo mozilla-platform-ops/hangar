@@ -3,7 +3,7 @@ import type { Worker } from "../api";
 export type HealthStatus = "healthy" | "degraded" | "critical" | null;
 export interface HealthCounts { healthy: number; degraded: number; critical: number; other: number }
 
-// Pools kept off the fleet map / TV view — signing and infra hosts that aren't
+// Pools kept off the fleet map — signing and infra hosts that aren't
 // test capacity and just add noise. Substring match (case-insensitive).
 const MAP_EXCLUDED = ["signing", "deploystudio", "gecko-1-b-osx-arm64-vms-host"];
 
