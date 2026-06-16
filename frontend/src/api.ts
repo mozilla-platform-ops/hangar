@@ -376,6 +376,21 @@ export interface TryPushesResponse {
   treeherder_url: string | null;
 }
 
+export interface Needinfo {
+  id: number;
+  summary: string;
+  status: string;
+  product: string;
+  component: string;
+  waiting_since: string | null;
+  url: string;
+}
+export interface NeedinfosResponse {
+  email: string;
+  bugs: Needinfo[];
+  buglist_url: string | null;
+}
+
 // ── API calls ──────────────────────────────────────────────────────────────
 
 export const api = {
@@ -427,5 +442,6 @@ export const api = {
     weather: () => get<{ email: string; weather: WeatherPref }>("/me/weather"),
     setWeather: (w: WeatherPref) => put<{ email: string; weather: WeatherPref }>("/me/weather", w),
     tryPushes: (count = 5) => get<TryPushesResponse>("/me/try-pushes", { count }),
+    needinfos: (limit = 25) => get<NeedinfosResponse>("/me/needinfos", { limit }),
   },
 };

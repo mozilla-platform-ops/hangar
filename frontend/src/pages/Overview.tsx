@@ -1,9 +1,9 @@
 import { useEffect, useState, useRef } from "react";
 import { Link } from "react-router-dom";
-import { Cpu, FlaskConical, ArrowUpRight, Gauge, Pin, Plus, X, Check, GripVertical, Pencil, Rocket, CalendarClock, ExternalLink,
+import { Cpu, FlaskConical, ArrowUpRight, Gauge, Pin, Plus, X, Check, GripVertical, Pencil, Rocket, CalendarClock, ExternalLink, Bug,
   Sun, Moon, Cloud, CloudSun, CloudMoon, CloudRain, CloudDrizzle, CloudSnow, CloudLightning, CloudFog, Search, LocateFixed, LoaderCircle } from "lucide-react";
 import { api } from "../api";
-import type { FleetSummary, FailureInsights, LoadHistory, ReleaseSchedule, WeatherNow, WeatherPref, GeocodeResult, ShowcaseData, TryPush } from "../api";
+import type { FleetSummary, FailureInsights, LoadHistory, ReleaseSchedule, WeatherNow, WeatherPref, GeocodeResult, ShowcaseData, TryPush, Needinfo } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
 import { usePoll, useNow } from "../lib/useLive";
 import { AnimatedNumber } from "../components/AnimatedNumber";
@@ -643,7 +643,7 @@ function TryPushes() {
     <div className="card p-5">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
-          <FlaskConical size={13} className="text-gray-500" /> Your Recent Try Pushes
+          <FlaskConical size={13} className="text-gray-500" /> Try Pushes
         </h3>
         {thUrl && (
           <a href={thUrl} target="_blank" rel="noopener noreferrer"
@@ -672,6 +672,84 @@ function TryPushes() {
                   {p.failed > 0 && <span className="text-red-400">{p.failed} ✕</span>}
                 </span>
                 <span className="text-[10px] text-gray-600 tabular-nums whitespace-nowrap">{timeAgo(p.pushed_at)}</span>
+              </div>
+            </a>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Compact age ("4h", "6d", "3w", "5mo") — no "ago", fits a chip corner.
+function compactAge(iso: string | null): string {
+  if (!iso) return "";
+  const days = (Date.now() - new Date(iso).getTime()) / 86_400_000;
+  if (days < 1) { const h = Math.max(1, Math.round(days * 24)); return `${h}h`; }
+  if (days < 14) return `${Math.round(days)}d`;
+  if (days < 60) return `${Math.round(days / 7)}w`;
+  return `${Math.round(days / 30)}mo`;
+}
+
+// Staleness of a needinfo, by how long it's been waiting on you. The older it
+// is, the louder the dot — old needinfos are the ones quietly rotting.
+function needinfoStale(iso: string | null): { dot: string; ring: string } {
+  if (!iso) return { dot: "bg-gray-600", ring: "hover:border-gray-600" };
+  const days = (Date.now() - new Date(iso).getTime()) / 86_400_000;
+  if (days > 7) return { dot: "bg-red-500",    ring: "hover:border-red-500/50" };
+  if (days >= 2) return { dot: "bg-amber-400",  ring: "hover:border-amber-500/50" };
+  return { dot: "bg-emerald-500", ring: "hover:border-emerald-500/50" };
+}
+
+function Needinfos() {
+  const [bugs, setBugs] = useState<Needinfo[] | null>(null);
+  const [listUrl, setListUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.me.needinfos().then(d => { setBugs(d.bugs); setListUrl(d.buglist_url); }).catch(() => setBugs([]));
+  }, []);
+  // Needinfo flags move on the order of minutes; refresh in the background.
+  usePoll(() => {
+    api.me.needinfos().then(d => { setBugs(d.bugs); setListUrl(d.buglist_url); }).catch(() => {});
+  }, 120_000);
+
+  // Self-hide until loaded, and when nothing needs your info — never clutter the header.
+  if (!bugs || bugs.length === 0) return null;
+
+  return (
+    <div className="card p-5">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
+          <Bug size={13} className="text-amber-500" /> Needinfos
+          <span className="ml-1 rounded-full bg-amber-500/15 text-amber-400 px-1.5 py-0.5 text-[10px] font-bold tabular-nums leading-none">
+            {bugs.length}
+          </span>
+        </h3>
+        {listUrl && (
+          <a href={listUrl} target="_blank" rel="noopener noreferrer"
+            className="text-[11px] text-brand-400 hover:text-brand-300 transition-colors flex items-center gap-1">
+            View in Bugzilla <ArrowUpRight size={12} />
+          </a>
+        )}
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+        {bugs.map(b => {
+          const s = needinfoStale(b.waiting_since);
+          return (
+            <a key={b.id} href={b.url} target="_blank" rel="noopener noreferrer"
+              title={`${b.summary}\nBug ${b.id} · ${b.product} :: ${b.component} · ${b.status}\nwaiting ${compactAge(b.waiting_since) || "—"}`}
+              className={`group rounded-xl border border-gray-800 bg-gray-900/50 px-3.5 py-3 transition-colors ${s.ring}`}>
+              <div className="flex items-center gap-2">
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${s.dot}`} />
+                <span className="text-[11px] font-mono text-gray-400 tabular-nums group-hover:text-white transition-colors">
+                  {b.id}
+                </span>
+                <span className="ml-auto text-[10px] text-gray-600 tabular-nums whitespace-nowrap">
+                  {compactAge(b.waiting_since)}
+                </span>
+              </div>
+              <div className="text-xs text-gray-300 group-hover:text-white transition-colors truncate mt-2">
+                {b.summary}
               </div>
             </a>
           );
@@ -855,6 +933,9 @@ export function Overview() {
 
       {/* Your recent try pushes (signed-in user, via Treeherder) */}
       <TryPushes />
+
+      {/* Needinfos requested of the signed-in user (via Bugzilla) */}
+      <Needinfos />
 
       {/* Total workers breakdown */}
       <div className="card p-6">
