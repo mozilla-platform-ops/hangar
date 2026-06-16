@@ -61,6 +61,11 @@ class Settings(BaseSettings):
     # When unset (local dev), identity falls back to the X-Goog-Authenticated-User-Email header.
     iap_audience: str = ""
 
+    # Overview "your recent try pushes" rail derives the Treeherder author from the
+    # IAP identity. Set this to a fixed mozilla.com address to force an author
+    # instead — handy for local dev, where there's no IAP to assert one.
+    try_author_override: str = ""
+
     # Logging: set LOG_JSON=true in production for Cloud Logging structured output.
     log_json: bool = False
 
