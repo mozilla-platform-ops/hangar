@@ -100,12 +100,12 @@ export function Layout() {
   useEffect(refreshShell, []);
   usePoll(refreshShell, 60_000);
 
-  // Surface the alert count in the tab title (and favicon, for pinned tabs that
-  // hide the title) so a backgrounded Hangar tab still signals trouble.
+  // Keep the tab title and favicon static — alerts are surfaced in-app, not in
+  // the browser tab.
   useEffect(() => {
-    document.title = alertCount > 0 ? `(${alertCount}) Hangar` : "Hangar";
-    setFavicon(alertCount);
-  }, [alertCount]);
+    document.title = "Hangar";
+    setFavicon(0);
+  }, []);
   const location = useLocation();
   const navigate = useNavigate();
 
