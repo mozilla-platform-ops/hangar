@@ -3,10 +3,11 @@ import { Link } from "react-router-dom";
 import { Cpu, FlaskConical, ArrowUpRight, Gauge, Pin, Plus, X, Check, GripVertical, Pencil, Rocket, CalendarClock, ExternalLink, Bug,
   Sun, Moon, Cloud, CloudSun, CloudMoon, CloudRain, CloudDrizzle, CloudSnow, CloudLightning, CloudFog, Search, LocateFixed, LoaderCircle } from "lucide-react";
 import { api } from "../api";
-import type { FleetSummary, FailureInsights, LoadHistory, ReleaseSchedule, WeatherNow, WeatherPref, GeocodeResult, ShowcaseData, TryPush, Needinfo } from "../api";
+import type { FleetSummary, FailureInsights, LoadHistory, ReleaseSchedule, WeatherNow, WeatherPref, GeocodeResult, ShowcaseData, TryPush, Needinfo, PoolSources, PoolSeries } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
 import { usePoll } from "../lib/useLive";
 import { AnimatedNumber } from "../components/AnimatedNumber";
+import { MonitoredPoolCard } from "../components/MonitoredPoolCard";
 
 const YARDSTICK_BASE = "https://yardstick.mozilla.org/d/ieg6Sho5/workers?orgId=1&from=now-2d&to=now&timezone=browser&refresh=5m";
 const yardstickAll = `${YARDSTICK_BASE}&var-provisioner=$__all&var-workerType=$__all`;
@@ -72,7 +73,7 @@ const FAILURE_PLATFORMS = [
 ];
 
 /** Smooth area sparkline with the Firefox gradient. Crisp stroke at any width. */
-function Sparkline({ points }: { points: number[] }) {
+function Sparkline({ points, className = "w-full h-16" }: { points: number[]; className?: string }) {
   const W = 560, H = 60, pad = 4;
   if (points.length < 2) return null;
   const max = Math.max(...points);
@@ -84,7 +85,7 @@ function Sparkline({ points }: { points: number[] }) {
   const area = `${line} L ${W} ${H} L 0 ${H} Z`;
   const [lx, ly] = xy[xy.length - 1];
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="w-full h-16 spark-svg">
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className={`${className} spark-svg`}>
       <defs>
         <linearGradient id="sparkStroke" x1="0" y1="0" x2="1" y2="0">
           <stop offset="0%" stopColor="#FF9400" />
@@ -170,6 +171,27 @@ function MonitoredPools({ load }: { load: LoadHistory | null }) {
     }).catch(() => { /* leave empty on error */ });
     return () => { cancelled = true; };
   }, []);
+
+  // Enrichment for the pinned cards: 24h pending series (one call, keyed by pool)
+  // and per-pool job-source / submitter mix.
+  const [seriesMap, setSeriesMap] = useState<Record<string, PoolSeries>>({});
+  const [sources, setSources] = useState<Record<string, PoolSources>>({});
+
+  useEffect(() => {
+    api.fleet.loadHistory(24, true).then(d => setSeriesMap(d.pool_series ?? {})).catch(() => {});
+  }, []);
+  usePoll(() => {
+    api.fleet.loadHistory(24, true).then(d => setSeriesMap(d.pool_series ?? {})).catch(() => {});
+  }, 120_000);
+
+  // Job sources / top submitters are heavier (server-side task sampling), so we
+  // fetch them only when the pinned set changes rather than on every poll.
+  const monitoredKey = monitored.join(",");
+  useEffect(() => {
+    for (const name of monitoredKey.split(",").filter(Boolean)) {
+      api.fleet.poolSources(name).then(s => setSources(prev => ({ ...prev, [name]: s }))).catch(() => {});
+    }
+  }, [monitoredKey]);
 
   const byName = new Map((load?.pools ?? []).map(p => [p.pool, p] as const));
   const available = (load?.pools ?? []).map(p => p.pool);
@@ -258,8 +280,6 @@ function MonitoredPools({ load }: { load: LoadHistory | null }) {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {monitored.map((name, i) => {
             const p = byName.get(name);
-            const cap = p?.capacity ?? 0, running = p?.running ?? 0, pending = p?.pending ?? 0;
-            const util = cap > 0 ? Math.round((running / cap) * 100) : 0;
             return (
               <div key={name}
                 draggable
@@ -267,28 +287,10 @@ function MonitoredPools({ load }: { load: LoadHistory | null }) {
                 onDragOver={e => e.preventDefault()}
                 onDrop={() => onDrop(i)}
                 onDragEnd={() => setDragIdx(null)}
-                className={`group relative rounded-xl border border-gray-800 bg-gray-900/60 p-4 cursor-grab active:cursor-grabbing transition-all hover:border-gray-700 ${dragIdx === i ? "opacity-40" : ""}`}>
-                <div className="absolute top-2.5 right-2.5 text-gray-700 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"><GripVertical size={13} /></div>
-                <div className="text-xs font-mono text-gray-300 truncate pr-5" title={name}>{name}</div>
-                {p ? (
-                  <>
-                    <div className="flex items-end gap-5 mt-3">
-                      <div>
-                        <div className="text-2xl font-bold tabular-nums bg-clip-text text-transparent leading-none" style={grad}>{pending.toLocaleString()}</div>
-                        <div className="text-[10px] text-gray-500 uppercase tracking-wider mt-1">pending</div>
-                      </div>
-                      <div>
-                        <div className="text-lg font-bold text-gray-200 tabular-nums leading-none">{running}<span className="text-xs text-gray-600">/{cap}</span></div>
-                        <div className="text-[10px] text-gray-500 uppercase tracking-wider mt-1">running</div>
-                      </div>
-                    </div>
-                    <div className="mt-2.5 w-full bg-gray-800 rounded-full h-1 overflow-hidden">
-                      <div className="h-1 rounded-full" style={{ width: `${Math.min(util, 100)}%`, backgroundImage: FF_GRADIENT }} />
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-[11px] text-gray-600 mt-3">No load sample yet.</div>
-                )}
+                className={`group relative cursor-grab active:cursor-grabbing transition-all ${dragIdx === i ? "opacity-40" : ""}`}>
+                <div className="absolute top-2.5 right-2.5 z-10 text-gray-700 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"><GripVertical size={13} /></div>
+                <MonitoredPoolCard name={name} pending={p?.pending ?? null} running={p?.running ?? null}
+                  capacity={p?.capacity ?? null} series={seriesMap[name]} sources={sources[name]} />
               </div>
             );
           })}
