@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Monitor, AlertTriangle, RefreshCw, Smartphone, Terminal, Apple, Menu, X, Laptop, Grid3x3, Tv } from "lucide-react";
+import { LayoutDashboard, Monitor, AlertTriangle, RefreshCw, Smartphone, Terminal, Apple, Menu, X, Laptop, Grid3x3 } from "lucide-react";
 import { clsx } from "clsx";
 import { Suspense, useState, useEffect, useId } from "react";
 import { api } from "../api";
@@ -186,12 +186,8 @@ export function Layout() {
           <NavLinkItem to="/alerts" icon={AlertTriangle} label="Alerts" badge={alertCount} />
         </nav>
 
-        {/* Footer — low-priority destination + utility */}
+        {/* Footer — utility */}
         <div className="border-t border-gray-800/60 px-2 pt-2 pb-3 space-y-1">
-          <a href="/tv" target="_blank" rel="noopener noreferrer"
-            className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-gray-500 hover:text-gray-200 hover:bg-gray-800/60 transition-all border border-transparent hover:border-gray-700/50">
-            <Tv size={15} /> TV Mode
-          </a>
           <button
             onClick={triggerSync}
             disabled={syncing}

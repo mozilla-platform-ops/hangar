@@ -11,7 +11,6 @@ const Fleet = lazy(() => import("./pages/Fleet").then(m => ({ default: m.Fleet }
 const WorkerDetail = lazy(() => import("./pages/WorkerDetail").then(m => ({ default: m.WorkerDetail })));
 const Alerts = lazy(() => import("./pages/Alerts").then(m => ({ default: m.Alerts })));
 const Pools = lazy(() => import("./pages/Pools").then(m => ({ default: m.Pools })));
-const TV = lazy(() => import("./pages/TV").then(m => ({ default: m.TV })));
 
 export default function App() {
   return (
@@ -29,8 +28,6 @@ export default function App() {
           <Route path="alerts" element={<Alerts />} />
           <Route path="pools" element={<Pools />} />
         </Route>
-        {/* Chromeless wall-monitor view — no sidebar, lives outside Layout. */}
-        <Route path="/tv" element={<TV />} />
       </Routes>
     </BrowserRouter>
   );

@@ -1,11 +1,11 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Cpu, FlaskConical, ArrowUpRight, Gauge, Pin, Plus, X, Check, GripVertical, Pencil, Rocket, CalendarClock, ExternalLink, Bug,
   Sun, Moon, Cloud, CloudSun, CloudMoon, CloudRain, CloudDrizzle, CloudSnow, CloudLightning, CloudFog, Search, LocateFixed, LoaderCircle } from "lucide-react";
 import { api } from "../api";
 import type { FleetSummary, FailureInsights, LoadHistory, ReleaseSchedule, WeatherNow, WeatherPref, GeocodeResult, ShowcaseData, TryPush, Needinfo } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
-import { usePoll, useNow } from "../lib/useLive";
+import { usePoll } from "../lib/useLive";
 import { AnimatedNumber } from "../components/AnimatedNumber";
 
 const YARDSTICK_BASE = "https://yardstick.mozilla.org/d/ieg6Sho5/workers?orgId=1&from=now-2d&to=now&timezone=browser&refresh=5m";
@@ -515,7 +515,7 @@ function WeatherChip() {
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
       pos => {
-        persist({ enabled: true, label: "Current location",
+        persist({ enabled: true, label: "",
           lat: +pos.coords.latitude.toFixed(3), lon: +pos.coords.longitude.toFixed(3), unit: pref.unit });
         setLocating(false); setOpen(false);
       },
@@ -540,7 +540,9 @@ function WeatherChip() {
           ) : (
             <LoaderCircle size={12} className="animate-spin text-gray-600" />
           )}
-          <span className="text-gray-600 hidden sm:inline truncate max-w-[120px]">{pref.label}</span>
+          {pref.label && pref.label !== "Current location" && (
+            <span className="text-gray-600 hidden sm:inline truncate max-w-[120px]">{pref.label}</span>
+          )}
         </button>
       ) : (
         <button onClick={() => setOpen(o => !o)}
@@ -624,33 +626,264 @@ const TRY_STATE: Record<TryPush["state"], { dot: string; pulse: boolean; label: 
   unknown: { dot: "bg-gray-600",    pulse: false, label: "" },
 };
 
-function TryPushes() {
+// A small pin toggle for a popover header — flips the full card on the dashboard.
+function PinToggle({ pinned, onToggle }: { pinned: boolean; onToggle: () => void }) {
+  return (
+    <button type="button" onClick={onToggle}
+      title={pinned ? "Remove the card from the dashboard" : "Pin the full card to the dashboard"}
+      className={`flex items-center gap-1 text-[10px] transition-colors ${pinned ? "text-brand-400 hover:text-brand-300" : "text-gray-500 hover:text-gray-300"}`}>
+      <Pin size={11} className={pinned ? "fill-current" : ""} /> {pinned ? "Pinned" : "Pin to dashboard"}
+    </button>
+  );
+}
+
+// Popover body: the signed-in user's recent try pushes, as a compact list.
+function TryPushList({ pushes, thUrl, pinned, onTogglePin }: {
+  pushes: TryPush[]; thUrl: string | null; pinned: boolean; onTogglePin: () => void;
+}) {
+  return (
+    <>
+      <div className="flex items-center justify-between mb-2 px-1">
+        <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+          <FlaskConical size={12} className="text-gray-500" /> Try Pushes
+        </span>
+        <div className="flex items-center gap-3">
+          <PinToggle pinned={pinned} onToggle={onTogglePin} />
+          {thUrl && (
+            <a href={thUrl} target="_blank" rel="noopener noreferrer"
+              className="text-[10px] text-brand-400 hover:text-brand-300 transition-colors flex items-center gap-1">
+              Treeherder <ArrowUpRight size={11} />
+            </a>
+          )}
+        </div>
+      </div>
+      <div className="space-y-1.5 max-h-[22rem] overflow-y-auto">
+        {pushes.map(p => {
+          const s = TRY_STATE[p.state] ?? TRY_STATE.unknown;
+          return (
+            <a key={p.revision} href={p.treeherder_url} target="_blank" rel="noopener noreferrer"
+              title={`${tryTitle(p.comment)}\n${p.short_revision} · ${s.label}`}
+              className="group flex items-center gap-2.5 rounded-lg border border-gray-800 bg-gray-900/50 px-3 py-2 hover:border-brand-500/40 transition-colors">
+              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${s.dot} ${s.pulse ? "animate-pulse" : ""}`} />
+              <span className="text-xs text-gray-300 group-hover:text-white transition-colors truncate flex-1 min-w-0">
+                {tryTitle(p.comment)}
+              </span>
+              <span className="flex items-center gap-2 text-[10px] tabular-nums flex-shrink-0">
+                {p.success > 0 && <span className="text-emerald-500">{p.success}✓</span>}
+                {p.running > 0 && <span className="text-amber-400">{p.running}●</span>}
+                {p.failed > 0 && <span className="text-red-400">{p.failed}✕</span>}
+              </span>
+              <span className="text-[10px] text-gray-600 tabular-nums whitespace-nowrap flex-shrink-0">{timeAgo(p.pushed_at)}</span>
+            </a>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+// Compact age ("4h", "6d", "3w", "5mo") — no "ago", fits a chip corner.
+function compactAge(iso: string | null): string {
+  if (!iso) return "";
+  const days = (Date.now() - new Date(iso).getTime()) / 86_400_000;
+  if (days < 1) { const h = Math.max(1, Math.round(days * 24)); return `${h}h`; }
+  if (days < 14) return `${Math.round(days)}d`;
+  if (days < 60) return `${Math.round(days / 7)}w`;
+  return `${Math.round(days / 30)}mo`;
+}
+
+// Staleness of a needinfo, by how long it's been waiting on you. The older it
+// is, the louder the dot — old needinfos are the ones quietly rotting.
+function needinfoStale(iso: string | null): { dot: string; ring: string } {
+  if (!iso) return { dot: "bg-gray-600", ring: "hover:border-gray-600" };
+  const days = (Date.now() - new Date(iso).getTime()) / 86_400_000;
+  if (days > 7) return { dot: "bg-red-500",    ring: "hover:border-red-500/50" };
+  if (days >= 2) return { dot: "bg-amber-400",  ring: "hover:border-amber-500/50" };
+  return { dot: "bg-emerald-500", ring: "hover:border-emerald-500/50" };
+}
+
+// Popover body: bugs with a needinfo? requested of the signed-in user.
+function NeedinfoList({ bugs, listUrl, pinned, onTogglePin }: {
+  bugs: Needinfo[]; listUrl: string | null; pinned: boolean; onTogglePin: () => void;
+}) {
+  return (
+    <>
+      <div className="flex items-center justify-between mb-2 px-1">
+        <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+          <Bug size={12} className="text-amber-500" /> Needinfos
+        </span>
+        <div className="flex items-center gap-3">
+          <PinToggle pinned={pinned} onToggle={onTogglePin} />
+          {listUrl && (
+            <a href={listUrl} target="_blank" rel="noopener noreferrer"
+              className="text-[10px] text-brand-400 hover:text-brand-300 transition-colors flex items-center gap-1">
+              Bugzilla <ArrowUpRight size={11} />
+            </a>
+          )}
+        </div>
+      </div>
+      <div className="space-y-1.5 max-h-[22rem] overflow-y-auto">
+        {bugs.map(b => {
+          const s = needinfoStale(b.waiting_since);
+          return (
+            <a key={b.id} href={b.url} target="_blank" rel="noopener noreferrer"
+              title={`${b.summary}\nBug ${b.id} · ${b.product} :: ${b.component} · ${b.status}\nwaiting ${compactAge(b.waiting_since) || "—"}`}
+              className={`group flex items-center gap-2.5 rounded-lg border border-gray-800 bg-gray-900/50 px-3 py-2 transition-colors ${s.ring}`}>
+              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${s.dot}`} />
+              <span className="text-[11px] font-mono text-gray-400 tabular-nums flex-shrink-0 group-hover:text-white transition-colors">
+                {b.id}
+              </span>
+              <span className="text-xs text-gray-300 group-hover:text-white transition-colors truncate flex-1 min-w-0">
+                {b.summary}
+              </span>
+              <span className="text-[10px] text-gray-600 tabular-nums whitespace-nowrap flex-shrink-0">
+                {compactAge(b.waiting_since)}
+              </span>
+            </a>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+// One fetch feeds both the header chips and the body cards — no double-polling.
+function useMyWork() {
   const [pushes, setPushes] = useState<TryPush[] | null>(null);
   const [thUrl, setThUrl] = useState<string | null>(null);
+  const [bugs, setBugs] = useState<Needinfo[] | null>(null);
+  const [listUrl, setListUrl] = useState<string | null>(null);
+
+  const loadTry = () => api.me.tryPushes(5).then(d => { setPushes(d.pushes); setThUrl(d.treeherder_url); });
+  const loadNeedinfos = () => api.me.needinfos().then(d => { setBugs(d.bugs); setListUrl(d.buglist_url); });
 
   useEffect(() => {
-    api.me.tryPushes(5).then(d => { setPushes(d.pushes); setThUrl(d.treeherder_url); }).catch(() => setPushes([]));
+    loadTry().catch(() => setPushes([]));
+    loadNeedinfos().catch(() => setBugs([]));
   }, []);
-  // Job status moves on the order of minutes; refresh in the background.
+  // Both move on the order of minutes; refresh quietly in the background.
   usePoll(() => {
-    api.me.tryPushes(5).then(d => { setPushes(d.pushes); setThUrl(d.treeherder_url); }).catch(() => {});
+    loadTry().catch(() => {});
+    loadNeedinfos().catch(() => {});
   }, 120_000);
 
-  // Self-hide until loaded, and for users with no try pushes — never clutter the header.
-  if (!pushes || pushes.length === 0) return null;
+  return { pushes, thUrl, bugs, listUrl };
+}
 
+type Tone = "red" | "amber" | "green";
+
+const CHIP_TONE: Record<Tone, string> = {
+  red:   "border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20",
+  amber: "border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20",
+  green: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20",
+};
+
+function ageDays(iso: string | null): number {
+  return iso ? (Date.now() - new Date(iso).getTime()) / 86_400_000 : 0;
+}
+
+// A header chip: icon + at-a-glance state dots + count, click to reveal a popover
+// with the full list. Closes on outside-click or Escape.
+function WorkChip({ tone, icon, dots, count, title, children }: {
+  tone: Tone; icon: ReactNode; dots: ReactNode; count: number;
+  title: string; children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDoc); document.removeEventListener("keydown", onKey); };
+  }, [open]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button type="button" onClick={() => setOpen(o => !o)} title={title}
+        className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold tabular-nums transition-colors ${CHIP_TONE[tone]} ${open ? "ring-1 ring-white/10" : ""}`}>
+        {icon}
+        <span className="flex items-center gap-1">{dots}</span>
+        {count}
+      </button>
+      {open && (
+        <div className="absolute right-0 mt-2 z-50 w-[26rem] max-w-[80vw] rounded-xl border border-gray-800 bg-gray-950/95 backdrop-blur p-3 shadow-2xl shadow-black/60">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const MAX_DOTS = 6;
+
+function HeaderWorkChips({ pushes, thUrl, bugs, listUrl, pinned, onTogglePin }: {
+  pushes: TryPush[] | null; thUrl: string | null; bugs: Needinfo[] | null; listUrl: string | null;
+  pinned: PinnedWork; onTogglePin: (key: keyof PinnedWork) => void;
+}) {
+  const hasTry = !!pushes && pushes.length > 0;
+  const hasNeedinfos = !!bugs && bugs.length > 0;
+  if (!hasTry && !hasNeedinfos) return null;
+
+  // Worst-state wins: red if anything's on fire, amber if anything's pending.
+  const tryTone: Tone = !pushes ? "green"
+    : pushes.some(p => p.state === "failed") ? "red"
+    : pushes.some(p => p.state === "running") ? "amber" : "green";
+  const failing = pushes?.filter(p => p.state === "failed").length ?? 0;
+  const running = pushes?.filter(p => p.state === "running").length ?? 0;
+
+  const niTone: Tone = !bugs ? "green"
+    : bugs.some(b => ageDays(b.waiting_since) > 7) ? "red"
+    : bugs.some(b => ageDays(b.waiting_since) >= 2) ? "amber" : "green";
+  const stale = bugs?.filter(b => ageDays(b.waiting_since) > 7).length ?? 0;
+
+  return (
+    <div className="flex items-center gap-2">
+      {hasTry && (
+        <WorkChip tone={tryTone} count={pushes!.length}
+          icon={<FlaskConical size={13} />}
+          title={`${pushes!.length} try push${pushes!.length === 1 ? "" : "es"}${failing ? ` · ${failing} failing` : ""}${running ? ` · ${running} running` : ""}`}
+          dots={pushes!.slice(0, MAX_DOTS).map((p, i) => (
+            <span key={i} className={`w-1.5 h-1.5 rounded-full ${(TRY_STATE[p.state] ?? TRY_STATE.unknown).dot}`} />
+          ))}>
+          <TryPushList pushes={pushes!} thUrl={thUrl} pinned={pinned.try} onTogglePin={() => onTogglePin("try")} />
+        </WorkChip>
+      )}
+      {hasNeedinfos && (
+        <WorkChip tone={niTone} count={bugs!.length}
+          icon={<Bug size={13} />}
+          title={`${bugs!.length} needinfo${bugs!.length === 1 ? "" : "s"}${stale ? ` · ${stale} stale (>7d)` : ""}`}
+          dots={bugs!.slice(0, MAX_DOTS).map((b, i) => (
+            <span key={i} className={`w-1.5 h-1.5 rounded-full ${needinfoStale(b.waiting_since).dot}`} />
+          ))}>
+          <NeedinfoList bugs={bugs!} listUrl={listUrl} pinned={pinned.needinfo} onTogglePin={() => onTogglePin("needinfo")} />
+        </WorkChip>
+      )}
+    </div>
+  );
+}
+
+// Full-grid dashboard card (the pre-header-chips layout), shown when pinned.
+function TryPushCard({ pushes, thUrl, onUnpin }: { pushes: TryPush[]; thUrl: string | null; onUnpin: () => void }) {
+  if (!pushes.length) return null;
   return (
     <div className="card p-5">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
           <FlaskConical size={13} className="text-gray-500" /> Try Pushes
         </h3>
-        {thUrl && (
-          <a href={thUrl} target="_blank" rel="noopener noreferrer"
-            className="text-[11px] text-brand-400 hover:text-brand-300 transition-colors flex items-center gap-1">
-            View on Treeherder <ArrowUpRight size={12} />
-          </a>
-        )}
+        <div className="flex items-center gap-3">
+          {thUrl && (
+            <a href={thUrl} target="_blank" rel="noopener noreferrer"
+              className="text-[11px] text-brand-400 hover:text-brand-300 transition-colors flex items-center gap-1">
+              View on Treeherder <ArrowUpRight size={12} />
+            </a>
+          )}
+          <button type="button" onClick={onUnpin} title="Remove from dashboard"
+            className="text-gray-600 hover:text-red-400 transition-colors"><X size={13} /></button>
+        </div>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
         {pushes.map(p => {
@@ -681,41 +914,8 @@ function TryPushes() {
   );
 }
 
-// Compact age ("4h", "6d", "3w", "5mo") — no "ago", fits a chip corner.
-function compactAge(iso: string | null): string {
-  if (!iso) return "";
-  const days = (Date.now() - new Date(iso).getTime()) / 86_400_000;
-  if (days < 1) { const h = Math.max(1, Math.round(days * 24)); return `${h}h`; }
-  if (days < 14) return `${Math.round(days)}d`;
-  if (days < 60) return `${Math.round(days / 7)}w`;
-  return `${Math.round(days / 30)}mo`;
-}
-
-// Staleness of a needinfo, by how long it's been waiting on you. The older it
-// is, the louder the dot — old needinfos are the ones quietly rotting.
-function needinfoStale(iso: string | null): { dot: string; ring: string } {
-  if (!iso) return { dot: "bg-gray-600", ring: "hover:border-gray-600" };
-  const days = (Date.now() - new Date(iso).getTime()) / 86_400_000;
-  if (days > 7) return { dot: "bg-red-500",    ring: "hover:border-red-500/50" };
-  if (days >= 2) return { dot: "bg-amber-400",  ring: "hover:border-amber-500/50" };
-  return { dot: "bg-emerald-500", ring: "hover:border-emerald-500/50" };
-}
-
-function Needinfos() {
-  const [bugs, setBugs] = useState<Needinfo[] | null>(null);
-  const [listUrl, setListUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    api.me.needinfos().then(d => { setBugs(d.bugs); setListUrl(d.buglist_url); }).catch(() => setBugs([]));
-  }, []);
-  // Needinfo flags move on the order of minutes; refresh in the background.
-  usePoll(() => {
-    api.me.needinfos().then(d => { setBugs(d.bugs); setListUrl(d.buglist_url); }).catch(() => {});
-  }, 120_000);
-
-  // Self-hide until loaded, and when nothing needs your info — never clutter the header.
-  if (!bugs || bugs.length === 0) return null;
-
+function NeedinfoCard({ bugs, listUrl, onUnpin }: { bugs: Needinfo[]; listUrl: string | null; onUnpin: () => void }) {
+  if (!bugs.length) return null;
   return (
     <div className="card p-5">
       <div className="flex items-center justify-between mb-3">
@@ -725,12 +925,16 @@ function Needinfos() {
             {bugs.length}
           </span>
         </h3>
-        {listUrl && (
-          <a href={listUrl} target="_blank" rel="noopener noreferrer"
-            className="text-[11px] text-brand-400 hover:text-brand-300 transition-colors flex items-center gap-1">
-            View in Bugzilla <ArrowUpRight size={12} />
-          </a>
-        )}
+        <div className="flex items-center gap-3">
+          {listUrl && (
+            <a href={listUrl} target="_blank" rel="noopener noreferrer"
+              className="text-[11px] text-brand-400 hover:text-brand-300 transition-colors flex items-center gap-1">
+              View in Bugzilla <ArrowUpRight size={12} />
+            </a>
+          )}
+          <button type="button" onClick={onUnpin} title="Remove from dashboard"
+            className="text-gray-600 hover:text-red-400 transition-colors"><X size={13} /></button>
+        </div>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
         {bugs.map(b => {
@@ -759,15 +963,34 @@ function Needinfos() {
   );
 }
 
+// Which full cards the user has pinned to the dashboard body — persisted locally.
+type PinnedWork = { try: boolean; needinfo: boolean };
+const PINNED_KEY = "hangar.pinnedWork";
+
+function loadPinned(): PinnedWork {
+  try {
+    const v = JSON.parse(localStorage.getItem(PINNED_KEY) || "{}");
+    return { try: !!v.try, needinfo: !!v.needinfo };
+  } catch {
+    return { try: false, needinfo: false };
+  }
+}
+
 export function Overview() {
+  const work = useMyWork();
+  const [pinned, setPinned] = useState<PinnedWork>(loadPinned);
+  const togglePin = (key: keyof PinnedWork) =>
+    setPinned(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      try { localStorage.setItem(PINNED_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
   const [data, setData] = useState<FleetSummary | null>(null);
   const [failures, setFailures] = useState<FailureInsights | null>(null);
   const [load, setLoad] = useState<LoadHistory | null>(null);
   const [scale, setScale] = useState<ShowcaseData["scale"] | null>(null);
   const [failurePlatform, setFailurePlatform] = useState("");
   const [error, setError] = useState("");
-
-  const nowTick = useNow(30_000);
 
   useEffect(() => {
     api.fleet.summary().then(setData).catch(e => setError(e.message));
@@ -816,8 +1039,6 @@ export function Overview() {
   const macTotal = platforms.find(p => p.name === "macOS")?.value ?? 0;
   const healthPct = macTotal > 0 ? Math.round((1 - attention / macTotal) * 100) : 100;
 
-  const lastSync = Object.values(data.sync_status).map(s => s.last_success).filter(Boolean).sort().pop() ?? null;
-
   // Greeting (client-local time)
   const now = new Date();
   const hr = now.getHours();
@@ -840,14 +1061,13 @@ export function Overview() {
       <div className="flex items-end justify-between">
         <div className="space-y-1">
           <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-gray-600">{dateStr}</div>
-          <h1 className="text-3xl font-light text-white tracking-tight">{greeting}</h1>
+          <div className="flex items-baseline gap-3">
+            <h1 className="text-3xl font-light text-white tracking-tight">{greeting}</h1>
+            <WeatherChip />
+          </div>
         </div>
-        <div className="flex items-center gap-4">
-          <WeatherChip />
-          <span className="text-[11px] text-gray-600 flex items-center gap-1.5 whitespace-nowrap">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/80" /> synced {timeAgo(lastSync, nowTick)}
-          </span>
-        </div>
+        <HeaderWorkChips pushes={work.pushes} thUrl={work.thUrl} bugs={work.bugs} listUrl={work.listUrl}
+          pinned={pinned} onTogglePin={togglePin} />
       </div>
 
       {/* Firefox release schedule */}
@@ -931,11 +1151,9 @@ export function Overview() {
       {/* Monitored pools — user-pinned */}
       <MonitoredPools load={load} />
 
-      {/* Your recent try pushes (signed-in user, via Treeherder) */}
-      <TryPushes />
-
-      {/* Needinfos requested of the signed-in user (via Bugzilla) */}
-      <Needinfos />
+      {/* Try Pushes / Needinfos — shown here only when pinned from the header chips */}
+      {pinned.try && <TryPushCard pushes={work.pushes ?? []} thUrl={work.thUrl} onUnpin={() => togglePin("try")} />}
+      {pinned.needinfo && <NeedinfoCard bugs={work.bugs ?? []} listUrl={work.listUrl} onUnpin={() => togglePin("needinfo")} />}
 
       {/* Total workers breakdown */}
       <div className="card p-6">
