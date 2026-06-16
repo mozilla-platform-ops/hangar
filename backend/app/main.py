@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .api.alerts import router as alerts_router
+from .api.bugzilla import router as bugzilla_router
 from .api.fleet import router as fleet_router
 from .api.me import router as me_router
 from .api.prs import router as prs_router
@@ -103,6 +104,7 @@ app.include_router(prs_router, prefix="/api")
 app.include_router(me_router, prefix="/api")
 app.include_router(releases_router, prefix="/api")
 app.include_router(treeherder_router, prefix="/api")
+app.include_router(bugzilla_router, prefix="/api")
 app.include_router(weather_router, prefix="/api")
 
 

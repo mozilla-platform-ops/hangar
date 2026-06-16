@@ -63,8 +63,12 @@ class Settings(BaseSettings):
 
     # Overview "your recent try pushes" rail derives the Treeherder author from the
     # IAP identity. Set this to a fixed mozilla.com address to force an author
-    # instead — handy for local dev, where there's no IAP to assert one.
+    # instead — handy for local dev, where there's no IAP to assert one. The
+    # "needinfos requested of you" rail reuses this same identity.
     try_author_override: str = ""
+
+    # Bugzilla base URL for the Overview "needinfos requested of you" rail (keyless).
+    bugzilla_url: str = "https://bugzilla.mozilla.org"
 
     # Logging: set LOG_JSON=true in production for Cloud Logging structured output.
     log_json: bool = False
