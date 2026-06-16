@@ -356,6 +356,26 @@ export interface WeatherPref {
   unit: string;
 }
 
+// ── Try pushes (signed-in user's recent Treeherder `try` pushes) ─────────────
+
+export interface TryPush {
+  revision: string;
+  short_revision: string;
+  comment: string;
+  revision_count: number;
+  pushed_at: string | null;
+  treeherder_url: string;
+  state: "success" | "running" | "failed" | "unknown";
+  running: number;
+  failed: number;
+  success: number;
+}
+export interface TryPushesResponse {
+  author: string;
+  pushes: TryPush[];
+  treeherder_url: string | null;
+}
+
 // ── API calls ──────────────────────────────────────────────────────────────
 
 export const api = {
@@ -406,5 +426,6 @@ export const api = {
       put<TrackedPoolsResponse>("/me/tracked-pools", { section, pools }),
     weather: () => get<{ email: string; weather: WeatherPref }>("/me/weather"),
     setWeather: (w: WeatherPref) => put<{ email: string; weather: WeatherPref }>("/me/weather", w),
+    tryPushes: (count = 5) => get<TryPushesResponse>("/me/try-pushes", { count }),
   },
 };

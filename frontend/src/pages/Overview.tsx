@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Cpu, FlaskConical, ArrowUpRight, Gauge, Pin, Plus, X, Check, GripVertical, Pencil, Rocket, CalendarClock, ExternalLink,
   Sun, Moon, Cloud, CloudSun, CloudMoon, CloudRain, CloudDrizzle, CloudSnow, CloudLightning, CloudFog, Search, LocateFixed, LoaderCircle } from "lucide-react";
 import { api } from "../api";
-import type { FleetSummary, FailureInsights, LoadHistory, ReleaseSchedule, WeatherNow, WeatherPref, GeocodeResult, ShowcaseData } from "../api";
+import type { FleetSummary, FailureInsights, LoadHistory, ReleaseSchedule, WeatherNow, WeatherPref, GeocodeResult, ShowcaseData, TryPush } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
 import { usePoll, useNow } from "../lib/useLive";
 import { AnimatedNumber } from "../components/AnimatedNumber";
@@ -23,7 +23,11 @@ function timeAgo(iso: string | null, now = Date.now()) {
   const mins = Math.round(diff / 60000);
   if (mins < 2) return "just now";
   if (mins < 60) return `${mins}m ago`;
-  return `${Math.round(mins / 60)}h ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.round(hrs / 24);
+  if (days < 14) return `${days}d ago`;
+  return `${Math.round(days / 7)}w ago`;
 }
 
 // Parse "2026-06-16" as a *local* date (avoids the UTC-midnight off-by-one of new Date(iso)).
@@ -595,6 +599,88 @@ function WeatherChip() {
   );
 }
 
+// ── Recent try pushes (signed-in user, via Treeherder) ───────────────────────
+// `mach try` pushes carry the fuzzy/try query as the tip commit. Its raw syntax
+// is terse — leading `'` means "exact match", `&query=` separates groups — so
+// translate it into something readable for the headline. Real commit messages
+// (non-fuzzy pushes) are already human-friendly, so we pass those through.
+function tryTitle(comment: string): string {
+  const first = (comment.split("\n", 1)[0] || "").trim();
+  const m = first.match(/^Fuzzy query[=:]\s*(.+)$/i) ?? first.match(/^try:\s*(.+)$/i);
+  if (m) {
+    const groups = m[1]
+      .split(/&query=/i)
+      .map(g => g.replace(/['"]/g, " ").replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+    return groups.length ? groups.join("  ·  ") : "try push";
+  }
+  return first || "try push";
+}
+
+const TRY_STATE: Record<TryPush["state"], { dot: string; pulse: boolean; label: string }> = {
+  success: { dot: "bg-emerald-500", pulse: false, label: "all green" },
+  running: { dot: "bg-amber-400",   pulse: true,  label: "in progress" },
+  failed:  { dot: "bg-red-500",     pulse: false, label: "failures" },
+  unknown: { dot: "bg-gray-600",    pulse: false, label: "" },
+};
+
+function TryPushes() {
+  const [pushes, setPushes] = useState<TryPush[] | null>(null);
+  const [thUrl, setThUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.me.tryPushes(5).then(d => { setPushes(d.pushes); setThUrl(d.treeherder_url); }).catch(() => setPushes([]));
+  }, []);
+  // Job status moves on the order of minutes; refresh in the background.
+  usePoll(() => {
+    api.me.tryPushes(5).then(d => { setPushes(d.pushes); setThUrl(d.treeherder_url); }).catch(() => {});
+  }, 120_000);
+
+  // Self-hide until loaded, and for users with no try pushes — never clutter the header.
+  if (!pushes || pushes.length === 0) return null;
+
+  return (
+    <div className="card p-5">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
+          <FlaskConical size={13} className="text-gray-500" /> Your Recent Try Pushes
+        </h3>
+        {thUrl && (
+          <a href={thUrl} target="_blank" rel="noopener noreferrer"
+            className="text-[11px] text-brand-400 hover:text-brand-300 transition-colors flex items-center gap-1">
+            View on Treeherder <ArrowUpRight size={12} />
+          </a>
+        )}
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+        {pushes.map(p => {
+          const s = TRY_STATE[p.state] ?? TRY_STATE.unknown;
+          return (
+            <a key={p.revision} href={p.treeherder_url} target="_blank" rel="noopener noreferrer"
+              title={`${tryTitle(p.comment)}\n${p.short_revision} · ${s.label}`}
+              className="group rounded-xl border border-gray-800 bg-gray-900/50 px-3.5 py-3 hover:border-brand-500/40 transition-colors">
+              <div className="flex items-center gap-2">
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${s.dot} ${s.pulse ? "animate-pulse" : ""}`} />
+                <span className="text-xs text-gray-300 group-hover:text-white transition-colors truncate flex-1 min-w-0">
+                  {tryTitle(p.comment)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2 mt-2 pl-4">
+                <span className="flex items-center gap-2 text-[10px] tabular-nums">
+                  {p.success > 0 && <span className="text-emerald-500">{p.success} ✓</span>}
+                  {p.running > 0 && <span className="text-amber-400">{p.running} ●</span>}
+                  {p.failed > 0 && <span className="text-red-400">{p.failed} ✕</span>}
+                </span>
+                <span className="text-[10px] text-gray-600 tabular-nums whitespace-nowrap">{timeAgo(p.pushed_at)}</span>
+              </div>
+            </a>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function Overview() {
   const [data, setData] = useState<FleetSummary | null>(null);
   const [failures, setFailures] = useState<FailureInsights | null>(null);
@@ -766,6 +852,9 @@ export function Overview() {
 
       {/* Monitored pools — user-pinned */}
       <MonitoredPools load={load} />
+
+      {/* Your recent try pushes (signed-in user, via Treeherder) */}
+      <TryPushes />
 
       {/* Total workers breakdown */}
       <div className="card p-6">
