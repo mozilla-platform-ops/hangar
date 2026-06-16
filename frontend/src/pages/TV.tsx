@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { AlertTriangle, X } from "lucide-react";
 import type { Worker, LoadHistory, AlertListResponse } from "../api";
 import { api } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
@@ -16,6 +17,15 @@ export function TV() {
   const [load, setLoad] = useState<LoadHistory | null>(null);
   const [alerts, setAlerts] = useState<AlertListResponse | null>(null);
   const now = useNow(1_000);
+  const navigate = useNavigate();
+
+  // TV Mode is chromeless and often opened in a new tab (no Back button), so give
+  // it its own way out: Esc, or the unobtrusive corner button below.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") navigate("/"); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [navigate]);
 
   const refresh = (silent = false) => {
     api.workers.list({ limit: 2000 }).then(d => setWorkers(d.workers.filter(inFleetMap))).catch(() => {});
@@ -35,6 +45,12 @@ export function TV() {
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 p-8 flex flex-col gap-6">
+      {/* Exit affordance — faint so it never distracts a wall display, brightens on hover. */}
+      <button onClick={() => navigate("/")} title="Back to dashboard (Esc)"
+        className="fixed top-4 right-4 z-50 flex items-center gap-1.5 rounded-lg border border-gray-700/60 bg-gray-900/80 px-2.5 py-1.5 text-xs text-gray-400 opacity-30 backdrop-blur transition-opacity hover:opacity-100 hover:text-gray-100 focus:opacity-100">
+        <X size={14} /> Exit <span className="text-gray-600">Esc</span>
+      </button>
+
       {/* Header */}
       <div className="flex items-end justify-between">
         <div className="flex items-center gap-4">
