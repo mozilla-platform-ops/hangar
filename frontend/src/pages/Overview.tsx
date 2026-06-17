@@ -1,11 +1,13 @@
 import { useEffect, useState, useRef, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Cpu, FlaskConical, ArrowUpRight, Gauge, Pin, Plus, X, Check, GripVertical, Pencil, Rocket, CalendarClock, ExternalLink, Bug,
+  Bell, BellRing, BellOff,
   Sun, Moon, Cloud, CloudSun, CloudMoon, CloudRain, CloudDrizzle, CloudSnow, CloudLightning, CloudFog, Search, LocateFixed, LoaderCircle } from "lucide-react";
 import { api } from "../api";
 import type { FleetSummary, FailureInsights, LoadHistory, ReleaseSchedule, WeatherNow, WeatherPref, GeocodeResult, ShowcaseData, TryPush, Needinfo, PoolSources, PoolSeries } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
 import { usePoll } from "../lib/useLive";
+import { notifyEnabled, notifyPermission, setNotifyOptIn, requestNotifyPermission, fireTryDoneNotification, fireTestNotification, type NotifyPermission } from "../lib/notify";
 import { AnimatedNumber } from "../components/AnimatedNumber";
 import { MonitoredPoolCard } from "../components/MonitoredPoolCard";
 
@@ -639,9 +641,46 @@ function PinToggle({ pinned, onToggle }: { pinned: boolean; onToggle: () => void
   );
 }
 
+// Opt-in toggle for native "try push finished" notifications. The browser routes
+// these to macOS Notification Center, so the alert pops up outside hangar. First
+// enable prompts the browser for permission; if the user has blocked the site we
+// show that state and leave the toggle disabled.
+type NotifyState = { enabled: boolean; permission: NotifyPermission; toggle: () => void };
+
+function NotifyToggle({ notify }: { notify: NotifyState }) {
+  const { enabled, permission, toggle } = notify;
+  if (permission === "unsupported") return null;
+  const denied = permission === "denied" && !enabled;
+  return (
+    <span className="flex items-center gap-2">
+      <button type="button" onClick={denied ? undefined : toggle} disabled={denied}
+        title={denied
+          ? "Notifications are blocked for this site — enable them in your browser/macOS settings"
+          : enabled
+            ? "Stop notifying when a running try push finishes"
+            : "Get a macOS notification when a running try push finishes"}
+        className={`flex items-center gap-1 text-[10px] transition-colors ${
+          enabled ? "text-brand-400 hover:text-brand-300"
+          : denied ? "text-gray-600 cursor-not-allowed"
+          : "text-gray-500 hover:text-gray-300"}`}>
+        {enabled ? <BellRing size={11} className="fill-current" /> : denied ? <BellOff size={11} /> : <Bell size={11} />}
+        {enabled ? "Notify: on" : denied ? "Blocked" : "Notify when done"}
+      </button>
+      {import.meta.env.DEV && (
+        <button type="button"
+          onClick={async () => { if (notifyPermission() !== "granted") await requestNotifyPermission(); fireTestNotification(); }}
+          title="Dev only: preview the completion notification now"
+          className="text-[10px] text-gray-600 hover:text-amber-300 transition-colors">
+          Test
+        </button>
+      )}
+    </span>
+  );
+}
+
 // Popover body: the signed-in user's recent try pushes, as a compact list.
-function TryPushList({ pushes, thUrl, pinned, onTogglePin }: {
-  pushes: TryPush[]; thUrl: string | null; pinned: boolean; onTogglePin: () => void;
+function TryPushList({ pushes, thUrl, pinned, onTogglePin, notify }: {
+  pushes: TryPush[]; thUrl: string | null; pinned: boolean; onTogglePin: () => void; notify: NotifyState;
 }) {
   return (
     <>
@@ -650,6 +689,7 @@ function TryPushList({ pushes, thUrl, pinned, onTogglePin }: {
           <FlaskConical size={12} className="text-gray-500" /> Try Pushes
         </span>
         <div className="flex items-center gap-3">
+          <NotifyToggle notify={notify} />
           <PinToggle pinned={pinned} onToggle={onTogglePin} />
           {thUrl && (
             <a href={thUrl} target="_blank" rel="noopener noreferrer"
@@ -756,7 +796,37 @@ function useMyWork() {
   const [bugs, setBugs] = useState<Needinfo[] | null>(null);
   const [listUrl, setListUrl] = useState<string | null>(null);
 
-  const loadTry = () => api.me.tryPushes(5).then(d => { setPushes(d.pushes); setThUrl(d.treeherder_url); });
+  // Opt-in native notifications when a running push finishes. `enabled` tracks the
+  // toggle *and* live browser permission; `permission` drives the toggle's hint.
+  const [notifyOn, setNotifyOn] = useState(notifyEnabled);
+  const [permission, setPermission] = useState<NotifyPermission>(notifyPermission);
+
+  // Last-seen state per revision, to spot a running -> done edge. Seeded on the
+  // first load so we don't notify for pushes already finished when hangar opened.
+  const prevStates = useRef<Map<string, TryPush["state"]> | null>(null);
+
+  const ingestTry = (list: TryPush[]) => {
+    const prev = prevStates.current;
+    if (prev && notifyEnabled()) {
+      for (const p of list) {
+        // Inline the state check so TS narrows p.state to "success" | "failed".
+        if (prev.get(p.revision) === "running" && (p.state === "success" || p.state === "failed")) {
+          fireTryDoneNotification({
+            title: tryTitle(p.comment),
+            state: p.state,
+            short_revision: p.short_revision,
+            url: p.treeherder_url,
+            failed: p.failed,
+            success: p.success,
+          });
+        }
+      }
+    }
+    prevStates.current = new Map(list.map(p => [p.revision, p.state]));
+    setPushes(list);
+  };
+
+  const loadTry = () => api.me.tryPushes(5).then(d => { ingestTry(d.pushes); setThUrl(d.treeherder_url); });
   const loadNeedinfos = () => api.me.needinfos().then(d => { setBugs(d.bugs); setListUrl(d.buglist_url); });
 
   useEffect(() => {
@@ -769,7 +839,34 @@ function useMyWork() {
     loadNeedinfos().catch(() => {});
   }, 120_000);
 
-  return { pushes, thUrl, bugs, listUrl };
+  // usePoll pauses when the tab is hidden — fine for a wall dashboard, but it
+  // would mean "notify when done" only fires once you look back at hangar. So
+  // while notifications are on, keep a lightweight try-only poll running
+  // regardless of visibility, so the alert lands with hangar in the background.
+  useEffect(() => {
+    if (!notifyOn) return;
+    const t = window.setInterval(() => { loadTry().catch(() => {}); }, 90_000);
+    return () => window.clearInterval(t);
+  }, [notifyOn]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggleNotify = async () => {
+    if (notifyOn) {
+      setNotifyOptIn(false);
+      setNotifyOn(false);
+      return;
+    }
+    const perm = await requestNotifyPermission();
+    setPermission(perm);
+    if (perm === "granted") {
+      setNotifyOptIn(true);
+      setNotifyOn(true);
+    }
+  };
+
+  return {
+    pushes, thUrl, bugs, listUrl,
+    notify: { enabled: notifyOn, permission, toggle: toggleNotify } as NotifyState,
+  };
 }
 
 type Tone = "red" | "amber" | "green";
@@ -821,9 +918,9 @@ function WorkChip({ tone, icon, dots, count, title, children }: {
 
 const MAX_DOTS = 6;
 
-function HeaderWorkChips({ pushes, thUrl, bugs, listUrl, pinned, onTogglePin }: {
+function HeaderWorkChips({ pushes, thUrl, bugs, listUrl, pinned, onTogglePin, notify }: {
   pushes: TryPush[] | null; thUrl: string | null; bugs: Needinfo[] | null; listUrl: string | null;
-  pinned: PinnedWork; onTogglePin: (key: keyof PinnedWork) => void;
+  pinned: PinnedWork; onTogglePin: (key: keyof PinnedWork) => void; notify: NotifyState;
 }) {
   const hasTry = !!pushes && pushes.length > 0;
   const hasNeedinfos = !!bugs && bugs.length > 0;
@@ -850,7 +947,7 @@ function HeaderWorkChips({ pushes, thUrl, bugs, listUrl, pinned, onTogglePin }: 
           dots={pushes!.slice(0, MAX_DOTS).map((p, i) => (
             <span key={i} className={`w-1.5 h-1.5 rounded-full ${(TRY_STATE[p.state] ?? TRY_STATE.unknown).dot}`} />
           ))}>
-          <TryPushList pushes={pushes!} thUrl={thUrl} pinned={pinned.try} onTogglePin={() => onTogglePin("try")} />
+          <TryPushList pushes={pushes!} thUrl={thUrl} pinned={pinned.try} onTogglePin={() => onTogglePin("try")} notify={notify} />
         </WorkChip>
       )}
       {hasNeedinfos && (
@@ -1069,7 +1166,7 @@ export function Overview() {
           </div>
         </div>
         <HeaderWorkChips pushes={work.pushes} thUrl={work.thUrl} bugs={work.bugs} listUrl={work.listUrl}
-          pinned={pinned} onTogglePin={togglePin} />
+          pinned={pinned} onTogglePin={togglePin} notify={work.notify} />
       </div>
 
       {/* Firefox release schedule */}
