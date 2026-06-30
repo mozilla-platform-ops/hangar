@@ -33,7 +33,7 @@ Production URL: **https://hangar.relops.mozilla.com**
 
 **Auth**: Cloud IAP restricts access to `@mozilla.com` Google accounts (via `domain:mozilla.com` in `iap_authorized_members`). No GCP access required. OAuth consent screen is set to **External**.
 
-**Note**: `allUsers roles/run.invoker` is still present on the Cloud Run IAM policy. This is harmless because the ingress is LB-only, but it should be cleaned up via Terraform.
+**Invoker IAM**: `roles/run.invoker` is now Terraform-managed via an authoritative `google_cloud_run_v2_service_iam_binding.hangar_invoker` (in `iam.tf`) with the IAP service account as the only member. The previous stray `allUsers` invoker grant has been removed (2026-06-30). All human auth happens upstream at the IAP load balancer.
 
 ---
 
@@ -102,14 +102,15 @@ All under project `relops-dashboard`:
 
 | Secret name | Status | Notes |
 |---|---|---|
-| `hangar-db-url` | ✅ real | Full Postgres DSN including password (`placeholder`) |
+| `hangar-db-url` | ✅ real | Full Postgres DSN. Password rotated off `placeholder` to a strong random value 2026-06-30 (now secret version 2) |
 | `hangar-simplemdm-api-key` | ✅ real | SimpleMDM key |
-| `hangar-iap-client-secret` | ✅ real | IAP OAuth secret |
 | `hangar-tc-client-id` | placeholder | TC doesn't need auth for public GraphQL |
 | `hangar-tc-access-token` | placeholder | Same |
 | `hangar-google-sheets-id` | placeholder | Not yet configured |
 | `hangar-google-export-sheet-id` | placeholder | Not yet configured |
 | `hangar-google-credentials-json` | placeholder | Not yet configured |
+
+**IAP OAuth client**: the IAP OAuth `client_id` / `client_secret` are **not** in Secret Manager — they are Terraform inputs passed via `-var` (or `TF_VAR_*`) at apply time and consumed in `lb.tf`. The values live in **1Password** (search "hangar IAP"). The `db_password` is likewise a `-var`/tfvars input; its rotated value is also saved in **1Password**. Neither is committed (`terraform.tfvars` is gitignored).
 
 ---
 
@@ -121,7 +122,7 @@ All under project `relops-dashboard`:
 4. IAP OAuth credentials added to backend service via Terraform
 5. `iap_authorized_members` defaults to `["domain:mozilla.com"]` in `variables.tf`
 
-These IAP service account steps are not yet in Terraform — should be added to `iam.tf`.
+The IAP service account invoker grant is now codified in Terraform (`google_cloud_run_v2_service_iam_binding.hangar_invoker` in `iam.tf`, 2026-06-30). The `gcloud beta services identity create` bootstrap step still runs once by hand.
 
 ---
 
@@ -148,12 +149,18 @@ gcloud projects delete relops-dashboard
 
 ## What still needs doing
 
-1. **Remove `allUsers` invoker**: Clean up Cloud Run IAM to remove `allUsers roles/run.invoker` via Terraform
-2. **Terraform IAP service account**: Add `gcloud beta services identity create` and the IAP invoker binding to `iam.tf`
-3. **Rename Cloud Build trigger**: `hangar-security-deploy` → `hangar-main` for clarity
-4. **Google Sheets integration**: Populate `hangar-google-sheets-id`, `hangar-google-export-sheet-id`, and `hangar-google-credentials-json` secrets
-5. **Terraform GCS backend**: Move `terraform.tfstate` from local to a GCS bucket
-6. **DB password**: Change from `placeholder` to something real
+1. **Rename Cloud Build trigger**: `hangar-security-deploy` → `hangar-main` for clarity
+2. **Google Sheets integration**: Populate `hangar-google-sheets-id`, `hangar-google-export-sheet-id`, and `hangar-google-credentials-json` secrets
+3. **Terraform GCS backend**: Move `terraform.tfstate` from local to a GCS bucket (it holds secrets — db_url DSN, IAP secret)
+4. **Dependabot cleanup**: 3 low/moderate **dev-only** transitive advisories remain (`@babel/core`, `brace-expansion`, `js-yaml`) — build/lint tooling, not in the production bundle. `npm audit fix` clears them non-breaking.
+
+### Done (2026-06-30 security pass)
+
+- ✅ **Removed `allUsers` invoker** and put `roles/run.invoker` under Terraform (authoritative binding, IAP SA only) — PR #38
+- ✅ **Codified the IAP SA invoker binding** in `iam.tf`
+- ✅ **Rotated the DB password** off `placeholder` to a strong random value (Secret Manager v2; new value in 1Password)
+- ✅ **vite `8.0.7 → 8.1.2`** — cleared the `server.fs.deny` / `launch-editor` advisories (PR #36)
+- ✅ **react-router-dom `7.14.0 → 7.18.1`** — cleared the turbo-stream RCE and related advisories (PR #37)
 
 ---
 
