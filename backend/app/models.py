@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Integer, LargeBinary, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .database import Base
@@ -124,6 +124,24 @@ class ReprovisionJob(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     claimed_at: Mapped[datetime | None] = mapped_column(DateTime)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class WorkerScreenshot(Base):
+    """Latest VNC frame for a worker, captured on-demand by the on-network agent.
+
+    Cloud Run can't reach MDC1, so it can't VNC to a worker directly. The frontend bumps
+    requested_at (only while someone is actively watching); the on-network agent polls
+    pending requests, grabs ONE passive frame over VNC (admin account, ~3s hold, no input
+    injected — safe on a busy worker), and pushes the JPEG here. Latest-only, no history.
+    """
+
+    __tablename__ = "worker_screenshots"
+
+    hostname: Mapped[str] = mapped_column(String(255), primary_key=True)
+    image: Mapped[bytes | None] = mapped_column(LargeBinary)
+    content_type: Mapped[str] = mapped_column(String(50), default="image/jpeg")
+    captured_at: Mapped[datetime | None] = mapped_column(DateTime)   # when the frame was grabbed
+    requested_at: Mapped[datetime | None] = mapped_column(DateTime)  # last time a viewer asked for one
 
 
 class SyncLog(Base):
