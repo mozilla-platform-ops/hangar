@@ -434,6 +434,7 @@ export interface ReprovisionStatus {
   readiness: ReprovisionReadiness;
   plan: ReprovisionPlan;
   active_job: ReprovisionJob | null;
+  last_job: ReprovisionJob | null;
   runner_enabled: boolean;
   events: ReprovisionEventItem[];
 }

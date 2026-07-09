@@ -167,6 +167,24 @@ Side-by-side hardware generation comparison — state breakdowns, inactive machi
 
 ---
 
+## 🔁 Reprovision — one-click EACS → prod
+
+The headline capability: **wipe, re-enroll, and fully re-provision a Mac worker end-to-end from a button in the dashboard** — no SSH, no console, no pasted secrets.
+
+On a worker's detail page, authorized operators (IAP allowlist) get a **Reprovision cockpit**: live readiness (quarantined? idle? M4/EACS-supported?), an **Execute** button behind a confirm, and a live **Apple-rainbow terminal timeline** that streams every phase of the run.
+
+**How it reaches the datacenter safely.** Hangar runs on Cloud Run and *can't* SSH into MDC1 — so it never does:
+
+1. **Execute** enqueues a `ReprovisionJob` (one open job per host).
+2. An **on-network runner** — Puppet-managed on an MDC1 mini — polls Hangar over **mTLS** (outbound only, no inbound to the datacenter), claims the job, and runs the [`reprovision`](https://github.com/mozilla-platform-ops/relops-bootstrap) CLI.
+3. Each phase streams back as a job event and renders live: quarantine → drain → EACS wipe → DEP re-enroll → SecureToken mint → Bootstrap Token → self-provision (mTLS vault · puppet · Taskcluster).
+
+The runner holds all SSH/admin creds; **Hangar holds none**. A server-side reaper closes any job whose runner vanishes, so a lost run never wedges a host.
+
+> **Proven in prod:** a Hangar-enqueued job reprovisioned `macmini-m4-80` end-to-end, driven by the Puppet-managed runner on `macmini-m4-81`, streaming the whole flow into the cockpit.
+
+---
+
 ## 🗄️ Database Schema
 
 ```
