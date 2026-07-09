@@ -65,6 +65,12 @@ variable "cloud_run_image" {
   default     = ""
 }
 
+variable "runner_source_cidrs" {
+  description = "Source IP ranges allowed to reach the mTLS /api/reprovision/runner/* path (MDC1 NAT)."
+  type        = list(string)
+  default     = ["63.245.209.101/32"]
+}
+
 variable "iap_audience" {
   description = <<-EOT
     Google IAP audience used by the backend to verify per-user identity assertions.
