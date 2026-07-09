@@ -50,7 +50,7 @@ def _ddl_type(col_type) -> str:
 
 def init_db() -> None:
     """Create all tables and add any columns missing from existing tables."""
-    from .models import Alert, SyncLog, Worker  # noqa: F401
+    from .models import Alert, ReprovisionEvent, SyncLog, Worker  # noqa: F401
     Base.metadata.create_all(bind=engine)
 
     inspector = inspect(engine)

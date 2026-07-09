@@ -4,6 +4,7 @@ import { ArrowLeft, ExternalLink, Pencil, CheckCircle2, X } from "lucide-react";
 import { api } from "../api";
 import type { Worker } from "../api";
 import { stateBadge, tcStatusBadge, enrollmentBadge, SourceBadges } from "../components/Badge";
+import { ReprovisionPanel } from "../components/ReprovisionPanel";
 import { usePoll } from "../lib/useLive";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -149,6 +150,8 @@ export function WorkerDetail() {
           </div>
         </div>
       </div>
+
+      <ReprovisionPanel hostname={worker.hostname} />
 
       <Section title="Identity">
         <Field label="Generation" value={worker.generation} />

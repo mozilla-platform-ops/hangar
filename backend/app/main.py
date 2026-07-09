@@ -19,6 +19,7 @@ from .api.fleet import router as fleet_router
 from .api.me import router as me_router
 from .api.prs import router as prs_router
 from .api.releases import router as releases_router
+from .api.reprovision import router as reprovision_router
 from .api.treeherder import router as treeherder_router
 from .api.weather import router as weather_router
 from .api.workers import router as workers_router
@@ -101,6 +102,7 @@ app.include_router(workers_router, prefix="/api")
 app.include_router(fleet_router, prefix="/api")
 app.include_router(alerts_router, prefix="/api")
 app.include_router(prs_router, prefix="/api")
+app.include_router(reprovision_router, prefix="/api")
 app.include_router(me_router, prefix="/api")
 app.include_router(releases_router, prefix="/api")
 app.include_router(treeherder_router, prefix="/api")
