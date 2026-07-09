@@ -6,6 +6,7 @@ import type { PoolHealth, PoolSources, CloudPool, FleetSummary, RoninPR, PoolSer
 import { FF_GRADIENT } from "../lib/brand";
 import { PROJECT_COLORS, PROJECT_TEXT } from "../lib/projects";
 import { MacMigrationCard } from "../components/Showcase";
+import { ReprovisionActivity } from "../components/ReprovisionActivity";
 import { MonitoredPoolCard } from "../components/MonitoredPoolCard";
 import { usePoll } from "../lib/useLive";
 
@@ -862,6 +863,8 @@ export function Pools() {
       )}
 
       {section === "mac" && <MacMigrationCard />}
+
+      {section === "mac" && <ReprovisionActivity />}
 
       {/* macOS sub-page: full detail */}
       {section === "mac" && testerPools.length > 0 && (
