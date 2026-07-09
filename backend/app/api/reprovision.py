@@ -9,6 +9,7 @@ initiated a reprovision of what. Access is limited to the emails in
 """
 from __future__ import annotations
 
+import base64
 import secrets as _secrets
 from datetime import datetime
 from typing import Any
@@ -56,14 +57,39 @@ def _spiffe_host(spiffe: str) -> str:
     return rest.split("/", 1)[0].split(".")[0].lower()
 
 
+def _cn_from_subject_dn(b64_der: str) -> str:
+    """Short hostname from the cert's Subject CN, forwarded as X-Client-Cert-Subject-DN
+    (base64 DER). We use the CN because GCP's LB unreliably drops the SPIFFE/URI-SAN fields
+    (see the vault-broker's auth notes), whereas the Subject DN is forwarded reliably and the
+    step-ca mint sets CN = the hostname. Minimal DER scan for the commonName (OID 2.5.4.3)."""
+    try:
+        der = base64.b64decode(b64_der)
+    except Exception:  # noqa: BLE001
+        return ""
+    cn_oid = b"\x06\x03\x55\x04\x03"  # OID 2.5.4.3 = commonName
+    i = der.find(cn_oid)
+    if i == -1:
+        return ""
+    j = i + len(cn_oid)
+    if j + 2 > len(der):
+        return ""
+    # <string-tag><length><value> — CN values are short (single-byte length).
+    length = der[j + 1]
+    value = der[j + 2 : j + 2 + length]
+    return value.decode("utf-8", "replace").split(".")[0].strip().lower()
+
+
 def require_runner(
     x_reprovision_runner_token: str = Header(default=""),
     x_client_cert_chain_verified: str = Header(default="", alias="X-Client-Cert-Chain-Verified"),
     x_client_cert_spiffe: str = Header(default="", alias="X-Client-Cert-Spiffe"),
+    x_client_cert_subject_dn: str = Header(default="", alias="X-Client-Cert-Subject-DN"),
 ) -> str:
     """Authenticate the on-network runner. Preferred: an mTLS client cert the forge-style LB
-    already validated against step-ca's Trust Config (chain-verified) whose SPIFFE hostname is
-    allowlisted. Fallback: the shared runner token (local/dev). Disabled (503) until one is set.
+    already validated against step-ca's Trust Config (chain-verified) whose host is allowlisted.
+    Identity comes from the SPIFFE SAN when present, else the Subject CN (GCP drops the SAN
+    fields unreliably; the DN is forwarded reliably). Fallback: the shared runner token.
+    Disabled (503) until a host allowlist or token is set.
 
     Safe because Hangar's Cloud Run ingress is internal-LB-only — the backend is unreachable
     except through the LB, so the X-Client-Cert-* headers can't be spoofed by a direct caller.
@@ -73,12 +99,13 @@ def require_runner(
     if not host_allowlist and not token:
         raise HTTPException(status_code=503, detail="reprovision runner is not enabled")
 
-    # 1) mTLS client cert (validated + forwarded by the LB).
-    if x_client_cert_chain_verified.lower() == "true" and x_client_cert_spiffe:
-        host = _spiffe_host(x_client_cert_spiffe)
+    # 1) mTLS client cert (chain validated + forwarded by the LB).
+    if x_client_cert_chain_verified.lower() == "true":
+        host = _spiffe_host(x_client_cert_spiffe) or _cn_from_subject_dn(x_client_cert_subject_dn)
         if host and host in host_allowlist:
             return f"cert:{host}"
-        raise HTTPException(status_code=403, detail=f"client cert host '{host}' is not an authorized runner")
+        if host:
+            raise HTTPException(status_code=403, detail=f"client cert host '{host}' is not an authorized runner")
 
     # 2) Shared token.
     if token and _secrets.compare_digest(x_reprovision_runner_token, token):
@@ -266,13 +293,6 @@ def enqueue(hostname: str, user: str = Depends(require_access), db: Session = De
     db.commit()
     db.refresh(job)
     return {"ok": True, "job": _job_dict(job)}
-
-
-@router.get("/runner/_debug")
-def runner_debug(request: Request) -> dict[str, Any]:
-    """TEMP bring-up: echo the LB-forwarded client-cert headers (the caller's own cert only).
-    Remove once mTLS runner auth is proven."""
-    return {k: v for k, v in request.headers.items() if k.lower().startswith("x-client-cert")}
 
 
 @router.get("/{hostname:path}")

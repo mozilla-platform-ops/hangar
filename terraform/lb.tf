@@ -168,7 +168,12 @@ resource "google_compute_backend_service" "hangar_runner" {
     "X-Client-Cert-Present: {client_cert_present}",
     "X-Client-Cert-Chain-Verified: {client_cert_chain_verified}",
     "X-Client-Cert-Error: {client_cert_error}",
+    # GCP unreliably drops the parsed SPIFFE / URI-SAN fields; the app authorizes on the
+    # Subject-DN CN (reliably forwarded; step-ca mints CN = hostname). SPIFFE/URI-SANs kept
+    # for when they populate.
     "X-Client-Cert-SPIFFE: {client_cert_spiffe_id}",
+    "X-Client-Cert-URI-SANs: {client_cert_uri_sans}",
+    "X-Client-Cert-Subject-DN: {client_cert_subject_dn}",
     "X-Client-Cert-Serial-Number: {client_cert_serial_number}",
   ]
 
