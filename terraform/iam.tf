@@ -64,16 +64,22 @@ resource "google_iap_web_backend_service_iam_binding" "hangar_users" {
   members             = var.iap_authorized_members
 }
 
-# Cloud Run invoker — AUTHORITATIVE. Only the IAP service account may invoke the
-# service; all human auth happens upstream at the IAP load balancer. Declaring
-# this as a binding (not a member) makes Terraform own the full invoker member
-# list, so applying it removes the stray `allUsers` grant currently on the live
-# service and prevents it from drifting back. (Also codifies the IAP invoker
-# grant that was previously added by hand outside Terraform.)
+# Cloud Run invoker — AUTHORITATIVE. Two members by design:
+#   - the IAP service account (main app path, human auth at the IAP LB), and
+#   - allUsers, required for the NON-IAP /api/reprovision/runner/* backend, which
+#     carries no Google identity (the runner authenticates by mTLS client cert).
+# allUsers is safe here because the Cloud Run service ingress is
+# INTERNAL_LOAD_BALANCER-only: the run.app URL is unreachable directly, so the LB
+# is the sole door. Requests are still gated at the LB — IAP on the main path, and
+# Cloud Armor (source-CIDR) + mTLS cert + the app's SPIFFE-host allowlist on the
+# runner path. Keeping this a binding means Terraform owns the exact member list.
 resource "google_cloud_run_v2_service_iam_binding" "hangar_invoker" {
   project  = var.project_id
   location = var.region
   name     = google_cloud_run_v2_service.hangar.name
   role     = "roles/run.invoker"
-  members  = ["serviceAccount:service-${data.google_project.project.number}@gcp-sa-iap.iam.gserviceaccount.com"]
+  members = [
+    "serviceAccount:service-${data.google_project.project.number}@gcp-sa-iap.iam.gserviceaccount.com",
+    "allUsers",
+  ]
 }
