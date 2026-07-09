@@ -71,6 +71,12 @@ variable "runner_source_cidrs" {
   default     = ["63.245.209.101/32"]
 }
 
+variable "reprovision_runner_hosts" {
+  description = "Comma-separated short hostnames allowed to act as the reprovision runner (cert SPIFFE host allowlist)."
+  type        = string
+  default     = "macmini-m4-81"
+}
+
 variable "iap_audience" {
   description = <<-EOT
     Google IAP audience used by the backend to verify per-user identity assertions.
