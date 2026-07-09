@@ -247,6 +247,15 @@ def access(request: Request) -> dict[str, Any]:
     return {"user": user, "authorized": _authorized(user)}
 
 
+# NOTE: must be declared before the `/{hostname:path}` catch-all GET below, or "jobs"
+# would be matched as a hostname.
+@router.get("/jobs")
+def jobs(user: str = Depends(require_access), db: Session = Depends(get_db), limit: int = 20) -> dict[str, Any]:
+    """Fleet-wide recent reprovision jobs (all hosts) — drives the dashboard activity indicator."""
+    rows = db.query(ReprovisionJob).order_by(desc(ReprovisionJob.created_at)).limit(limit).all()
+    return {"jobs": [_job_dict(j) for j in rows]}
+
+
 # ── Runner endpoints (Phase 2) — authenticated by the shared runner token, not IAP ──────────
 # An on-network runner pulls jobs and reports progress; Cloud Run can't reach MDC1 to execute.
 # See docs/reprovision-mdc1-runner-design.md.

@@ -10,6 +10,7 @@ import { usePoll } from "../lib/useLive";
 import { notifyEnabled, notifyPermission, setNotifyOptIn, requestNotifyPermission, fireTryDoneNotification, fireTestNotification, type NotifyPermission } from "../lib/notify";
 import { AnimatedNumber } from "../components/AnimatedNumber";
 import { MonitoredPoolCard } from "../components/MonitoredPoolCard";
+import { ReprovisionActivity } from "../components/ReprovisionActivity";
 
 const YARDSTICK_BASE = "https://yardstick.mozilla.org/d/ieg6Sho5/workers?orgId=1&from=now-2d&to=now&timezone=browser&refresh=5m";
 const yardstickAll = `${YARDSTICK_BASE}&var-provisioner=$__all&var-workerType=$__all`;
@@ -1168,6 +1169,9 @@ export function Overview() {
         <HeaderWorkChips pushes={work.pushes} thUrl={work.thUrl} bugs={work.bugs} listUrl={work.listUrl}
           pinned={pinned} onTogglePin={togglePin} notify={work.notify} />
       </div>
+
+      {/* Live reprovision activity (only renders for authorized operators when a run is active/recent) */}
+      <ReprovisionActivity />
 
       {/* Firefox release schedule */}
       <ReleaseScheduleCard />
