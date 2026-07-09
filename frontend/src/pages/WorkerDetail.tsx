@@ -5,7 +5,6 @@ import { api } from "../api";
 import type { Worker } from "../api";
 import { stateBadge, tcStatusBadge, enrollmentBadge, SourceBadges } from "../components/Badge";
 import { ReprovisionPanel } from "../components/ReprovisionPanel";
-import { WorkerScreen } from "../components/WorkerScreen";
 import { usePoll } from "../lib/useLive";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -154,7 +153,10 @@ export function WorkerDetail() {
 
       <ReprovisionPanel hostname={worker.hostname} />
 
-      <WorkerScreen hostname={worker.hostname} />
+      {/* Live view (VNC) disabled for now — too slow to be worth any worker overhead;
+          revisit with perf tuning (shorter hold, smaller/lower-quality frames). The
+          WorkerScreen component + backend + on-network agent stay in place; re-enable
+          by restoring <WorkerScreen hostname={worker.hostname} /> here. */}
 
       <Section title="Identity">
         <Field label="Generation" value={worker.generation} />
