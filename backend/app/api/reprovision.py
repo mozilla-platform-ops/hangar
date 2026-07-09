@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import base64
 import secrets as _secrets
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import unquote
 
@@ -27,6 +27,12 @@ from ..models import ReprovisionEvent, ReprovisionJob, Worker
 
 # Job states that mean a reprovision is still open for a host (blocks a second enqueue).
 _OPEN_JOB_STATES = {"queued", "claimed", "running"}
+# A job open longer than this is presumed dead — its runner finished but couldn't
+# report, or vanished. We reap it so a lost completion never wedges a host (a new
+# reprovision can't be enqueued while one is "open"). The ceiling must exceed a
+# legitimate run: the on-host bootstrap alone can wait up to ~60m for the sentinel
+# (bootstrap_max_wait_seconds) with no streamed output, so keep generous headroom.
+_STALE_JOB_MINUTES = 120
 
 router = APIRouter(prefix="/reprovision", tags=["reprovision"])
 
@@ -119,12 +125,26 @@ def _short(hostname: str) -> str:
 
 
 def _active_job(db: Session, hostname: str) -> ReprovisionJob | None:
-    return (
+    job = (
         db.query(ReprovisionJob)
         .filter(ReprovisionJob.hostname == hostname, ReprovisionJob.state.in_(_OPEN_JOB_STATES))
         .order_by(desc(ReprovisionJob.created_at))
         .first()
     )
+    if job is None:
+        return None
+    # Reap a job whose runner vanished / lost its completion, so it stops wedging
+    # the host (enqueue 409s while a job is open). Lazy: happens on any status read
+    # or enqueue attempt, no background sweep needed.
+    ref = job.claimed_at or job.created_at
+    if ref and datetime.utcnow() - ref > timedelta(minutes=_STALE_JOB_MINUTES):
+        job.state = "failed"
+        job.detail = f"stale: no completion within {_STALE_JOB_MINUTES}m — runner presumed gone"
+        job.finished_at = datetime.utcnow()
+        db.add(ReprovisionEvent(hostname=job.hostname, user="system", action="stale", detail=job.detail))
+        db.commit()
+        return None
+    return job
 
 
 def _job_dict(j: ReprovisionJob) -> dict[str, Any]:
