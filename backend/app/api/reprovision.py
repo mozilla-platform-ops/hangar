@@ -196,7 +196,7 @@ def _recent_events(db: Session, hostname: str) -> list[dict[str, Any]]:
         db.query(ReprovisionEvent)
         .filter(ReprovisionEvent.hostname == hostname)
         .order_by(desc(ReprovisionEvent.created_at))
-        .limit(10)
+        .limit(80)  # a full EACS run streams dozens of lines; the cockpit renders them as a live timeline
         .all()
     )
     return [

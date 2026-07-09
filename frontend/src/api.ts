@@ -416,11 +416,25 @@ export interface ReprovisionEventItem {
   detail: string | null;
   at: string | null;
 }
+export interface ReprovisionJob {
+  id: number;
+  hostname: string;
+  short: string;
+  requested_by: string;
+  state: "queued" | "claimed" | "running" | "succeeded" | "failed" | "canceled";
+  runner: string | null;
+  detail: string | null;
+  created_at: string | null;
+  claimed_at: string | null;
+  finished_at: string | null;
+}
 export interface ReprovisionStatus {
   hostname: string;
   short: string;
   readiness: ReprovisionReadiness;
   plan: ReprovisionPlan;
+  active_job: ReprovisionJob | null;
+  runner_enabled: boolean;
   events: ReprovisionEventItem[];
 }
 export interface ReprovisionAccess {
@@ -460,6 +474,7 @@ export const api = {
     access: () => get<ReprovisionAccess>("/reprovision/access"),
     status: (hostname: string) => get<ReprovisionStatus>(`/reprovision/${hostname}`),
     initiate: (hostname: string) => post<ReprovisionInitiateResponse>(`/reprovision/${hostname}/initiate`),
+    enqueue: (hostname: string) => post<{ ok: boolean; job: ReprovisionJob }>(`/reprovision/${hostname}/enqueue`),
   },
   alerts: {
     list: (activeOnly = true) => get<AlertListResponse>("/alerts", { active_only: activeOnly }),
