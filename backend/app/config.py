@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     # Reprovision action is gated to these emails (comma-separated, case-insensitive). The
     # panel is hidden and the endpoints 403 for anyone not listed. Start small; widen later.
     reprovision_authorized_users: str = (
-        "rcurran@mozilla.com,aerickson@mozilla.com,jmoss@mozilla.com,jgibbs@mozilla.com"
+        "rcurran@mozilla.com,aerickson@mozilla.com,jmoss@mozilla.com,jgibbs@mozilla.com,mcornmesser@mozilla.com"
     )
 
     # Google IAP audience for verifying the signed identity assertion, of the form
