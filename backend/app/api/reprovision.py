@@ -268,6 +268,13 @@ def enqueue(hostname: str, user: str = Depends(require_access), db: Session = De
     return {"ok": True, "job": _job_dict(job)}
 
 
+@router.get("/runner/_debug")
+def runner_debug(request: Request) -> dict[str, Any]:
+    """TEMP bring-up: echo the LB-forwarded client-cert headers (the caller's own cert only).
+    Remove once mTLS runner auth is proven."""
+    return {k: v for k, v in request.headers.items() if k.lower().startswith("x-client-cert")}
+
+
 @router.get("/{hostname:path}")
 def status(hostname: str, user: str = Depends(require_access), db: Session = Depends(get_db)) -> dict[str, Any]:
     w = db.get(Worker, worker_fqdn(hostname))
