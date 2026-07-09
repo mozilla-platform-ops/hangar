@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, Copy, Lock, RefreshCw, Terminal, Zap } from "lucide-react";
+import { Check, Copy, Eraser, Lock, RefreshCw, Terminal, Zap } from "lucide-react";
 import { api, type ReprovisionEventItem, type ReprovisionJob, type ReprovisionStatus } from "../api";
 import { Badge } from "./Badge";
 
@@ -7,6 +7,15 @@ import { Badge } from "./Badge";
 // (orchestrator/ui.py). We reuse it here so the Hangar timeline reads like the terminal.
 const APPLE = ["#61BB46", "#FDB827", "#F5821F", "#E03A3E", "#963D97", "#009DDC"];
 const ACTIVE_STATES = new Set(["queued", "claimed", "running"]);
+
+function timeAgo(iso: string | null): string {
+  if (!iso) return "";
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
 
 function elapsed(from: string | null, to: string | null): string {
   if (!from) return "";
@@ -81,7 +90,7 @@ function TimelineLine({ e, stepIndex }: { e: ReprovisionEventItem; stepIndex: nu
 }
 
 /** Terminal-styled live view of a reprovision's streamed steps. */
-function RainbowTimeline({ job, events }: { job: ReprovisionJob | null; events: ReprovisionEventItem[] }) {
+function RainbowTimeline({ job, events, onClear }: { job: ReprovisionJob | null; events: ReprovisionEventItem[]; onClear?: () => void }) {
   const scroller = useRef<HTMLDivElement>(null);
   const chrono = [...events].reverse(); // API returns newest-first; a terminal reads top→bottom
   const active = !!job && ACTIVE_STATES.has(job.state);
@@ -100,21 +109,32 @@ function RainbowTimeline({ job, events }: { job: ReprovisionJob | null; events: 
           ))}
           <span className="ml-1.5 text-[10px] text-gray-500 font-mono">reprovision · live</span>
         </span>
-        {job && (
-          <span className="flex items-center gap-2 text-[10px] font-mono">
-            <span className="text-gray-500 tabular-nums">
-              {elapsed(job.claimed_at ?? job.created_at, active ? null : job.finished_at)}
-            </span>
-            <Badge
-              label={job.state}
-              variant={job.state === "succeeded" ? "green" : job.state === "failed" ? "red" : active ? "yellow" : "gray"}
-              dot
-              pulse={active}
-            />
-          </span>
-        )}
+        <span className="flex items-center gap-2 text-[10px] font-mono">
+          {job && (
+            <>
+              <span className="text-gray-500 tabular-nums">
+                {elapsed(job.claimed_at ?? job.created_at, active ? null : job.finished_at)}
+              </span>
+              <Badge
+                label={job.state}
+                variant={job.state === "succeeded" ? "green" : job.state === "failed" ? "red" : active ? "yellow" : "gray"}
+                dot
+                pulse={active}
+              />
+            </>
+          )}
+          {onClear && !active && (
+            <button
+              onClick={onClear}
+              title="Clear the timeline (audit log is kept; a new run brings it back)"
+              className="flex items-center gap-1 text-gray-600 hover:text-gray-300 transition-colors"
+            >
+              <Eraser size={11} /> clear
+            </button>
+          )}
+        </span>
       </div>
-      <div ref={scroller} className="max-h-[36rem] overflow-y-auto px-3 py-2 font-mono text-[11px] leading-relaxed">
+      <div ref={scroller} className="max-h-[48rem] overflow-y-auto px-3 py-2 font-mono text-[11px] leading-relaxed">
         {withStepIndex(chrono).map(({ e, stepIndex }, i) => (
           <TimelineLine key={i} e={e} stepIndex={stepIndex} />
         ))}
@@ -142,10 +162,21 @@ export function ReprovisionPanel({ hostname }: { hostname: string }) {
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [err, setErr] = useState("");
+  // Client-side "clear" for the timeline: hide everything up to this timestamp. Persisted
+  // per host so it survives refresh; a newer run (events past it) reappears automatically.
+  const [clearedAt, setClearedAt] = useState("");
 
   useEffect(() => {
     api.reprovision.access().then((a) => setAuthorized(a.authorized)).catch(() => setAuthorized(false));
   }, []);
+
+  useEffect(() => {
+    try {
+      setClearedAt(localStorage.getItem(`reprovision:cleared:${hostname}`) ?? "");
+    } catch {
+      setClearedAt("");
+    }
+  }, [hostname]);
 
   const load = () => {
     api.reprovision.status(hostname).then(setStatus).catch((e) => setErr((e as Error).message));
@@ -167,6 +198,20 @@ export function ReprovisionPanel({ hostname }: { hostname: string }) {
   const cmd = status?.plan.one_command ?? "";
   const runnerEnabled = !!status?.runner_enabled;
   const supported = !!r?.supported;
+  const lastJob = status?.last_job ?? null;
+  // Timeline events newer than the client-side "clear" mark.
+  const visibleEvents = (status?.events ?? []).filter((e) => !clearedAt || !e.at || e.at > clearedAt);
+
+  function clearTimeline() {
+    const newest = status?.events?.[0]?.at ?? "";
+    if (!newest) return;
+    try {
+      localStorage.setItem(`reprovision:cleared:${hostname}`, newest);
+    } catch {
+      /* localStorage blocked — ignore */
+    }
+    setClearedAt(newest);
+  }
 
   async function copyCmd() {
     try {
@@ -231,6 +276,16 @@ export function ReprovisionPanel({ hostname }: { hostname: string }) {
             {!supported && <Badge label="EACS flow: M4 only" variant="orange" />}
           </div>
 
+          {lastJob && !active && (
+            <div className="text-[11px] flex items-center gap-1.5">
+              <span className="text-gray-600">last run</span>
+              <span className={lastJob.state === "succeeded" ? "text-emerald-400" : lastJob.state === "failed" ? "text-red-400" : "text-gray-400"}>
+                {lastJob.state === "succeeded" ? "✓ succeeded" : lastJob.state === "failed" ? "✗ failed" : lastJob.state}
+              </span>
+              <span className="text-gray-600">· {timeAgo(lastJob.finished_at ?? lastJob.created_at)}</span>
+            </div>
+          )}
+
           {/* One-click execute — only when the on-network runner is wired up. */}
           {runnerEnabled && (
             <div className="border-t border-gray-800/60 pt-3">
@@ -273,8 +328,8 @@ export function ReprovisionPanel({ hostname }: { hostname: string }) {
           )}
 
           {/* Live timeline — shows the active job streaming, or the last run's trail. */}
-          {(status.active_job || status.events.length > 0) && (
-            <RainbowTimeline job={status.active_job} events={status.events} />
+          {(status.active_job || visibleEvents.length > 0) && (
+            <RainbowTimeline job={status.active_job} events={visibleEvents} onClear={clearTimeline} />
           )}
 
           {/* CLI handoff — always available (manual / on-VPN path). */}

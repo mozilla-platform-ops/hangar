@@ -147,6 +147,16 @@ def _active_job(db: Session, hostname: str) -> ReprovisionJob | None:
     return job
 
 
+def _last_job(db: Session, hostname: str) -> ReprovisionJob | None:
+    """Most recent job for the host regardless of state — drives the 'last run' line."""
+    return (
+        db.query(ReprovisionJob)
+        .filter(ReprovisionJob.hostname == hostname)
+        .order_by(desc(ReprovisionJob.created_at))
+        .first()
+    )
+
+
 def _job_dict(j: ReprovisionJob) -> dict[str, Any]:
     return {
         "id": j.id,
@@ -321,12 +331,14 @@ def status(hostname: str, user: str = Depends(require_access), db: Session = Dep
     if not w:
         raise HTTPException(status_code=404, detail=f"Worker {hostname} not found")
     aj = _active_job(db, w.hostname)
+    lj = _last_job(db, w.hostname)
     return {
         "hostname": w.hostname,
         "short": _short(w.hostname),
         "readiness": _readiness(w),
         "plan": _plan(w.hostname),
         "active_job": _job_dict(aj) if aj else None,
+        "last_job": _job_dict(lj) if lj else None,
         "runner_enabled": bool(settings.reprovision_runner_token or settings.reprovision_runner_host_list),
         "events": _recent_events(db, w.hostname),
     }
