@@ -114,7 +114,7 @@ function RainbowTimeline({ job, events }: { job: ReprovisionJob | null; events: 
           </span>
         )}
       </div>
-      <div ref={scroller} className="max-h-72 overflow-y-auto px-3 py-2 font-mono text-[11px] leading-relaxed">
+      <div ref={scroller} className="max-h-[36rem] overflow-y-auto px-3 py-2 font-mono text-[11px] leading-relaxed">
         {withStepIndex(chrono).map(({ e, stepIndex }, i) => (
           <TimelineLine key={i} e={e} stepIndex={stepIndex} />
         ))}
