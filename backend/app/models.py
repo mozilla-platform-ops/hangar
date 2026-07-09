@@ -88,6 +88,21 @@ class Alert(Base):
     acknowledged: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
+class ReprovisionEvent(Base):
+    """Audit ledger for the Hangar reprovision action — who initiated a reprovision of what,
+    when. Execution itself happens in the on-VPN `reprovision` CLI (Cloud Run can't SSH to
+    MDC1); this records the intent + who, gated to the allowlist in settings."""
+
+    __tablename__ = "reprovision_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    hostname: Mapped[str] = mapped_column(String(255))
+    user: Mapped[str] = mapped_column(String(255))     # IAP-verified email of who acted
+    action: Mapped[str] = mapped_column(String(50))    # initiated / quarantined / …
+    detail: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class SyncLog(Base):
     __tablename__ = "sync_log"
 

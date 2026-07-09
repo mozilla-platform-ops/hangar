@@ -56,6 +56,12 @@ class Settings(BaseSettings):
     # Comma-separated allowed CORS origins. Use "*" for local dev only.
     cors_origins: str = "*"
 
+    # Reprovision action is gated to these emails (comma-separated, case-insensitive). The
+    # panel is hidden and the endpoints 403 for anyone not listed. Start small; widen later.
+    reprovision_authorized_users: str = (
+        "rcurran@mozilla.com,aerickson@mozilla.com,jmoss@mozilla.com,jgibbs@mozilla.com"
+    )
+
     # Google IAP audience for verifying the signed identity assertion, of the form
     # "/projects/<PROJECT_NUMBER>/global/backendServices/<BACKEND_SERVICE_ID>".
     # When unset (local dev), identity falls back to the X-Goog-Authenticated-User-Email header.
@@ -79,6 +85,10 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def reprovision_authorized_list(self) -> list[str]:
+        return [u.strip().lower() for u in self.reprovision_authorized_users.split(",") if u.strip()]
 
 
 settings = Settings()

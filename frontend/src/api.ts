@@ -391,6 +391,50 @@ export interface NeedinfosResponse {
   buglist_url: string | null;
 }
 
+export interface ReprovisionReadiness {
+  status: string;
+  generation: string | null;
+  worker_pool: string | null;
+  puppet_role: string | null;
+  mdm_enrollment: string | null;
+  tc_state: string | null;
+  quarantined: boolean;
+  quarantine_until: string | null;
+  running_task: boolean;
+  latest_task_id: string | null;
+  latest_task_state: string | null;
+  supported: boolean;
+}
+export interface ReprovisionPlan {
+  one_command: string;
+  from_wipe: string[];
+  note: string;
+}
+export interface ReprovisionEventItem {
+  user: string;
+  action: string;
+  detail: string | null;
+  at: string | null;
+}
+export interface ReprovisionStatus {
+  hostname: string;
+  short: string;
+  readiness: ReprovisionReadiness;
+  plan: ReprovisionPlan;
+  events: ReprovisionEventItem[];
+}
+export interface ReprovisionAccess {
+  user: string;
+  authorized: boolean;
+}
+export interface ReprovisionInitiateResponse {
+  ok: boolean;
+  user: string;
+  command: string;
+  at: string | null;
+  events: ReprovisionEventItem[];
+}
+
 // ── API calls ──────────────────────────────────────────────────────────────
 
 export const api = {
@@ -411,6 +455,11 @@ export const api = {
     list: (params?: Parameters<typeof get>[1]) => get<WorkerListResponse>("/workers", params),
     get: (hostname: string) => get<Worker>(`/workers/${hostname}`),
     updateNotes: (hostname: string, notes: string | null) => patch<Worker>(`/workers/${hostname}/notes`, { notes }),
+  },
+  reprovision: {
+    access: () => get<ReprovisionAccess>("/reprovision/access"),
+    status: (hostname: string) => get<ReprovisionStatus>(`/reprovision/${hostname}`),
+    initiate: (hostname: string) => post<ReprovisionInitiateResponse>(`/reprovision/${hostname}/initiate`),
   },
   alerts: {
     list: (activeOnly = true) => get<AlertListResponse>("/alerts", { active_only: activeOnly }),
