@@ -201,6 +201,14 @@ resource "google_compute_url_map" "hangar" {
       paths   = ["/api/reprovision/runner", "/api/reprovision/runner/*"]
       service = google_compute_backend_service.hangar_runner.id
     }
+
+    # hangar-screen-agent's endpoints (mTLS, non-IAP). Grouped under /agent/* so a single
+    # trailing-wildcard rule routes them; the viewer endpoints (/api/screen/<host>/request
+    # and /latest) stay on the IAP default backend.
+    path_rule {
+      paths   = ["/api/screen/agent", "/api/screen/agent/*"]
+      service = google_compute_backend_service.hangar_runner.id
+    }
   }
 }
 
