@@ -428,6 +428,12 @@ export interface ReprovisionJob {
   claimed_at: string | null;
   finished_at: string | null;
 }
+export interface ScreenLatest {
+  hostname: string;
+  short: string;
+  captured_at: string | null;
+  data_url: string | null;
+}
 export interface ReprovisionStatus {
   hostname: string;
   short: string;
@@ -477,6 +483,10 @@ export const api = {
     status: (hostname: string) => get<ReprovisionStatus>(`/reprovision/${hostname}`),
     initiate: (hostname: string) => post<ReprovisionInitiateResponse>(`/reprovision/${hostname}/initiate`),
     enqueue: (hostname: string) => post<{ ok: boolean; job: ReprovisionJob }>(`/reprovision/${hostname}/enqueue`),
+  },
+  screen: {
+    request: (hostname: string) => post<{ ok: boolean }>(`/screen/${hostname}/request`),
+    latest: (hostname: string) => get<ScreenLatest>(`/screen/${hostname}/latest`),
   },
   alerts: {
     list: (activeOnly = true) => get<AlertListResponse>("/alerts", { active_only: activeOnly }),

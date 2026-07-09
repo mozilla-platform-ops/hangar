@@ -5,6 +5,7 @@ import { api } from "../api";
 import type { Worker } from "../api";
 import { stateBadge, tcStatusBadge, enrollmentBadge, SourceBadges } from "../components/Badge";
 import { ReprovisionPanel } from "../components/ReprovisionPanel";
+import { WorkerScreen } from "../components/WorkerScreen";
 import { usePoll } from "../lib/useLive";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -152,6 +153,8 @@ export function WorkerDetail() {
       </div>
 
       <ReprovisionPanel hostname={worker.hostname} />
+
+      <WorkerScreen hostname={worker.hostname} />
 
       <Section title="Identity">
         <Field label="Generation" value={worker.generation} />
