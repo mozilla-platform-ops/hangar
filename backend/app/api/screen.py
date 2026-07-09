@@ -70,9 +70,12 @@ def latest(hostname: str, user: str = Depends(require_access), db: Session = Dep
     }
 
 
-# ── Agent endpoints (mTLS client cert, same as the reprovision runner) ──────────────────────
+# ── Agent endpoints (mTLS client cert) ──────────────────────────────────────────────────────
+# Grouped under /agent/* so the LB can route them to the non-IAP mTLS backend with a single
+# trailing-wildcard path rule (GCP url-maps only allow `*` at the end). The frame's host is a
+# query param, not a path segment, so the path stays fixed (`/screen/agent/frame`) and routable.
 
-@router.get("/requests")
+@router.get("/agent/requests")
 def pending(runner: str = Depends(require_runner), db: Session = Depends(get_db)) -> dict[str, Any]:
     """Hosts a viewer is currently watching whose frame is missing/stale — the agent captures
     these (FQDNs, so the agent can VNC straight to them)."""
@@ -88,15 +91,15 @@ def pending(runner: str = Depends(require_runner), db: Session = Depends(get_db)
     return {"hosts": hosts}
 
 
-@router.post("/{hostname:path}/frame")
+@router.post("/agent/frame")
 async def upload_frame(
-    hostname: str, request: Request, runner: str = Depends(require_runner), db: Session = Depends(get_db)
+    host: str, request: Request, runner: str = Depends(require_runner), db: Session = Depends(get_db)
 ) -> dict[str, Any]:
-    """Agent uploads a captured JPEG (raw body). Stores it as the latest frame for the host."""
+    """Agent uploads a captured JPEG (raw body) for ?host=<fqdn>. Stores it as the latest frame."""
     body = await request.body()
     if not body:
         raise HTTPException(status_code=400, detail="empty frame")
-    fqdn = worker_fqdn(hostname)
+    fqdn = worker_fqdn(host)
     row = db.get(WorkerScreenshot, fqdn)
     if row is None:
         row = WorkerScreenshot(hostname=fqdn)
