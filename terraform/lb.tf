@@ -118,20 +118,94 @@ resource "google_compute_backend_service" "hangar" {
   }
 }
 
-# URL map
+# --- Reprovision runner: mTLS, non-IAP backend for /api/reprovision/runner/* ---
+# The runner presents a step-ca client cert (validated at the proxy via the Trust Config in
+# mtls.tf). IAP would block a cert-only request (no Google identity), so the runner path gets
+# its own backend WITHOUT iap{}. Auth is the LB-validated cert + the app's SPIFFE-host allowlist
+# (require_runner), and Cloud Armor caps the source range to the MDC1 runner.
+
+resource "google_compute_security_policy" "hangar_runner" {
+  name = "hangar-runner-armor"
+
+  rule {
+    action   = "allow"
+    priority = 1000
+    match {
+      versioned_expr = "SRC_IPS_V1"
+      config {
+        src_ip_ranges = var.runner_source_cidrs
+      }
+    }
+    description = "Allow the MDC1 runner source range"
+  }
+
+  rule {
+    action   = "deny(403)"
+    priority = 2147483647
+    match {
+      versioned_expr = "SRC_IPS_V1"
+      config {
+        src_ip_ranges = ["*"]
+      }
+    }
+    description = "Default deny (runner path is source-restricted)"
+  }
+}
+
+resource "google_compute_backend_service" "hangar_runner" {
+  name                  = "hangar-runner-backend"
+  protocol              = "HTTPS"
+  load_balancing_scheme = "EXTERNAL_MANAGED"
+  security_policy       = google_compute_security_policy.hangar_runner.id
+
+  backend {
+    group = google_compute_region_network_endpoint_group.hangar.id
+  }
+
+  # No iap{} block: the runner authenticates by client cert, not a Google identity.
+  # The LB injects these after validating the cert chain against the Trust Config.
+  custom_request_headers = [
+    "X-Client-Cert-Present: {client_cert_present}",
+    "X-Client-Cert-Chain-Verified: {client_cert_chain_verified}",
+    "X-Client-Cert-Error: {client_cert_error}",
+    "X-Client-Cert-SPIFFE: {client_cert_spiffe_id}",
+    "X-Client-Cert-Serial-Number: {client_cert_serial_number}",
+  ]
+
+  log_config {
+    enable      = true
+    sample_rate = 1.0
+  }
+}
+
+# URL map — default (IAP) backend for the app; runner path → non-IAP mTLS backend.
 resource "google_compute_url_map" "hangar" {
   name            = "hangar-url-map"
   default_service = google_compute_backend_service.hangar.id
 
-  # Redirect HTTP → HTTPS
-  # (handled via a separate URL map + HTTP proxy below)
+  host_rule {
+    hosts        = ["*"]
+    path_matcher = "main"
+  }
+
+  path_matcher {
+    name            = "main"
+    default_service = google_compute_backend_service.hangar.id
+
+    path_rule {
+      paths   = ["/api/reprovision/runner", "/api/reprovision/runner/*"]
+      service = google_compute_backend_service.hangar_runner.id
+    }
+  }
 }
 
-# HTTPS proxy
+# HTTPS proxy — mTLS enabled (ALLOW_INVALID_OR_MISSING); cert is optional for browser/IAP
+# traffic and required-by-the-app only on the runner path.
 resource "google_compute_target_https_proxy" "hangar" {
-  name             = "hangar-https-proxy"
-  url_map          = google_compute_url_map.hangar.id
-  ssl_certificates = [google_compute_managed_ssl_certificate.hangar.id]
+  name              = "hangar-https-proxy"
+  url_map           = google_compute_url_map.hangar.id
+  ssl_certificates  = [google_compute_managed_ssl_certificate.hangar.id]
+  server_tls_policy = google_network_security_server_tls_policy.runner.id
 }
 
 # Forwarding rule (HTTPS)

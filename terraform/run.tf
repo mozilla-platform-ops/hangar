@@ -138,6 +138,11 @@ resource "google_cloud_run_v2_service" "hangar" {
         name  = "STATIC_DIR"
         value = "/app/frontend/dist"
       }
+      # Hostnames allowed to act as the reprovision runner (mTLS client-cert SPIFFE host).
+      env {
+        name  = "REPROVISION_RUNNER_HOSTS"
+        value = var.reprovision_runner_hosts
+      }
 
       # Secret volume mounts — mount_path is a directory; item path is the filename
       volume_mounts {
