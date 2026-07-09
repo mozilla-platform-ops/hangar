@@ -473,6 +473,7 @@ export const api = {
   },
   reprovision: {
     access: () => get<ReprovisionAccess>("/reprovision/access"),
+    jobs: () => get<{ jobs: ReprovisionJob[] }>("/reprovision/jobs"),
     status: (hostname: string) => get<ReprovisionStatus>(`/reprovision/${hostname}`),
     initiate: (hostname: string) => post<ReprovisionInitiateResponse>(`/reprovision/${hostname}/initiate`),
     enqueue: (hostname: string) => post<{ ok: boolean; job: ReprovisionJob }>(`/reprovision/${hostname}/enqueue`),
