@@ -58,7 +58,7 @@ into MDC1 or putting SSH/admin credentials into Cloud Run.
 2. **The runner (execution plane)** — a small, long-running service on an **on-network host**
    (an MDC1 jump box, a dedicated relops runner mac/VM, or an always-on operator machine on the
    VPN). It:
-   - Authenticates *outbound* to the job channel with its own identity (GCP SA / OIDC).
+   - Authenticates *outbound* with its **mTLS step-ca client cert** (validated by the LB).
    - Pulls a job, acquires the per-host lock, runs `reprovision run <host>` (the real CLI).
    - Streams the CLI's `ui` events back (the `step`/`wire`/`ok`/summary vocabulary already exists —
      add an emitter sink so the same events feed both the terminal and an HTTP/queue callback).
@@ -69,13 +69,60 @@ into MDC1 or putting SSH/admin credentials into Cloud Run.
 MDC1**. Hangar never connects to a worker and never holds SSH creds. This is the crux of the
 security story.
 
-## Transport options (pick one)
+## Chosen transport: mTLS via the forge trust model  ✅
 
-| Option | How | Pros | Cons |
-|---|---|---|---|
-| **Cloud Pub/Sub** *(recommended)* | Hangar publishes to `reprovision-jobs`; runner is a pull subscriber; events to `reprovision-events` (Hangar subscribes) | GCP-native, durable, SA-auth, decoupled, outbound-only | one more GCP resource |
-| **Authenticated HTTP long-poll** | runner polls `GET /jobs/next` + `POST /jobs/{id}/events` with an SA/OIDC token | no new infra; simplest | Hangar must be reachable from MDC1 (outbound HTTPS to the LB — fine) |
-| **GitHub Actions self-hosted runner** | Hangar triggers `workflow_dispatch`; a self-hosted runner in MDC1 runs `reprovision` | reuses CI infra + audit + runner mgmt | couples to GH Actions; coarser live streaming |
+We do **not** need a Google/IAP identity or a GCP service account on the runner. We reuse the
+**exact primitive `forge` already runs** for the vault-broker: an HTTPS LB terminates mTLS,
+validates the client cert against step-ca's **Trust Config**, and forwards `X-Client-Cert-*`
+headers; the app authorizes on the cert's SPIFFE identity. The runner is just another
+step-ca-cert-holding on-network client — same trust model as the workers.
+
+- **Transport:** runner → Hangar over HTTPS **long-poll** (`claim`/`event`/`complete`),
+  authenticated by an **mTLS client cert** (not IAP). Outbound-only from MDC1.
+- **AuthN/Z (done in code):** `require_runner` accepts a chain-verified `X-Client-Cert-Spiffe`
+  whose host is in `reprovision_runner_hosts`, or the shared token for local/dev.
+- **Bonus — secrets:** the runner can fetch its `REPROVISION_*` creds from the **vault-broker
+  over the same mTLS cert** (exactly how a worker fetches `vault.yaml`), so no 1Password
+  service account or secrets file on the box.
+- **Runner cert:** issue a **dedicated on-disk** step-ca client cert (so `httpx` can do mTLS
+  directly). The keychain SCEP key can't be used in-process (the ACL constraint that forced
+  `securetransport-curl` for the vault fetch); a dedicated cert/key file sidesteps that.
+
+Rejected alternatives: **GCP SA + IAP bearer token** (needs a Google identity on m4-81),
+**Pub/Sub** (also needs a GCP SA; more infra). Both viable, but mTLS reuses infra we already
+run and unifies the runner with the worker trust model. Pub/Sub remains a fine future upgrade
+for durability/fan-out.
+
+### What's left to wire (needs GCP / step-ca access)
+
+1. **Front `/api/reprovision/runner/*` with a forge-style mTLS ingress.** Mirror forge's
+   `terraform/lb.tf` + `mtls.tf`: a URL-map path-matcher sending `/api/reprovision/runner/*` to
+   a backend with a **Server TLS Policy** (`clientValidationMode = ALLOW_INVALID_OR_MISSING`) +
+   the step-ca **Trust Config**, forwarding `X-Client-Cert-{Present,Chain-Verified,Leaf,Serial,Spiffe}`,
+   Cloud-Armored to the MDC1 source CIDR. Hangar's main app stays IAP'd; only this path is mTLS.
+   (Hangar's Cloud Run ingress is already internal-LB-only, so the cert headers can't be spoofed
+   via a direct call.)
+2. **Issue the runner a step-ca client cert** — runbook:
+   ```bash
+   # on the step-ca host (or with step-ca admin creds), add a runner provisioner once:
+   step ca provisioner add reprovision-runner --type JWK --create   # or reuse a role provisioner
+   # issue a dedicated on-disk cert for m4-81 with the forge SPIFFE SAN:
+   step ca certificate "macmini-m4-81" runner.crt runner.key \
+     --san "spiffe://relops.mozilla/host/macmini-m4-81/role/reprovision-runner" \
+     --not-after 720h
+   # place on m4-81 (0600) and point the runner at it:
+   #   RUNNER_CLIENT_CERT=/path/runner.crt  RUNNER_CLIENT_KEY=/path/runner.key
+   ```
+   Then set `REPROVISION_RUNNER_HOSTS=macmini-m4-81` in Hangar's prod env. Renew via step-ca
+   before `--not-after`.
+
+### Other transports (kept for reference)
+
+| Option | How | Why not (for now) |
+|---|---|---|
+| Cloud Pub/Sub | Hangar publishes jobs; runner pulls with a GCP SA | needs a GCP SA on the runner; more infra. Good future durability upgrade. |
+| GCP SA + IAP bearer token | runner mints an IAP OIDC token | needs a Google identity on m4-81 |
+| GitHub Actions self-hosted runner | `workflow_dispatch` → self-hosted runner | couples to GH Actions; coarser streaming |
 
 Recommendation: **HTTP long-poll for the MVP** (fewest moving parts, reuses Hangar's existing
 auth surface), migrate to **Pub/Sub** when we want durability + fan-out.
@@ -87,8 +134,9 @@ auth surface), migrate to **Pub/Sub** when we want durability + fan-out.
   none. Compromise of Hangar ≠ compromise of worker SSH.
 - **Human-attributed, allowlisted** — only the four allowlisted users can enqueue; every job
   carries the IAP-verified email; the runner records execution + streams events → full ledger.
-- **Runner authN** — the runner authenticates to the job channel with its own GCP SA / OIDC;
-  Hangar authorizes only that identity to pull jobs and post events.
+- **Runner authN** — the runner authenticates with an **mTLS step-ca client cert** (forge Trust
+  Config); Hangar authorizes only allowlisted SPIFFE hostnames (`reprovision_runner_hosts`) to
+  pull jobs and post events. Per-cert identity — revocable + auditable, better than a shared token.
 - **Least privilege + short-lived TC** — pair with **Avenue A** (short-lived OIDC Taskcluster
   creds) so the runner's TC access is scoped + expiring rather than a static token.
 - **Safety preserved** — execution is the CLI, so BST-escrow guard + busy-worker guard +
