@@ -12,6 +12,7 @@ from __future__ import annotations
 import secrets as _secrets
 from datetime import datetime
 from typing import Any
+from urllib.parse import unquote
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
 from sqlalchemy import desc
@@ -45,15 +46,45 @@ def require_access(request: Request) -> str:
     return user
 
 
-def require_runner(x_reprovision_runner_token: str = Header(default="")) -> str:
-    """Dependency for the on-network runner endpoints. Authenticates with a shared token
-    (constant-time compare). Disabled (503) until a token is configured."""
-    expected = settings.reprovision_runner_token
-    if not expected:
+def _spiffe_host(spiffe: str) -> str:
+    """Short hostname from a forge SPIFFE id: spiffe://<td>/host/<host>/role/<role>."""
+    marker = "/host/"
+    i = spiffe.find(marker)
+    if i == -1:
+        return ""
+    rest = unquote(spiffe[i + len(marker):])
+    return rest.split("/", 1)[0].split(".")[0].lower()
+
+
+def require_runner(
+    x_reprovision_runner_token: str = Header(default=""),
+    x_client_cert_chain_verified: str = Header(default="", alias="X-Client-Cert-Chain-Verified"),
+    x_client_cert_spiffe: str = Header(default="", alias="X-Client-Cert-Spiffe"),
+) -> str:
+    """Authenticate the on-network runner. Preferred: an mTLS client cert the forge-style LB
+    already validated against step-ca's Trust Config (chain-verified) whose SPIFFE hostname is
+    allowlisted. Fallback: the shared runner token (local/dev). Disabled (503) until one is set.
+
+    Safe because Hangar's Cloud Run ingress is internal-LB-only — the backend is unreachable
+    except through the LB, so the X-Client-Cert-* headers can't be spoofed by a direct caller.
+    """
+    host_allowlist = settings.reprovision_runner_host_list
+    token = settings.reprovision_runner_token
+    if not host_allowlist and not token:
         raise HTTPException(status_code=503, detail="reprovision runner is not enabled")
-    if not _secrets.compare_digest(x_reprovision_runner_token, expected):
-        raise HTTPException(status_code=401, detail="bad runner token")
-    return "runner"
+
+    # 1) mTLS client cert (validated + forwarded by the LB).
+    if x_client_cert_chain_verified.lower() == "true" and x_client_cert_spiffe:
+        host = _spiffe_host(x_client_cert_spiffe)
+        if host and host in host_allowlist:
+            return f"cert:{host}"
+        raise HTTPException(status_code=403, detail=f"client cert host '{host}' is not an authorized runner")
+
+    # 2) Shared token.
+    if token and _secrets.compare_digest(x_reprovision_runner_token, token):
+        return "token"
+
+    raise HTTPException(status_code=401, detail="runner authentication required (client cert or token)")
 
 
 def _short(hostname: str) -> str:
@@ -249,7 +280,7 @@ def status(hostname: str, user: str = Depends(require_access), db: Session = Dep
         "readiness": _readiness(w),
         "plan": _plan(w.hostname),
         "active_job": _job_dict(aj) if aj else None,
-        "runner_enabled": bool(settings.reprovision_runner_token),
+        "runner_enabled": bool(settings.reprovision_runner_token or settings.reprovision_runner_host_list),
         "events": _recent_events(db, w.hostname),
     }
 

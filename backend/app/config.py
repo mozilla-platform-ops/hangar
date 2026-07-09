@@ -62,8 +62,13 @@ class Settings(BaseSettings):
         "rcurran@mozilla.com,aerickson@mozilla.com,jmoss@mozilla.com,jgibbs@mozilla.com,mcornmesser@mozilla.com"
     )
 
-    # Shared secret the on-network reprovision runner presents (X-Reprovision-Runner-Token) to
-    # claim jobs and post events. Empty (default) disables the runner endpoints — Phase 2.
+    # The on-network reprovision runner authenticates one of two ways:
+    #  1. mTLS (preferred): the forge-style LB validates its step-ca client cert against the
+    #     Trust Config and forwards X-Client-Cert-* headers. We authorize on the cert's SPIFFE
+    #     hostname being in this allowlist (comma-separated short hostnames, e.g. "macmini-m4-81").
+    #  2. Shared token (local/dev or a non-mTLS ingress): X-Reprovision-Runner-Token.
+    # Runner endpoints are disabled (503) until at least one of these is configured.
+    reprovision_runner_hosts: str = ""
     reprovision_runner_token: str = ""
 
     # Google IAP audience for verifying the signed identity assertion, of the form
@@ -93,6 +98,10 @@ class Settings(BaseSettings):
     @property
     def reprovision_authorized_list(self) -> list[str]:
         return [u.strip().lower() for u in self.reprovision_authorized_users.split(",") if u.strip()]
+
+    @property
+    def reprovision_runner_host_list(self) -> list[str]:
+        return [h.strip().lower() for h in self.reprovision_runner_hosts.split(",") if h.strip()]
 
 
 settings = Settings()
