@@ -103,6 +103,29 @@ class ReprovisionEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class ReprovisionJob(Base):
+    """A queued reprovision, executed by an on-network runner (Cloud Run can't SSH to MDC1).
+
+    Phase 2: Hangar enqueues; a pull-based runner on the VPN claims the job, runs the
+    `reprovision` CLI, and reports events/outcome back. See
+    docs/reprovision-mdc1-runner-design.md. Gated to the same allowlist for enqueue; the
+    runner authenticates with `settings.reprovision_runner_token`.
+    """
+
+    __tablename__ = "reprovision_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    hostname: Mapped[str] = mapped_column(String(255))
+    requested_by: Mapped[str] = mapped_column(String(255))          # IAP email that enqueued it
+    # queued → claimed → running → succeeded | failed | canceled
+    state: Mapped[str] = mapped_column(String(20), default="queued")
+    runner: Mapped[str | None] = mapped_column(String(255))         # which runner claimed it
+    detail: Mapped[str | None] = mapped_column(Text)               # last message / failure reason
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
 class SyncLog(Base):
     __tablename__ = "sync_log"
 

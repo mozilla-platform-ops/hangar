@@ -62,6 +62,10 @@ class Settings(BaseSettings):
         "rcurran@mozilla.com,aerickson@mozilla.com,jmoss@mozilla.com,jgibbs@mozilla.com,mcornmesser@mozilla.com"
     )
 
+    # Shared secret the on-network reprovision runner presents (X-Reprovision-Runner-Token) to
+    # claim jobs and post events. Empty (default) disables the runner endpoints — Phase 2.
+    reprovision_runner_token: str = ""
+
     # Google IAP audience for verifying the signed identity assertion, of the form
     # "/projects/<PROJECT_NUMBER>/global/backendServices/<BACKEND_SERVICE_ID>".
     # When unset (local dev), identity falls back to the X-Goog-Authenticated-User-Email header.
