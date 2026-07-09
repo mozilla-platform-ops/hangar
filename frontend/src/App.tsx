@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Layout } from "./components/Layout";
 import { CommandPalette } from "./components/CommandPalette";
 import { KeyboardShortcuts } from "./components/KeyboardShortcuts";
+import { ReprovisionNotifier } from "./components/ReprovisionNotifier";
 
 // Route-level code splitting: each page loads on first visit, so the initial
 // bundle is just the shell + the landing page.
@@ -17,6 +18,7 @@ export default function App() {
     <BrowserRouter>
       <CommandPalette />
       <KeyboardShortcuts />
+      <ReprovisionNotifier />
       <Routes>
         <Route element={<Layout />}>
           <Route index element={<Overview />} />
