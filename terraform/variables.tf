@@ -15,6 +15,11 @@ variable "domain" {
   type        = string
 }
 
+variable "runner_domain" {
+  description = "Dedicated domain for the on-network reprovision-runner + screen-agent mTLS frontend (e.g. hangar-runner.relops.mozilla.com). Kept separate from `domain` so mTLS is never attached to the human/browser proxy."
+  type        = string
+}
+
 variable "db_tier" {
   description = "Cloud SQL machine tier"
   type        = string

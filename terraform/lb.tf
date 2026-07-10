@@ -193,32 +193,22 @@ resource "google_compute_url_map" "hangar" {
     path_matcher = "main"
   }
 
+  # The runner + screen-agent mTLS endpoints now live on their own frontend
+  # (hangar_runner.*, see lb_runner.tf) so mTLS is never attached to this human proxy.
+  # Everything on this hostname goes through IAP.
   path_matcher {
     name            = "main"
     default_service = google_compute_backend_service.hangar.id
-
-    path_rule {
-      paths   = ["/api/reprovision/runner", "/api/reprovision/runner/*"]
-      service = google_compute_backend_service.hangar_runner.id
-    }
-
-    # hangar-screen-agent's endpoints (mTLS, non-IAP). Grouped under /agent/* so a single
-    # trailing-wildcard rule routes them; the viewer endpoints (/api/screen/<host>/request
-    # and /latest) stay on the IAP default backend.
-    path_rule {
-      paths   = ["/api/screen/agent", "/api/screen/agent/*"]
-      service = google_compute_backend_service.hangar_runner.id
-    }
   }
 }
 
-# HTTPS proxy — mTLS enabled (ALLOW_INVALID_OR_MISSING); cert is optional for browser/IAP
-# traffic and required-by-the-app only on the runner path.
+# HTTPS proxy — NO server_tls_policy: this human/browser frontend must NOT request a client
+# cert (a client-cert request breaks Firefox on corp laptops that carry a TLS-inspection cert
+# in the keychain). mTLS lives on the dedicated runner proxy in lb_runner.tf.
 resource "google_compute_target_https_proxy" "hangar" {
-  name              = "hangar-https-proxy"
-  url_map           = google_compute_url_map.hangar.id
-  ssl_certificates  = [google_compute_managed_ssl_certificate.hangar.id]
-  server_tls_policy = google_network_security_server_tls_policy.runner.id
+  name             = "hangar-https-proxy"
+  url_map          = google_compute_url_map.hangar.id
+  ssl_certificates = [google_compute_managed_ssl_certificate.hangar.id]
 }
 
 # Forwarding rule (HTTPS)
