@@ -62,6 +62,16 @@ def _run_load_sampler() -> None:
         load_sampler.run_sync(db)
 
 
+def _run_pool_sources_warm() -> None:
+    """Keep the per-pool job-source cache warm so the macOS tab fills instantly."""
+    from ..api import fleet
+    try:
+        n = fleet.warm_pool_sources()
+        log.debug("Warmed job-source cache for %d pool(s)", n)
+    except Exception:
+        log.exception("Pool-sources warm failed")
+
+
 def run_all_sync() -> None:
     """Run all sync jobs sequentially (used for manual trigger).
 
@@ -89,6 +99,7 @@ def start_scheduler() -> None:
     _scheduler.add_job(_run_github_prs, IntervalTrigger(seconds=settings.sync_interval_github_prs), id="github_prs", replace_existing=True)
     _scheduler.add_job(_run_prune, IntervalTrigger(seconds=settings.sync_interval_prune), id="prune", replace_existing=True)
     _scheduler.add_job(_run_load_sampler, IntervalTrigger(seconds=settings.sync_interval_load), id="load_sampler", replace_existing=True)
+    _scheduler.add_job(_run_pool_sources_warm, IntervalTrigger(seconds=settings.sync_interval_pool_sources_warm), id="pool_sources_warm", replace_existing=True)
 
     _scheduler.start()
     log.info("Background sync scheduler started")

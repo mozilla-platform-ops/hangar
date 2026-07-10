@@ -14,8 +14,6 @@ Read-only reference data, so we fetch on demand rather than syncing into the DB.
 from __future__ import annotations
 
 import logging
-import threading
-import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any
@@ -23,6 +21,7 @@ from typing import Any
 import requests
 from fastapi import APIRouter, Depends, Query
 
+from .. import cache
 from ..auth import current_user
 from ..config import settings
 
@@ -39,26 +38,6 @@ _MAX_PUSHES = 10
 # Treeherder status keys that mean "this job went wrong" (anything not in
 # {success, completed, pending, running, unknown} we treat as a failure).
 _FAILURE_KEYS = ("testfailed", "busted", "exception", "usercancel", "retry", "superseded")
-
-# key (author:count) -> (monotonic_ts, payload)
-_cache: dict[str, tuple[float, Any]] = {}
-_cache_lock = threading.Lock()
-
-
-def _cached(key: str) -> Any | None:
-    with _cache_lock:
-        hit = _cache.get(key)
-        if hit and (time.monotonic() - hit[0]) < _CACHE_TTL_SECONDS:
-            return hit[1]
-    return None
-
-
-def _store(key: str, payload: Any) -> None:
-    with _cache_lock:
-        if len(_cache) > 200:
-            _cache.clear()  # crude bound; tiny cache, self-heals
-        _cache[key] = (time.monotonic(), payload)
-
 
 def _get_json(url: str, params: dict[str, Any] | None = None) -> Any:
     resp = requests.get(url, params=params, timeout=6, headers={"User-Agent": _USER_AGENT})
@@ -144,32 +123,23 @@ def get_try_pushes(
     if "@" not in author or author.endswith("@localhost"):
         return {"author": author, "pushes": [], "treeherder_url": None}
 
-    key = f"{author}:{count}"
-    cached = _cached(key)
-    if cached is not None:
-        return cached
+    key = f"try:{author}:{count}"
 
+    def _fetch() -> dict[str, Any]:
+        return {
+            "author": author,
+            "pushes": _build_pushes(author, count),
+            "treeherder_url": f"{_TH_BASE}/jobs?repo=try&author={author}",
+        }
+
+    # SWR: a warm (even slightly stale) result returns instantly and refreshes in
+    # the background; only a cold miss blocks, and an upstream error there soft-fails.
     try:
-        pushes = _build_pushes(author, count)
+        return cache.swr(key, _CACHE_TTL_SECONDS, _fetch)
     except (requests.RequestException, ValueError) as exc:
         log.warning("Treeherder try-push fetch failed (%s): %s", author, exc)
-        stale = _cached_any(key)
+        stale = cache.get_stale(key)
         if stale is not None:
             return stale
         # Soft-fail: the Overview rail just hides itself rather than erroring.
         return {"author": author, "pushes": [], "treeherder_url": None}
-
-    payload = {
-        "author": author,
-        "pushes": pushes,
-        "treeherder_url": f"{_TH_BASE}/jobs?repo=try&author={author}",
-    }
-    _store(key, payload)
-    return payload
-
-
-def _cached_any(key: str) -> Any | None:
-    """Ignore-TTL cache read, for serving stale data on an upstream error."""
-    with _cache_lock:
-        hit = _cache.get(key)
-        return hit[1] if hit else None

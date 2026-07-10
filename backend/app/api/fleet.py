@@ -10,10 +10,15 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
+from .. import cache
 from ..config import settings
-from ..database import get_db
+from ..database import SessionLocal, get_db
 from ..models import Alert, FailureEvent, PoolLoadSample, SyncLog, Worker
 from ..sync.taskcluster import HW_WORKER_POOLS
+
+# Job-source sampling is served through the SWR cache so page loads never block on
+# live Taskcluster fan-out; a task's project/user is immutable, so it's cached too.
+_POOL_SOURCES_TTL = 90
 
 HW_POOL_PROVISIONERS: dict[str, str] = {worker_type: provisioner for provisioner, worker_type in HW_WORKER_POOLS}
 LINUX_CLOUD_EXCLUDED_PROVISIONERS = {"releng-hardware", "proj-autophone"}
@@ -812,52 +817,65 @@ def android_pool_sources(pool: str) -> dict[str, Any]:
     }
 
 
-@router.get("/pool-sources")
-def pool_sources(pool: str, db: Session = Depends(get_db)) -> dict[str, Any]:
-    """Sample running tasks for a pool to determine job source (project/tree) breakdown."""
-    task_ids: list[str] = [
-        row[0] for row in db.query(Worker.tc_latest_task_id)
-        .filter(
-            Worker.worker_pool == pool,
-            Worker.tc_latest_task_id.isnot(None),
-        )
-        .filter(Worker.tc_latest_task_state.ilike("running"))
-        .limit(60)
-        .all()
-        if row[0]
-    ]
+def _scheduler_project(scheduler_id: str) -> str:
+    if "level-3" in scheduler_id:
+        return "autoland"
+    if "level-1" in scheduler_id:
+        return "try"
+    if "github" in scheduler_id:
+        return "github"
+    return "other"
+
+
+def _task_meta(task_id: str) -> dict[str, str]:
+    """Project/user for a task. A task's tags never change, so cache indefinitely —
+    this collapses repeated Taskcluster lookups across pools and refresh cycles."""
+    key = f"task-meta:{task_id}"
+    hit = cache.get_stale(key)
+    if hit is not None:
+        return hit
+    meta = {"project": "unknown", "user": ""}
+    url = f"{settings.tc_root_url}/api/queue/v1/task/{task_id}"
+    try:
+        r = requests.get(url, timeout=4, headers={"User-Agent": "relops-dashboard/1.0"})
+        if r.ok:
+            d = r.json()
+            tags = d.get("tags") or {}
+            meta = {
+                "project": tags.get("project") or _scheduler_project(d.get("schedulerId", "")),
+                "user": tags.get("createdForUser") or "",
+            }
+            cache.set(key, meta)  # only cache successful lookups (immutable)
+    except Exception:
+        pass
+    return meta
+
+
+def _compute_pool_sources(pool: str) -> dict[str, Any]:
+    """Sample running tasks for a pool → job-source (project/tree) + submitter mix.
+
+    Opens its own DB session so it is safe to run from a background thread (the
+    SWR refresh / warmer), not just a request."""
+    with SessionLocal() as db:
+        task_ids: list[str] = [
+            row[0] for row in db.query(Worker.tc_latest_task_id)
+            .filter(
+                Worker.worker_pool == pool,
+                Worker.tc_latest_task_id.isnot(None),
+            )
+            .filter(Worker.tc_latest_task_state.ilike("running"))
+            .limit(60)
+            .all()
+            if row[0]
+        ]
 
     if not task_ids:
         return {"pool": pool, "sample_size": 0, "by_project": {}, "by_user": {}}
 
-    def _scheduler_project(scheduler_id: str) -> str:
-        if "level-3" in scheduler_id:
-            return "autoland"
-        if "level-1" in scheduler_id:
-            return "try"
-        if "github" in scheduler_id:
-            return "github"
-        return "other"
-
-    def _fetch(task_id: str) -> dict[str, str]:
-        url = f"{settings.tc_root_url}/api/queue/v1/task/{task_id}"
-        try:
-            r = requests.get(url, timeout=4, headers={"User-Agent": "relops-dashboard/1.0"})
-            if r.ok:
-                d = r.json()
-                tags = d.get("tags") or {}
-                project = tags.get("project") or _scheduler_project(d.get("schedulerId", ""))
-                user = tags.get("createdForUser") or ""
-                return {"project": project, "user": user}
-        except Exception:
-            pass
-        return {"project": "unknown", "user": ""}
-
     by_project: dict[str, int] = {}
     by_user: dict[str, int] = {}
-
     with ThreadPoolExecutor(max_workers=20) as ex:
-        for meta in [f.result() for f in [ex.submit(_fetch, tid) for tid in task_ids]]:
+        for meta in [f.result() for f in [ex.submit(_task_meta, tid) for tid in task_ids]]:
             p = meta["project"] or "unknown"
             by_project[p] = by_project.get(p, 0) + 1
             if meta["user"]:
@@ -869,6 +887,30 @@ def pool_sources(pool: str, db: Session = Depends(get_db)) -> dict[str, Any]:
         "by_project": dict(sorted(by_project.items(), key=lambda x: x[1], reverse=True)),
         "by_user": dict(sorted(by_user.items(), key=lambda x: x[1], reverse=True)[:10]),
     }
+
+
+@router.get("/pool-sources")
+def pool_sources(pool: str) -> dict[str, Any]:
+    """Job-source breakdown for a pool, served stale-while-revalidate so the card
+    fills instantly instead of waiting on live Taskcluster sampling."""
+    return cache.swr(f"pool-sources:{pool}", _POOL_SOURCES_TTL, lambda: _compute_pool_sources(pool))
+
+
+def warm_pool_sources() -> int:
+    """Background job: refresh the job-source cache for every pool with running
+    tasks, so the first page load already has warm data. Returns pools warmed."""
+    with SessionLocal() as db:
+        pools = [
+            row[0] for row in db.query(Worker.worker_pool)
+            .filter(Worker.worker_pool.isnot(None))
+            .filter(Worker.tc_latest_task_state.ilike("running"))
+            .distinct()
+            .all()
+            if row[0]
+        ]
+    for pool in pools:
+        cache.set(f"pool-sources:{pool}", _compute_pool_sources(pool))
+    return len(pools)
 
 
 PLATFORM_POOL_PATTERNS: dict[str, list[str]] = {
