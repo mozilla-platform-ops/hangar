@@ -418,6 +418,12 @@ def run_sync(db: Session) -> int:
         db.query(FailureEvent).filter(FailureEvent.failed_at < prune_cutoff).delete(synchronize_session=False)
 
         db.commit()
+
+        # Collapse any duplicate active alerts a host picked up across hostname variants
+        # (renames / EACS re-enrollment / quarantine churn) right after generating them, so a
+        # muted host can't reappear as a live problem between the hourly prune cycles. Ack-preserving.
+        from .reconcile import dedup_alerts
+        dedup_alerts(db)
         log_entry.finished_at = datetime.utcnow()
         log_entry.records_updated = total
         log_entry.success = True
