@@ -456,6 +456,23 @@ export interface ReprovisionInitiateResponse {
   events: ReprovisionEventItem[];
 }
 
+export interface FailureShot {
+  name: string;
+  url: string;
+}
+export interface FailureScreenshotItem {
+  task_id: string;
+  task_name: string | null;
+  state: string;
+  failed_at: string | null;
+  task_url: string;
+  screenshots: FailureShot[];
+}
+export interface FailureScreenshotsResponse {
+  hostname: string;
+  failures: FailureScreenshotItem[];
+}
+
 // ── API calls ──────────────────────────────────────────────────────────────
 
 export const api = {
@@ -476,6 +493,7 @@ export const api = {
     list: (params?: Parameters<typeof get>[1]) => get<WorkerListResponse>("/workers", params),
     get: (hostname: string) => get<Worker>(`/workers/${hostname}`),
     updateNotes: (hostname: string, notes: string | null) => patch<Worker>(`/workers/${hostname}/notes`, { notes }),
+    failureScreenshots: (hostname: string) => get<FailureScreenshotsResponse>(`/workers/${hostname}/failure-screenshots`),
   },
   reprovision: {
     access: () => get<ReprovisionAccess>("/reprovision/access"),

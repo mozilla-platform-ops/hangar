@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, ExternalLink, Pencil, CheckCircle2, X } from "lucide-react";
 import { api } from "../api";
-import type { Worker } from "../api";
+import type { Worker, FailureScreenshotItem } from "../api";
 import { stateBadge, tcStatusBadge, enrollmentBadge, SourceBadges } from "../components/Badge";
 import { ReprovisionPanel } from "../components/ReprovisionPanel";
 import { usePoll } from "../lib/useLive";
@@ -84,6 +84,57 @@ function InlineNoteEditor({ hostname, initial }: { hostname: string; initial: st
   );
 }
 
+function FailureScreenshots({ hostname }: { hostname: string }) {
+  const [failures, setFailures] = useState<FailureScreenshotItem[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.workers.failureScreenshots(hostname)
+      .then(d => { if (live) setFailures(d.failures); })
+      .catch(() => { if (live) setFailures([]); });
+    return () => { live = false; };
+  }, [hostname]);
+
+  // Loading, or no failure screenshots for this host → render nothing (hide the card).
+  if (!failures || failures.length === 0) return null;
+
+  const latest = failures[0];
+  const shot = latest.screenshots[0];
+  const rest = failures.slice(1);
+
+  return (
+    <div className="card p-5">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-semibold text-white">Latest failure screenshot</h2>
+        <a href={latest.task_url} target="_blank" rel="noreferrer"
+           className="flex items-center gap-1 text-xs text-brand-400 hover:text-brand-300 transition-colors font-mono max-w-[60%] truncate">
+          {latest.task_name ?? latest.task_id.slice(0, 12)} <ExternalLink size={10} className="flex-shrink-0" />
+        </a>
+      </div>
+      <a href={shot.url} target="_blank" rel="noreferrer" title="Open full screenshot in a new tab">
+        <img src={shot.url} alt="failure screenshot" loading="lazy"
+             className="rounded-lg border border-gray-800 max-h-[26rem] w-auto hover:opacity-90 transition-opacity" />
+      </a>
+      <p className="text-[11px] text-gray-600 mt-2 font-mono">{fmtDate(latest.failed_at)} · {latest.state}</p>
+      {rest.length > 0 && (
+        <div className="mt-4 border-t border-gray-800/60 pt-3">
+          <div className="text-[10px] uppercase tracking-wider text-gray-600 mb-2">Earlier failures</div>
+          <ul className="space-y-1.5">
+            {rest.map(f => (
+              <li key={f.task_id} className="flex items-center gap-2 text-xs min-w-0">
+                <a href={f.screenshots[0].url} target="_blank" rel="noreferrer"
+                   className="text-brand-400 hover:text-brand-300 flex-shrink-0">screenshot</a>
+                <span className="text-gray-600 flex-shrink-0 tabular-nums">{fmtDate(f.failed_at)}</span>
+                <a href={f.task_url} target="_blank" rel="noreferrer"
+                   className="text-gray-500 hover:text-gray-300 font-mono truncate">{f.task_name ?? f.task_id.slice(0, 12)}</a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function WorkerDetail() {
   const { hostname = "" } = useParams<{ hostname: string }>();
   const navigate = useNavigate();
@@ -152,6 +203,8 @@ export function WorkerDetail() {
       </div>
 
       <ReprovisionPanel hostname={worker.hostname} />
+
+      <FailureScreenshots hostname={worker.hostname} />
 
       {/* Live view (VNC) disabled for now — too slow to be worth any worker overhead;
           revisit with perf tuning (shorter hold, smaller/lower-quality frames). The
