@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { CheckCircle2, Eye, Pencil, X } from "lucide-react";
+import { CheckCircle2, Eye, EyeOff, Pencil, X } from "lucide-react";
 import { api } from "../api";
 import type { Alert } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
@@ -91,6 +91,7 @@ export function Alerts() {
   const [loading, setLoading] = useState(true);
   const [activeOnly, setActiveOnly] = useState(true);
   const [hideSigningWorkers, setHideSigningWorkers] = useState(true);
+  const [hideAcknowledged, setHideAcknowledged] = useState(false);
   const [notes, setNotes] = useState<Record<string, string | null>>({});
   const navigate = useNavigate();
 
@@ -126,8 +127,21 @@ export function Alerts() {
     setAlerts(prev => prev.map(a => a.id === id ? { ...a, acknowledged: true } : a));
   }
 
-  const visibleAlerts = hideSigningWorkers ? alerts.filter(a => !isSigningWorker(a)) : alerts;
-  const byType = visibleAlerts.reduce<Record<string, number>>((acc, a) => {
+  async function unacknowledge(id: number) {
+    await api.alerts.unacknowledge(id);
+    setAlerts(prev => prev.map(a => a.id === id ? { ...a, acknowledged: false } : a));
+  }
+
+  // Acknowledged alerts are "known / not a real problem" — e.g. an inventoried worker temporarily
+  // repurposed to run VMs. They stay in the list (dimmed, sorted last) but never count toward the
+  // headline number or the per-type tiles, so they don't read as live problems.
+  const scoped = hideSigningWorkers ? alerts.filter(a => !isSigningWorker(a)) : alerts;
+  const unacked = scoped.filter(a => !a.acknowledged);
+  const ackedCount = scoped.length - unacked.length;
+  const visibleAlerts = (hideAcknowledged ? unacked : scoped)
+    .slice()
+    .sort((a, b) => Number(a.acknowledged) - Number(b.acknowledged));
+  const byType = unacked.reduce<Record<string, number>>((acc, a) => {
     acc[a.alert_type] = (acc[a.alert_type] || 0) + 1;
     return acc;
   }, {});
@@ -139,9 +153,18 @@ export function Alerts() {
         <div className="flex items-center gap-3">
           <span className="w-1 h-9 rounded-full flex-shrink-0" style={{ backgroundImage: FF_GRADIENT }} />
           <div>
-            <h1 className="text-2xl font-light text-white tracking-tight">Alerts</h1>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-2xl font-light text-white tracking-tight">Alerts</h1>
+              <span
+                className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-gray-500 border border-gray-700/70 rounded-full px-2 py-0.5"
+                title="Alerting currently covers the macOS fleet only"
+              >
+                macOS only
+              </span>
+            </div>
             <p className="text-gray-500 text-sm mt-0.5">
-              {visibleAlerts.length}{total !== visibleAlerts.length ? ` of ${total}` : ""} {activeOnly ? "active" : "total"} alerts
+              {unacked.length} {activeOnly ? "active" : "total"} {unacked.length === 1 ? "alert" : "alerts"}
+              {ackedCount > 0 && <span className="text-gray-600"> · {ackedCount} acknowledged</span>}
             </p>
           </div>
         </div>
@@ -150,6 +173,12 @@ export function Alerts() {
             <input type="checkbox" checked={hideSigningWorkers} onChange={e => setHideSigningWorkers(e.target.checked)} className="accent-brand-500" />
             Hide signing workers
           </label>
+          {ackedCount > 0 && (
+            <label className="flex items-center gap-2 text-xs text-gray-500 hover:text-gray-300 cursor-pointer transition-colors">
+              <input type="checkbox" checked={hideAcknowledged} onChange={e => setHideAcknowledged(e.target.checked)} className="accent-brand-500" />
+              Hide acknowledged
+            </label>
+          )}
           <label className="flex items-center gap-2 text-xs text-gray-500 hover:text-gray-300 cursor-pointer transition-colors">
             <input type="checkbox" checked={activeOnly} onChange={e => setActiveOnly(e.target.checked)} className="accent-brand-500" />
             Active only
@@ -202,7 +231,14 @@ export function Alerts() {
                     className={`border-b border-gray-800/40 hover:bg-gray-800/15 transition-colors ${cfg.rowBg} ${alert.acknowledged ? "opacity-50" : ""}`}
                   >
                     <td className="px-4 py-3 pl-5">
-                      <Badge label={cfg.label} variant={cfg.color} dot />
+                      <div className="flex items-center gap-2">
+                        <Badge label={cfg.label} variant={cfg.color} dot />
+                        {alert.acknowledged && (
+                          <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-amber-500/70 font-semibold" title="Acknowledged — muted, not counted as a live problem">
+                            <EyeOff size={10} /> Ack'd
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <button
@@ -229,10 +265,18 @@ export function Alerts() {
                     <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap tabular-nums">{timeAgo(alert.created_at)}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
-                        {!alert.acknowledged && (
+                        {alert.acknowledged ? (
+                          <button
+                            className="p-1.5 rounded-lg hover:bg-gray-700/60 text-amber-500/70 hover:text-amber-400 transition-all"
+                            title="Un-acknowledge (treat as a real problem again)"
+                            onClick={() => unacknowledge(alert.id)}
+                          >
+                            <EyeOff size={13} />
+                          </button>
+                        ) : (
                           <button
                             className="p-1.5 rounded-lg hover:bg-gray-700/60 text-gray-600 hover:text-gray-300 transition-all"
-                            title="Acknowledge"
+                            title="Acknowledge (mute as a known / not-a-real-problem)"
                             onClick={() => acknowledge(alert.id)}
                           >
                             <Eye size={13} />

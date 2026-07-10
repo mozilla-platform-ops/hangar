@@ -166,11 +166,13 @@ def fleet_summary(db: Session = Depends(get_db)) -> dict[str, Any]:
             branch_by_branch[w.branch] = branch_by_branch.get(w.branch, 0) + 1  # type: ignore[index]
             branch_by_pool[pool] = branch_by_pool.get(pool, 0) + 1
 
-    # Read alert counts directly from the alerts table — single source of truth
+    # Read alert counts directly from the alerts table — single source of truth. Acknowledged
+    # alerts are excluded: an acked alert is a known / not-a-real-problem (e.g. an inventoried
+    # worker temporarily repurposed to run VMs), so it must not inflate the fleet-wide numbers.
     def _active_alert_count(alert_type: str) -> int:
         return (
             db.query(func.count(Alert.id))
-            .filter(Alert.alert_type == alert_type, Alert.resolved_at == None)  # noqa: E711
+            .filter(Alert.alert_type == alert_type, Alert.resolved_at == None, Alert.acknowledged == False)  # noqa: E711,E712
             .scalar() or 0
         )
 
@@ -184,6 +186,7 @@ def fleet_summary(db: Session = Depends(get_db)) -> dict[str, Any]:
         .filter(
             Alert.alert_type == "missing_from_tc",
             Alert.resolved_at == None,  # noqa: E711
+            Alert.acknowledged == False,  # noqa: E712
             Worker.platform == "mac",
         )
         .scalar() or 0

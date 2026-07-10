@@ -492,6 +492,7 @@ export const api = {
     list: (activeOnly = true) => get<AlertListResponse>("/alerts", { active_only: activeOnly }),
     resolve: (id: number) => post<Alert>(`/alerts/${id}/resolve`),
     acknowledge: (id: number) => post<Alert>(`/alerts/${id}/acknowledge`),
+    unacknowledge: (id: number) => post<Alert>(`/alerts/${id}/unacknowledge`),
   },
   prs: {
     list: () => get<RoninPRsResponse>("/prs/ronin"),
