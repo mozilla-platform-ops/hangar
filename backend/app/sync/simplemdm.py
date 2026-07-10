@@ -162,6 +162,15 @@ def run_sync(db: Session) -> int:
                 )
                 if not existing:
                     db.add(Alert(alert_type="mdm_unenrolled", hostname=hostname, detail="MDM enrollment status: unenrolled"))
+            else:
+                # Re-enrolled (or no longer production): clear any active unenrolled alert, so it
+                # doesn't linger active forever (this path previously only ever created).
+                for stale in (
+                    db.query(Alert)
+                    .filter(Alert.hostname == hostname, Alert.alert_type == "mdm_unenrolled", Alert.resolved_at == None)  # noqa: E711
+                    .all()
+                ):
+                    stale.resolved_at = datetime.utcnow()
             count += 1
 
         db.commit()

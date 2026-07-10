@@ -20,6 +20,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 
 from ..config import settings
+from ..hosts import worker_fqdn
 from ..models import Alert, SyncLog, Worker
 
 log = logging.getLogger(__name__)
@@ -81,6 +82,35 @@ def prune_decommissioned(db: Session) -> int:
     return removed
 
 
+def dedup_alerts(db: Session) -> int:
+    """Resolve duplicate *active* alerts so one host never shows the same alert twice.
+
+    Groups active alerts by (canonical FQDN, alert_type) — worker_fqdn() collapses short/FQDN
+    hostname variants left behind by past renames/re-enrollments — and resolves all but the
+    newest in each group. This cleans up existing dupes (e.g. mdm_unenrolled, which had no
+    resolve path, and quarantined alerts created under an earlier hostname form) and keeps them
+    from re-accumulating. Idempotent: a no-op once each host has a single active alert per type.
+    """
+    now = datetime.utcnow()
+    active = db.query(Alert).filter(Alert.resolved_at == None).all()  # noqa: E711
+    groups: dict[tuple[str, str], list[Alert]] = {}
+    for a in active:
+        groups.setdefault((worker_fqdn(a.hostname), a.alert_type), []).append(a)
+
+    resolved = 0
+    for alerts in groups.values():
+        if len(alerts) < 2:
+            continue
+        alerts.sort(key=lambda a: a.created_at or datetime.min, reverse=True)  # newest first
+        for dup in alerts[1:]:
+            dup.resolved_at = now
+            resolved += 1
+    if resolved:
+        db.commit()
+        log.info("Alert dedup: resolved %d duplicate active alert(s)", resolved)
+    return resolved
+
+
 def run_sync(db: Session) -> int:
     """SyncLog-wrapped entry point so the cleanup shows in /api/fleet/sync-logs."""
     log_entry = SyncLog(source="prune", started_at=datetime.utcnow())
@@ -88,13 +118,14 @@ def run_sync(db: Session) -> int:
     db.flush()
     try:
         removed = prune_decommissioned(db)
+        deduped = dedup_alerts(db)
         db.commit()
         log_entry.finished_at = datetime.utcnow()
-        log_entry.records_updated = removed
+        log_entry.records_updated = removed + deduped
         log_entry.success = True
         db.commit()
-        log.info("Decommission cleanup complete: %d removed", removed)
-        return removed
+        log.info("Cleanup complete: %d decommissioned, %d duplicate alerts resolved", removed, deduped)
+        return removed + deduped
     except Exception:
         db.rollback()
         log.exception("Decommission cleanup failed")
