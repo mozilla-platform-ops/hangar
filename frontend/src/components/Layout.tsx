@@ -94,7 +94,7 @@ export function Layout() {
       .then(d => setTcSync(d.sync_status["taskcluster"] ?? null))
       .catch(() => {});
     api.alerts.list(true)
-      .then(d => setAlertCount(d.alerts.filter(a => !isSigningWorker(a)).length))
+      .then(d => setAlertCount(d.alerts.filter(a => !isSigningWorker(a) && !a.acknowledged).length))
       .catch(() => {});
   };
   useEffect(refreshShell, []);
