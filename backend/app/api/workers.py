@@ -1,18 +1,58 @@
 """Worker API endpoints."""
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any
 
+import requests
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy import asc, desc, nullslast
 from sqlalchemy.orm import Session
 
+from .. import cache
+from ..config import settings
 from ..database import get_db
 from ..hosts import worker_fqdn
-from ..models import SyncLog, Worker
+from ..models import FailureEvent, SyncLog, Worker
 
 router = APIRouter(prefix="/workers", tags=["workers"])
+
+# A terminal task's artifacts never change, so screenshot lookups are cached hard.
+_SHOTS_TTL = 6 * 3600
+_UA = {"User-Agent": "relops-dashboard/1.0"}
+
+
+def _task_screenshots(task_id: str) -> list[dict[str, str]]:
+    """Failure-screenshot artifact links for a task's last run. Firefox test tasks upload these
+    as public artifacts (public/test_info/mozilla-test-fail-screenshot_*.png, contentType
+    image/png), so the URLs are directly loadable in the browser — no proxy/auth needed.
+    Cached (immutable once the task is terminal)."""
+    def _fetch() -> list[dict[str, str]]:
+        base = settings.tc_root_url.rstrip("/")
+        try:
+            st = requests.get(f"{base}/api/queue/v1/task/{task_id}/status", timeout=6, headers=_UA)
+            runs = ((st.json().get("status") or {}).get("runs") or []) if st.ok else []
+        except Exception:
+            return []
+        if not runs:
+            return []
+        run_id = runs[-1].get("runId", 0)  # the recorded failure is the last run
+        try:
+            r = requests.get(f"{base}/api/queue/v1/task/{task_id}/runs/{run_id}/artifacts", timeout=6, headers=_UA)
+            arts = r.json().get("artifacts", []) if r.ok else []
+        except Exception:
+            return []
+        shots = []
+        for a in arts:
+            name = a.get("name", "")
+            if a.get("contentType") == "image/png" and "screenshot" in name.lower():
+                shots.append({
+                    "name": name.rsplit("/", 1)[-1],
+                    "url": f"{base}/api/queue/v1/task/{task_id}/runs/{run_id}/artifacts/{name}",
+                })
+        return shots
+    return cache.swr(f"task-shots:{task_id}", _SHOTS_TTL, _fetch)
 
 # Sources whose presence we surface per worker. Maps the UI key -> SyncLog source.
 _FOUND_SOURCES = {"puppet": "puppet", "mdm": "simplemdm", "tc": "taskcluster"}
@@ -167,6 +207,44 @@ def update_notes(hostname: str, db: Session = Depends(get_db), notes: str | None
     worker.dashboard_notes = notes or None
     db.commit()
     return _worker_to_dict(worker, _source_cutoffs(db))
+
+
+# Declared before the /{hostname:path} catch-all GET so it isn't matched as a hostname.
+@router.get("/{hostname:path}/failure-screenshots")
+def failure_screenshots(
+    hostname: str, db: Session = Depends(get_db), limit: int = Query(8, ge=1, le=25)
+) -> dict[str, Any]:
+    """Recent failed tasks for this host that produced a failure screenshot, newest first —
+    each with a directly-loadable PNG link. Powers the worker page's failure-screenshot view
+    (post-hoc evidence with zero load on the worker, unlike the live VNC path)."""
+    fqdn = worker_fqdn(hostname)
+    events = (
+        db.query(FailureEvent)
+        .filter(FailureEvent.hostname == fqdn)
+        .order_by(desc(FailureEvent.failed_at))
+        .limit(limit)
+        .all()
+    )
+    base = settings.tc_root_url.rstrip("/")
+    shots_by_task: dict[str, list[dict[str, str]]] = {}
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        for e, shots in zip(events, ex.map(lambda ev: _task_screenshots(ev.task_id), events)):
+            shots_by_task[e.task_id] = shots
+
+    failures = []
+    for e in events:  # preserve newest-first order
+        shots = shots_by_task.get(e.task_id) or []
+        if not shots:
+            continue
+        failures.append({
+            "task_id": e.task_id,
+            "task_name": e.task_name,
+            "state": e.state,
+            "failed_at": e.failed_at.isoformat() if e.failed_at else None,
+            "task_url": f"{base}/tasks/{e.task_id}",
+            "screenshots": shots,
+        })
+    return {"hostname": fqdn, "failures": failures}
 
 
 @router.get("/{hostname:path}")
