@@ -18,13 +18,12 @@ Read-only reference data, so we fetch on demand rather than syncing into the DB.
 from __future__ import annotations
 
 import logging
-import threading
-import time
 from typing import Any
 
 import requests
 from fastapi import APIRouter, Depends, Query
 
+from .. import cache
 from ..auth import current_user
 from ..config import settings
 
@@ -39,24 +38,6 @@ _MAX_BUGS = 50
 # needinfo, which is far more useful than the bug's overall last_change_time.
 _FIELDS = "id,summary,status,product,component,flags"
 
-# key (email:limit) -> (monotonic_ts, payload)
-_cache: dict[str, tuple[float, Any]] = {}
-_cache_lock = threading.Lock()
-
-
-def _cached(key: str, *, ignore_ttl: bool = False) -> Any | None:
-    with _cache_lock:
-        hit = _cache.get(key)
-        if hit and (ignore_ttl or (time.monotonic() - hit[0]) < _CACHE_TTL_SECONDS):
-            return hit[1]
-    return None
-
-
-def _store(key: str, payload: Any) -> None:
-    with _cache_lock:
-        if len(_cache) > 200:
-            _cache.clear()  # crude bound; tiny cache, self-heals
-        _cache[key] = (time.monotonic(), payload)
 
 
 def _build_bugs(email: str, limit: int) -> list[dict[str, Any]]:
@@ -118,26 +99,24 @@ def get_needinfos(
     if "@" not in email or email.endswith("@localhost"):
         return {"email": email, "bugs": [], "buglist_url": None}
 
-    key = f"{email}:{limit}"
-    cached = _cached(key)
-    if cached is not None:
-        return cached
-
     base = settings.bugzilla_url.rstrip("/")
+    key = f"needinfo:{email}:{limit}"
+
+    def _fetch() -> dict[str, Any]:
+        return {
+            "email": email,
+            "bugs": _build_bugs(email, limit),
+            "buglist_url": f"{base}/buglist.cgi?quicksearch=flag%3Aneedinfo%3F{email}",
+        }
+
+    # SWR: serve warm/stale instantly, refresh behind the scenes; only a cold miss
+    # blocks, and an upstream error there soft-fails.
     try:
-        bugs = _build_bugs(email, limit)
+        return cache.swr(key, _CACHE_TTL_SECONDS, _fetch)
     except (requests.RequestException, ValueError) as exc:
         log.warning("Bugzilla needinfo fetch failed (%s): %s", email, exc)
-        stale = _cached(key, ignore_ttl=True)
+        stale = cache.get_stale(key)
         if stale is not None:
             return stale
         # Soft-fail: the Overview rail just hides itself rather than erroring.
         return {"email": email, "bugs": [], "buglist_url": None}
-
-    payload = {
-        "email": email,
-        "bugs": bugs,
-        "buglist_url": f"{base}/buglist.cgi?quicksearch=flag%3Aneedinfo%3F{email}",
-    }
-    _store(key, payload)
-    return payload
