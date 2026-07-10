@@ -20,7 +20,6 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..hosts import worker_fqdn
 from ..models import Alert, SyncLog, Worker
 
 log = logging.getLogger(__name__)
@@ -82,26 +81,40 @@ def prune_decommissioned(db: Session) -> int:
     return removed
 
 
+def _canonical_host(hostname: str) -> str:
+    """Short, lowercased host identity. Collapses every stored FQDN/domain/format variant of one
+    physical host (e.g. 'macmini-m4-81', 'macmini-m4-81.test.releng...', a re-enrollment under a
+    different domain) to a single key. Short names are unique per physical host, so this can never
+    merge two different hosts."""
+    return hostname.split(".")[0].strip().lower()
+
+
 def dedup_alerts(db: Session) -> int:
     """Resolve duplicate *active* alerts so one host never shows the same alert twice.
 
-    Groups active alerts by (canonical FQDN, alert_type) — worker_fqdn() collapses short/FQDN
-    hostname variants left behind by past renames/re-enrollments — and resolves all but the
-    newest in each group. This cleans up existing dupes (e.g. mdm_unenrolled, which had no
-    resolve path, and quarantined alerts created under an earlier hostname form) and keeps them
-    from re-accumulating. Idempotent: a no-op once each host has a single active alert per type.
+    Groups active alerts by (canonical short host, alert_type) and resolves all but the newest in
+    each group. Keying on the short host — not the full FQDN — is what unifies variants a host
+    picks up across renames / EACS re-enrollments / quarantine churn, which the exact-hostname
+    generator checks miss (so they create a second active alert for what is really one host).
+
+    Crucially, the ACK is preserved: if any alert in a group is acknowledged, the surviving newest
+    one is marked acknowledged too. Otherwise dedup could keep a fresh *unacked* variant and resolve
+    the one you acked, so a muted host would silently pop back as a live problem. Idempotent.
     """
     now = datetime.utcnow()
     active = db.query(Alert).filter(Alert.resolved_at == None).all()  # noqa: E711
     groups: dict[tuple[str, str], list[Alert]] = {}
     for a in active:
-        groups.setdefault((worker_fqdn(a.hostname), a.alert_type), []).append(a)
+        groups.setdefault((_canonical_host(a.hostname), a.alert_type), []).append(a)
 
     resolved = 0
     for alerts in groups.values():
         if len(alerts) < 2:
             continue
         alerts.sort(key=lambda a: a.created_at or datetime.min, reverse=True)  # newest first
+        keep = alerts[0]
+        if any(a.acknowledged for a in alerts):
+            keep.acknowledged = True  # an ack on any variant sticks to the survivor
         for dup in alerts[1:]:
             dup.resolved_at = now
             resolved += 1
