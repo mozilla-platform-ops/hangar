@@ -87,7 +87,6 @@ function NoteCell({ hostname, initialNote, onSaved }: { hostname: string; initia
 
 export function Alerts() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [activeOnly, setActiveOnly] = useState(true);
   const [hideSigningWorkers, setHideSigningWorkers] = useState(true);
@@ -100,7 +99,6 @@ export function Alerts() {
     try {
       const data = await api.alerts.list(activeOnly);
       setAlerts(data.alerts);
-      setTotal(data.total);
       const initialNotes: Record<string, string | null> = {};
       for (const a of data.alerts) {
         if (a.worker && "dashboard_notes" in a.worker) {
@@ -119,7 +117,6 @@ export function Alerts() {
   async function resolve(id: number) {
     await api.alerts.resolve(id);
     setAlerts(prev => prev.filter(a => a.id !== id));
-    setTotal(t => t - 1);
   }
 
   async function acknowledge(id: number) {
