@@ -86,3 +86,15 @@ def acknowledge_alert(alert_id: int, db: Session = Depends(get_db)) -> dict[str,
     alert.acknowledged = True
     db.commit()
     return _alert_to_dict(alert)
+
+
+@router.post("/{alert_id}/unacknowledge")
+def unacknowledge_alert(alert_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Un-mute an acknowledged alert so it counts as a real problem again — used when a host
+    that was temporarily repurposed (e.g. running VMs) goes back to its inventoried worker role."""
+    alert = db.get(Alert, alert_id)
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    alert.acknowledged = False
+    db.commit()
+    return _alert_to_dict(alert)
