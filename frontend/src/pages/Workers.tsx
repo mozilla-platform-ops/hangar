@@ -8,6 +8,7 @@ import type { SortingState, ColumnDef } from "@tanstack/react-table";
 import { Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { api } from "../api";
 import type { Worker } from "../api";
+import { ReprovisionPoolButton } from "../components/ReprovisionPoolButton";
 import { stateBadge, tcStatusBadge, enrollmentBadge, SourceBadges } from "../components/Badge";
 import { usePoll } from "../lib/useLive";
 
@@ -227,7 +228,10 @@ export function WorkersTableView() {
 
   return (
     <>
-      <p className="text-gray-500 text-sm">{total.toLocaleString()} workers · searchable inventory</p>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-gray-500 text-sm">{total.toLocaleString()} workers · searchable inventory</p>
+        {pool && <ReprovisionPoolButton pool={pool} />}
+      </div>
 
       {/* Quick pool filters */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
