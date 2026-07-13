@@ -1,5 +1,5 @@
 import { lazy } from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { Layout } from "./components/Layout";
 import { CommandPalette } from "./components/CommandPalette";
 import { KeyboardShortcuts } from "./components/KeyboardShortcuts";
@@ -13,6 +13,15 @@ const WorkerDetail = lazy(() => import("./pages/WorkerDetail").then(m => ({ defa
 const Alerts = lazy(() => import("./pages/Alerts").then(m => ({ default: m.Alerts })));
 const Pools = lazy(() => import("./pages/Pools").then(m => ({ default: m.Pools })));
 
+/** Redirect a legacy path onto /fleet while PRESERVING the incoming query string
+ * (so /workers?worker_pool=… keeps its filter instead of landing on the full table). */
+function RedirectToFleet({ view }: { view: "map" | "table" }) {
+  const { search } = useLocation();
+  const params = new URLSearchParams(search);
+  params.set("view", view);
+  return <Navigate to={`/fleet?${params.toString()}`} replace />;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -24,8 +33,8 @@ export default function App() {
           <Route index element={<Overview />} />
           <Route path="fleet" element={<Fleet />} />
           {/* Fleet Map and Workers merged into /fleet — keep old links working. */}
-          <Route path="map" element={<Navigate to="/fleet?view=map" replace />} />
-          <Route path="workers" element={<Navigate to="/fleet?view=table" replace />} />
+          <Route path="map" element={<RedirectToFleet view="map" />} />
+          <Route path="workers" element={<RedirectToFleet view="table" />} />
           <Route path="workers/:hostname" element={<WorkerDetail />} />
           <Route path="alerts" element={<Alerts />} />
           <Route path="pools" element={<Pools />} />

@@ -521,7 +521,8 @@ export const api = {
     initiate: (hostname: string) => post<ReprovisionInitiateResponse>(`/reprovision/${hostname}/initiate`),
     enqueue: (hostname: string) => post<{ ok: boolean; job: ReprovisionJob }>(`/reprovision/${hostname}/enqueue`),
     poolStatus: (pool: string) => get<ReprovisionPoolPlan>(`/reprovision/pool/${pool}`),
-    poolEnqueue: (pool: string) => post<ReprovisionPoolEnqueueResult>(`/reprovision/pool/${pool}/enqueue`),
+    poolEnqueue: (pool: string, hosts?: string[]) =>
+      post<ReprovisionPoolEnqueueResult>(`/reprovision/pool/${pool}/enqueue`, hosts ? { hosts } : undefined),
   },
   screen: {
     request: (hostname: string) => post<{ ok: boolean }>(`/screen/${hostname}/request`),

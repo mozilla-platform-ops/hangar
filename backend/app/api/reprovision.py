@@ -375,11 +375,25 @@ def pool_status(pool: str, user: str = Depends(require_access), db: Session = De
 
 
 @router.post("/pool/{pool:path}/enqueue")
-def enqueue_pool(pool: str, user: str = Depends(require_access), db: Session = Depends(get_db)) -> dict[str, Any]:
-    """Queue a reprovision for every eligible host in the pool. The concurrent runner picks them
-    up (up to RUNNER_MAX_CONCURRENT) and EACS's them in parallel. Idempotent per host — a host with
-    an open job is skipped, not double-queued."""
+def enqueue_pool(
+    pool: str,
+    user: str = Depends(require_access),
+    db: Session = Depends(get_db),
+    hosts: list[str] | None = Body(None, embed=True),
+) -> dict[str, Any]:
+    """Queue a reprovision for hosts in the pool. With no `hosts` body, queues every eligible host
+    (whole-pool). With `hosts` (short names), queues only that subset — any name not in the pool's
+    eligible set is dropped into `skipped` rather than silently ignored. The concurrent runner picks
+    them up (up to RUNNER_MAX_CONCURRENT) and EACS's them in parallel. Idempotent per host — a host
+    with an open job is already excluded by _pool_plan, so it's never double-queued."""
     pool_id, eligible, skipped = _pool_plan(db, pool)
+    if hosts is not None:
+        wanted = {h.split(".")[0].lower() for h in hosts}
+        eligible_by_short = {e["host"].lower(): e for e in eligible}
+        # Requested-but-not-eligible → surface why (unknown/already-open/runner/non-M4).
+        for short in sorted(wanted - eligible_by_short.keys()):
+            skipped.append({"host": short, "reason": "requested but not eligible (not in pool, already open, or unsupported)"})
+        eligible = [eligible_by_short[s] for s in eligible_by_short if s in wanted]
     enqueued: list[str] = []
     for e in eligible:
         db.add(ReprovisionJob(hostname=e["hostname"], requested_by=user, state="queued"))
