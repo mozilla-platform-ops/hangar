@@ -448,6 +448,25 @@ export interface ReprovisionAccess {
   user: string;
   authorized: boolean;
 }
+export interface ReprovisionPoolEligible {
+  host: string;
+  hostname: string;
+  quarantined: boolean;
+  running_task: boolean;
+}
+export interface ReprovisionPoolPlan {
+  pool: string;
+  eligible: ReprovisionPoolEligible[];
+  skipped: { host: string; reason: string }[];
+  runner_enabled: boolean;
+}
+export interface ReprovisionPoolEnqueueResult {
+  ok: boolean;
+  pool: string;
+  enqueued: string[];
+  skipped: { host: string; reason: string }[];
+  count: number;
+}
 export interface ReprovisionInitiateResponse {
   ok: boolean;
   user: string;
@@ -501,6 +520,8 @@ export const api = {
     status: (hostname: string) => get<ReprovisionStatus>(`/reprovision/${hostname}`),
     initiate: (hostname: string) => post<ReprovisionInitiateResponse>(`/reprovision/${hostname}/initiate`),
     enqueue: (hostname: string) => post<{ ok: boolean; job: ReprovisionJob }>(`/reprovision/${hostname}/enqueue`),
+    poolStatus: (pool: string) => get<ReprovisionPoolPlan>(`/reprovision/pool/${pool}`),
+    poolEnqueue: (pool: string) => post<ReprovisionPoolEnqueueResult>(`/reprovision/pool/${pool}/enqueue`),
   },
   screen: {
     request: (hostname: string) => post<{ ok: boolean }>(`/screen/${hostname}/request`),

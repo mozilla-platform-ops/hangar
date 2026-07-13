@@ -317,6 +317,81 @@ def runner_complete(
     return {"ok": True, "state": job.state}
 
 
+# ── Pool-wide reprovision ────────────────────────────────────────────────────────────────
+# Declared BEFORE the /{hostname:path} catch-alls so "pool" isn't matched as a hostname.
+
+def _normalize_pool(pool: str) -> str:
+    """Accept a short worker-type ('gecko-t-osx-1500-m4-staging') or a full
+    'releng-hardware/<type>' and return the full tc_worker_pool_id form."""
+    return pool if "/" in pool else f"releng-hardware/{pool}"
+
+
+def _pool_plan(db: Session, pool: str) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split a pool's workers into (eligible, skipped) for reprovision.
+
+    Enumerates ONLY workers currently registered in TC as this pool (tc_worker_pool_id) — so a
+    host inventoried in the pool but repurposed (e.g. running VMs, not reporting to TC) is never
+    in the set. On top of that we hard-exclude the runner host(s), non-M4/unsupported, and hosts
+    that already have an open reprovision. Nothing destructive happens here — this just plans."""
+    pool_id = _normalize_pool(pool)
+    runner_hosts = set(settings.reprovision_runner_host_list)  # short, lowercased
+    eligible: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    workers = (
+        db.query(Worker)
+        .filter(Worker.tc_worker_pool_id == pool_id)
+        .order_by(Worker.hostname)
+        .all()
+    )
+    for w in workers:
+        short = _short(w.hostname)
+        if short.lower() in runner_hosts:
+            skipped.append({"host": short, "reason": "reprovision runner host — never wiped"})
+        elif (w.generation or "").lower() != "m4":
+            skipped.append({"host": short, "reason": f"unsupported ({w.generation or 'unknown'}) — EACS is M4-only"})
+        elif _active_job(db, w.hostname):
+            skipped.append({"host": short, "reason": "a reprovision is already open"})
+        else:
+            eligible.append({
+                "host": short,
+                "hostname": w.hostname,
+                "quarantined": bool(w.tc_quarantined),
+                "running_task": (w.tc_latest_task_state or "").lower() in _ACTIVE_TASK_STATES,
+            })
+    return pool_id, eligible, skipped
+
+
+@router.get("/pool/{pool:path}")
+def pool_status(pool: str, user: str = Depends(require_access), db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Preview which hosts a pool-wide reprovision would EACS (and which it skips + why).
+    Drives the confirm dialog so the operator sees the exact host list before firing."""
+    pool_id, eligible, skipped = _pool_plan(db, pool)
+    return {
+        "pool": pool_id,
+        "eligible": eligible,
+        "skipped": skipped,
+        "runner_enabled": bool(settings.reprovision_runner_token or settings.reprovision_runner_host_list),
+    }
+
+
+@router.post("/pool/{pool:path}/enqueue")
+def enqueue_pool(pool: str, user: str = Depends(require_access), db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Queue a reprovision for every eligible host in the pool. The concurrent runner picks them
+    up (up to RUNNER_MAX_CONCURRENT) and EACS's them in parallel. Idempotent per host — a host with
+    an open job is skipped, not double-queued."""
+    pool_id, eligible, skipped = _pool_plan(db, pool)
+    enqueued: list[str] = []
+    for e in eligible:
+        db.add(ReprovisionJob(hostname=e["hostname"], requested_by=user, state="queued"))
+        db.add(ReprovisionEvent(
+            hostname=e["hostname"], user=user, action="enqueued",
+            detail=f"reprovision enqueued (pool {pool_id}) for the on-network runner",
+        ))
+        enqueued.append(e["host"])
+    db.commit()
+    return {"ok": True, "pool": pool_id, "enqueued": enqueued, "skipped": skipped, "count": len(enqueued)}
+
+
 @router.post("/{hostname:path}/enqueue")
 def enqueue(hostname: str, user: str = Depends(require_access), db: Session = Depends(get_db)) -> dict[str, Any]:
     """Queue a reprovision for the on-network runner. One open job per host."""
