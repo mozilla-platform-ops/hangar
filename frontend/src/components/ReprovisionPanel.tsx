@@ -6,6 +6,8 @@ import { Badge } from "./Badge";
 // Apple six-color rainbow — the same palette the `reprovision` CLI paints its steps with
 // (orchestrator/ui.py). We reuse it here so the Hangar timeline reads like the terminal.
 const APPLE = ["#61BB46", "#FDB827", "#F5821F", "#E03A3E", "#963D97", "#009DDC"];
+// macOS window traffic-light dots: red (close), yellow (minimize), green (zoom).
+const MAC_DOTS = ["#FF5F56", "#FEBD2E", "#28C840"];
 const ACTIVE_STATES = new Set(["queued", "claimed", "running"]);
 
 function timeAgo(iso: string | null): string {
@@ -104,7 +106,7 @@ function RainbowTimeline({ job, events, onClear }: { job: ReprovisionJob | null;
     <div className="rounded-lg border border-gray-800 bg-black/60 overflow-hidden">
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-gray-800/80 bg-gray-950/60">
         <span className="flex items-center gap-1.5">
-          {APPLE.map((c) => (
+          {MAC_DOTS.map((c) => (
             <span key={c} style={{ backgroundColor: c }} className="w-2 h-2 rounded-full" />
           ))}
           <span className="ml-1.5 text-[10px] text-gray-500 font-mono">reprovision · live</span>
