@@ -16,6 +16,7 @@ function isReprovisionablePool(pool: string): boolean {
 export function ReprovisionPoolButton({ pool }: { pool: string }) {
   const [authorized, setAuthorized] = useState<boolean | null>(null);
   const [plan, setPlan] = useState<ReprovisionPoolPlan | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
@@ -31,18 +32,32 @@ export function ReprovisionPoolButton({ pool }: { pool: string }) {
   async function preview() {
     setResult(null);
     try {
-      setPlan(await api.reprovision.poolStatus(pool));
+      const p = await api.reprovision.poolStatus(pool);
+      setPlan(p);
+      setSelected(new Set(p.eligible.map(e => e.host)));  // default: whole pool selected
       setOpen(true);
     } catch {
       setResult("couldn't load pool");
     }
   }
 
+  function toggle(host: string) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(host)) next.delete(host); else next.add(host);
+      return next;
+    });
+  }
+
+  const allSelected = !!plan && plan.eligible.length > 0 && selected.size === plan.eligible.length;
+
   async function fire() {
     setBusy(true);
     try {
-      const r = await api.reprovision.poolEnqueue(pool);
-      setResult(r.count > 0 ? `Enqueued ${r.count}: ${r.enqueued.join(", ")}` : "Nothing eligible to enqueue");
+      const hosts = [...selected];
+      // If every eligible host is selected, omit the subset so it's a plain whole-pool enqueue.
+      const r = await api.reprovision.poolEnqueue(pool, allSelected ? undefined : hosts);
+      setResult(r.count > 0 ? `Enqueued ${r.count}: ${r.enqueued.join(", ")}` : "Nothing enqueued");
       setOpen(false);
     } catch {
       setResult("enqueue failed");
@@ -80,14 +95,30 @@ export function ReprovisionPoolButton({ pool }: { pool: string }) {
               <p className="text-sm text-gray-400">No eligible hosts to reprovision in this pool.</p>
             ) : (
               <>
-                <p className="text-sm text-gray-300">
-                  This will <span className="text-red-400 font-semibold">EACS-wipe {plan.eligible.length}</span> host{plan.eligible.length === 1 ? "" : "s"} (runs in parallel; each quarantines &amp; drains first):
-                </p>
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-gray-300">
+                    This will <span className="text-red-400 font-semibold">EACS-wipe {selected.size}</span> of {plan.eligible.length} host{plan.eligible.length === 1 ? "" : "s"} (parallel; each quarantines &amp; drains first):
+                  </p>
+                  <button
+                    onClick={() => setSelected(allSelected ? new Set() : new Set(plan.eligible.map(e => e.host)))}
+                    className="text-[11px] text-gray-400 hover:text-gray-200 shrink-0 ml-2"
+                  >
+                    {allSelected ? "clear all" : "select all"}
+                  </button>
+                </div>
                 <ul className="mt-2 mb-1 grid grid-cols-2 gap-x-4 gap-y-1 text-xs font-mono text-gray-300">
                   {plan.eligible.map(e => (
-                    <li key={e.host} className="flex items-center gap-1.5">
-                      {e.host}
-                      {e.running_task && <span className="text-yellow-500/80 text-[10px]">running — will drain</span>}
+                    <li key={e.host}>
+                      <label className="flex items-center gap-1.5 cursor-pointer hover:text-white">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(e.host)}
+                          onChange={() => toggle(e.host)}
+                          className="accent-red-600 w-3 h-3"
+                        />
+                        {e.host}
+                        {e.running_task && <span className="text-yellow-500/80 text-[10px]">running — will drain</span>}
+                      </label>
                     </li>
                   ))}
                 </ul>
@@ -106,10 +137,10 @@ export function ReprovisionPoolButton({ pool }: { pool: string }) {
             <div className="flex items-center gap-2 mt-4">
               <button
                 onClick={fire}
-                disabled={busy || plan.eligible.length === 0}
+                disabled={busy || selected.size === 0}
                 className="text-xs font-semibold px-3 py-1.5 rounded-md bg-red-600/90 hover:bg-red-600 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-all"
               >
-                {busy ? "Enqueuing…" : `Execute — wipe ${plan.eligible.length}`}
+                {busy ? "Enqueuing…" : `Execute — wipe ${selected.size}`}
               </button>
               <button onClick={() => setOpen(false)} className="text-xs text-gray-500 hover:text-gray-300 px-2 py-1.5">Cancel</button>
             </div>
