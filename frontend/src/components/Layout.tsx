@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Monitor, AlertTriangle, RefreshCw, Smartphone, Terminal, Apple, Menu, X, Laptop, Grid3x3 } from "lucide-react";
+import { LayoutDashboard, Monitor, AlertTriangle, Activity, RefreshCw, Smartphone, Terminal, Apple, Menu, X, Laptop, Grid3x3 } from "lucide-react";
 import { clsx } from "clsx";
 import { Suspense, useState, useEffect, useId } from "react";
 import { api } from "../api";
@@ -145,7 +145,7 @@ export function Layout() {
           "fixed md:relative inset-y-0 left-0 z-30 w-56 flex-shrink-0 flex flex-col border-r border-gray-800/80 transition-transform duration-200 ease-in-out",
           sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
         )}
-        style={{ background: "linear-gradient(180deg, #0f1117 0%, #0d1117 100%)" }}>
+        style={{ background: "var(--sidebar-bg)" }}>
 
         {/* Brand */}
         <div className="px-4 py-5 border-b border-gray-800/60">
@@ -184,6 +184,7 @@ export function Layout() {
 
           <SectionLabel>Monitoring</SectionLabel>
           <NavLinkItem to="/alerts" icon={AlertTriangle} label="Alerts" badge={alertCount} />
+          <NavLinkItem to="/insights" icon={Activity} label="Insights" />
         </nav>
 
         {/* Footer — utility */}
