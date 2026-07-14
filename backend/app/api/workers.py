@@ -7,12 +7,13 @@ from typing import Any
 
 import requests
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
-from sqlalchemy import asc, desc, nullslast
+from sqlalchemy import asc, desc, func, nullslast
 from sqlalchemy.orm import Session
 
 from .. import cache
 from ..config import settings
 from ..database import get_db
+from .fleet import DEFAULT_BRANCH
 from ..hosts import worker_fqdn
 from ..models import FailureEvent, SyncLog, Worker
 
@@ -149,6 +150,7 @@ def list_workers(
     worker_pool: str | None = Query(None),
     tc_quarantined: bool | None = Query(None),
     mdm_enrollment: str | None = Query(None),
+    branch: str | None = Query(None),
     search: str | None = Query(None),
     limit: int = Query(500, le=2000),
     offset: int = Query(0),
@@ -186,6 +188,13 @@ def list_workers(
         q = q.filter(Worker.tc_quarantined == tc_quarantined)
     if mdm_enrollment:
         q = q.filter(Worker.mdm_enrollment_status == mdm_enrollment)
+    if branch == "set":
+        # workers pinned to a non-default branch — mirrors fleet._is_branch_override
+        q = q.filter(
+            Worker.branch.isnot(None),
+            Worker.branch != "",
+            func.lower(Worker.branch) != DEFAULT_BRANCH.lower(),
+        )
     if search:
         like = f"%{search}%"
         q = q.filter(Worker.hostname.ilike(like) | Worker.serial_number.ilike(like))

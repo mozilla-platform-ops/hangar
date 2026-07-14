@@ -5,7 +5,7 @@ import {
   flexRender,
 } from "@tanstack/react-table";
 import type { SortingState, ColumnDef } from "@tanstack/react-table";
-import { Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, X, GitBranch } from "lucide-react";
 import { api } from "../api";
 import type { Worker } from "../api";
 import { ReprovisionPoolButton } from "../components/ReprovisionPoolButton";
@@ -66,6 +66,7 @@ export function WorkersTableView() {
   const generation = searchParams.get("generation") || "";
   const state = searchParams.get("state") || "";
   const pool = searchParams.get("worker_pool") || "";
+  const branch = searchParams.get("branch") || "";  // "set" = only workers on a non-default branch
   const view = searchParams.get("view") || "";  // preserved on Clear so we stay on the Fleet table tab
 
   const SORT_MAP: Record<string, string> = {
@@ -87,6 +88,7 @@ export function WorkersTableView() {
         generation: generation || undefined,
         state: state || undefined,
         worker_pool: pool || undefined,
+        branch: branch || undefined,
         offset: page * PAGE_SIZE,
         limit: PAGE_SIZE,
         sort_by: sortCol ? (SORT_MAP[sortCol.id] || sortCol.id) : "hostname",
@@ -99,7 +101,7 @@ export function WorkersTableView() {
     } finally {
       setLoading(false);
     }
-  }, [search, generation, state, pool, page, sorting]);
+  }, [search, generation, state, pool, branch, page, sorting]);
 
   useEffect(() => { load(); }, [load]);
   usePoll(() => load(true), 60_000);
@@ -111,7 +113,7 @@ export function WorkersTableView() {
     setSearchParams(next);
   }
 
-  const hasFilters = !!(search || generation || state || pool);
+  const hasFilters = !!(search || generation || state || pool || branch);
 
   const columns: ColumnDef<Worker>[] = [
     {
@@ -325,6 +327,14 @@ export function WorkersTableView() {
           <option value="">All Pools</option>
           {poolOptions.map(p => <option key={p} value={p}>{p}</option>)}
         </select>
+        {branch === "set" && (
+          <span className="flex items-center gap-1.5 text-xs text-amber-300 bg-amber-950/30 border border-amber-900/40 px-3 py-2 rounded-lg">
+            <GitBranch size={11} /> Branch override
+            <button className="hover:text-white transition-colors" onClick={() => setFilter("branch", "")}>
+              <X size={11} />
+            </button>
+          </span>
+        )}
         {hasFilters && (
           <button
             className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-200 bg-gray-800/60 hover:bg-gray-800 px-3 py-2 rounded-lg transition-all border border-gray-700/50"

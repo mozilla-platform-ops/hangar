@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
-import { Pin, AlertTriangle, GitBranch, Users, Lock, Hammer, FlaskConical, ChevronDown, Terminal, Smartphone, Monitor, Pencil, Check, X, RotateCcw, GripVertical, ShieldOff, Cpu } from "lucide-react";
+import { Pin, AlertTriangle, GitBranch, Users, Lock, Hammer, FlaskConical, ChevronDown, Terminal, Smartphone, Monitor, Pencil, Check, X, RotateCcw, GripVertical, Cpu } from "lucide-react";
 import { api } from "../api";
 import type { PoolHealth, PoolSources, CloudPool, FleetSummary, RoninPR, PoolSeries, PoolLoadSnapshot } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
@@ -508,58 +508,40 @@ function PinnedEditor({ allPools, selected, defaults, onSave, onClose }: {
   );
 }
 
+/** Fleet composition as a single full-width strip: a proportional Intel-vs-Apple-Silicon
+ *  bar with counts + share. Sits at the bottom of the macOS page as a closing summary. */
 function MacHardwareCard({ summary }: { summary: FleetSummary }) {
+  const r8 = summary.by_generation_mdm.r8 ?? 0;
+  const m4 = summary.by_generation_mdm.m4 ?? 0;
+  const total = r8 + m4;
+  const r8pct = total > 0 ? Math.round((r8 / total) * 100) : 0;
+  const m4pct = total > 0 ? 100 - r8pct : 0;
   return (
     <div className="card p-5">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
           <Cpu size={13} className="text-gray-500" /> Mac Hardware
+          <span className="text-[10px] font-medium text-gray-600 normal-case tracking-normal">· fleet composition · {total.toLocaleString()} minis</span>
         </h3>
         <span className="text-[10px] font-medium text-gray-600 uppercase tracking-wider bg-gray-800/60 border border-gray-700/50 rounded px-2 py-0.5">source: MDM</span>
       </div>
-      <div className="grid grid-cols-2 divide-x divide-gray-800">
-        <div className="pr-5">
-          <div className="text-3xl font-bold tabular-nums text-indigo-400">{(summary.by_generation_mdm.r8 ?? 0).toLocaleString()}</div>
-          <div className="text-xs font-mono text-gray-500 mt-1">r8 <span className="text-gray-600">· Intel Mac mini</span></div>
+      {/* proportional Intel ▸ Apple Silicon split */}
+      <div className="flex h-2.5 rounded-full overflow-hidden bg-gray-800">
+        <div className="h-full bg-indigo-500/80" style={{ width: `${r8pct}%` }} />
+        <div className="h-full bg-emerald-500/80" style={{ width: `${m4pct}%` }} />
+      </div>
+      <div className="flex items-center justify-between mt-3">
+        <div className="flex items-baseline gap-2">
+          <span className="w-2 h-2 rounded-full bg-indigo-400 self-center" />
+          <span className="text-2xl font-bold tabular-nums text-indigo-400">{r8.toLocaleString()}</span>
+          <span className="text-xs font-mono text-gray-500">r8 · Intel Mac mini <span className="text-gray-600">· {r8pct}%</span></span>
         </div>
-        <div className="pl-5">
-          <div className="text-3xl font-bold tabular-nums text-emerald-400">{(summary.by_generation_mdm.m4 ?? 0).toLocaleString()}</div>
-          <div className="text-xs font-mono text-gray-500 mt-1">m4 <span className="text-gray-600">· Apple Silicon</span></div>
+        <div className="flex items-baseline gap-2">
+          <span className="text-xs font-mono text-gray-500"><span className="text-gray-600">{m4pct}% ·</span> m4 · Apple Silicon</span>
+          <span className="text-2xl font-bold tabular-nums text-emerald-400">{m4.toLocaleString()}</span>
+          <span className="w-2 h-2 rounded-full bg-emerald-400 self-center" />
         </div>
       </div>
-    </div>
-  );
-}
-
-function NeedsAttentionCard({ summary }: { summary: FleetSummary }) {
-  const items = [
-    { label: "Quarantined",     value: summary.attention_mac.quarantined,     color: "text-red-400",    to: "/workers?tc_quarantined=true" },
-    { label: "Missing from TC", value: summary.attention_mac.missing_from_tc, color: "text-orange-400", to: "/alerts" },
-  ];
-  const attention = items.reduce((s, a) => s + a.value, 0);
-  return (
-    <div className="card p-5">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
-          <ShieldOff size={13} className="text-gray-500" /> Needs Attention
-          <span className="text-[10px] font-medium text-gray-600 normal-case tracking-normal">· macOS hardware</span>
-        </h3>
-        <Link to="/alerts" className="text-[11px] text-brand-400 hover:text-brand-300 transition-colors">View alerts →</Link>
-      </div>
-      {attention === 0 ? (
-        <div className="flex items-center gap-2 text-sm text-emerald-400 py-3">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Nothing needs attention
-        </div>
-      ) : (
-        <div className="space-y-2.5">
-          {items.map(item => (
-            <Link key={item.label} to={item.to} className="flex items-center justify-between group">
-              <span className="text-xs text-gray-400 group-hover:text-gray-200 transition-colors">{item.label}</span>
-              <span className={`text-lg font-bold tabular-nums ${item.value > 0 ? item.color : "text-gray-700"}`}>{item.value}</span>
-            </Link>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -899,13 +881,6 @@ export function Pools() {
         </div>
       )}
 
-      {section === "mac" && summary && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          <MacHardwareCard summary={summary} />
-          <NeedsAttentionCard summary={summary} />
-        </div>
-      )}
-
       {section === "mac" && <MacMigrationCard />}
 
       {section === "linux" && linuxHwPools.length > 0 && (
@@ -1016,19 +991,6 @@ export function Pools() {
         } />
       )}
 
-      {section === "mac" && otherPools.length > 0 && (
-        <div>
-          <button onClick={toggleOther}
-            className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase tracking-wider hover:text-gray-400 transition-colors mb-3">
-            <Users size={12} />
-            Other
-            <span className="text-gray-700 normal-case font-normal tracking-normal">({otherPools.length})</span>
-            <ChevronDown size={12} className={`transition-transform ${showOther ? "rotate-180" : ""}`} />
-          </button>
-          {showOther && <PoolTable pools={otherPools} pinnedPools={[]} navigate={navigate} showLegend={false} pending={pending} />}
-        </div>
-      )}
-
       {section === "mac" && branchOverrides && branchOverrides.total > 0 && (
         <div className="card p-5">
           <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
@@ -1068,6 +1030,22 @@ export function Pools() {
           </div>
         </div>
       )}
+
+      {section === "mac" && otherPools.length > 0 && (
+        <div>
+          <button onClick={toggleOther}
+            className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase tracking-wider hover:text-gray-400 transition-colors mb-3">
+            <Users size={12} />
+            Other
+            <span className="text-gray-700 normal-case font-normal tracking-normal">({otherPools.length})</span>
+            <ChevronDown size={12} className={`transition-transform ${showOther ? "rotate-180" : ""}`} />
+          </button>
+          {showOther && <PoolTable pools={otherPools} pinnedPools={[]} navigate={navigate} showLegend={false} pending={pending} />}
+        </div>
+      )}
+
+      {/* Fleet composition — closes the macOS page as a full-width summary strip */}
+      {section === "mac" && summary && <MacHardwareCard summary={summary} />}
     </div>
   );
 }
