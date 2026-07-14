@@ -745,10 +745,12 @@ export function Pools() {
   const windowsHwPools = pools.filter(p => isWindowsPool(p.name));
   const macPools       = pools.filter(p => !isLinuxPool(p.name) && !isWindowsPool(p.name));
   const signingPools = macPools.filter(p => p.name.includes("signing"));
-  const vmPools      = macPools.filter(p => p.name.endsWith("-vms"));
-  const builderPools = macPools.filter(p => !p.name.includes("signing") && !p.name.endsWith("-vms") && p.name.includes("-b-"));
-  const testerPools  = macPools.filter(p => !p.name.includes("signing") && !p.name.endsWith("-vms") && !p.name.includes("-b-") && p.name.includes("-t-"));
-  const otherPools   = macPools.filter(p => !p.name.includes("signing") && !p.name.endsWith("-vms") && !p.name.includes("-b-") && !p.name.includes("-t-"));
+  // "-vms" anywhere covers both VM worker pools (…-vms) and the VM host pool
+  // (…-vms-host), keeping the host out of Builder/Tester/Other.
+  const vmPools      = macPools.filter(p => p.name.includes("-vms"));
+  const builderPools = macPools.filter(p => !p.name.includes("signing") && !p.name.includes("-vms") && p.name.includes("-b-"));
+  const testerPools  = macPools.filter(p => !p.name.includes("signing") && !p.name.includes("-vms") && !p.name.includes("-b-") && p.name.includes("-t-"));
+  const otherPools   = macPools.filter(p => !p.name.includes("signing") && !p.name.includes("-vms") && !p.name.includes("-b-") && !p.name.includes("-t-"));
 
   // Tracked-pool support per section (mac / linux / windows)
   const trackSection = section === "mac" || section === "linux" || section === "windows";
