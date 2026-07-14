@@ -110,6 +110,11 @@ router = APIRouter(prefix="/fleet", tags=["fleet"])
 
 DEFAULT_BRANCH = "master"
 
+# Pools that no longer exist in Taskcluster but still linger in MDM/sheet
+# metadata on a stray worker or two (e.g. a mini whose pool label wasn't
+# cleared when the pool was retired). Hidden from all pool views.
+DECOMMISSIONED_POOLS = {"gecko-1-b-osx-arm64-vms-host"}
+
 
 def _is_branch_override(branch: str | None) -> bool:
     """Return True only if the branch is set and differs from the default."""
@@ -169,7 +174,9 @@ def fleet_summary(db: Session = Depends(get_db)) -> dict[str, Any]:
         if _is_branch_override(w.branch):
             branch_total += 1
             branch_by_branch[w.branch] = branch_by_branch.get(w.branch, 0) + 1  # type: ignore[index]
-            branch_by_pool[pool] = branch_by_pool.get(pool, 0) + 1
+            # A retired pool label shouldn't surface as a pool name here.
+            pool_key = "unknown" if pool in DECOMMISSIONED_POOLS else pool
+            branch_by_pool[pool_key] = branch_by_pool.get(pool_key, 0) + 1
 
     # Read alert counts directly from the alerts table — single source of truth. Acknowledged
     # alerts are excluded: an acked alert is a known / not-a-real-problem (e.g. an inventoried
@@ -251,6 +258,8 @@ def pool_health(db: Session = Depends(get_db)) -> dict[str, Any]:
 
     for w in workers:
         pool = w.worker_pool or "unknown"
+        if pool in DECOMMISSIONED_POOLS:
+            continue  # retired pool lingering on a stray worker's metadata
         if pool not in pools:
             pools[pool] = {
                 "name": pool,
