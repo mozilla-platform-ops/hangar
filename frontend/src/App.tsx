@@ -11,6 +11,7 @@ const Overview = lazy(() => import("./pages/Overview").then(m => ({ default: m.O
 const Fleet = lazy(() => import("./pages/Fleet").then(m => ({ default: m.Fleet })));
 const WorkerDetail = lazy(() => import("./pages/WorkerDetail").then(m => ({ default: m.WorkerDetail })));
 const Alerts = lazy(() => import("./pages/Alerts").then(m => ({ default: m.Alerts })));
+const FailureInsights = lazy(() => import("./pages/FailureInsights").then(m => ({ default: m.FailureInsights })));
 const Pools = lazy(() => import("./pages/Pools").then(m => ({ default: m.Pools })));
 
 /** Redirect a legacy path onto /fleet while PRESERVING the incoming query string
@@ -37,6 +38,7 @@ export default function App() {
           <Route path="workers" element={<RedirectToFleet view="table" />} />
           <Route path="workers/:hostname" element={<WorkerDetail />} />
           <Route path="alerts" element={<Alerts />} />
+          <Route path="insights" element={<FailureInsights />} />
           <Route path="pools" element={<Pools />} />
         </Route>
       </Routes>
