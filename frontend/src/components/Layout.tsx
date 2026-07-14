@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Monitor, AlertTriangle, RefreshCw, Smartphone, Terminal, Apple, Menu, X, Laptop, Grid3x3 } from "lucide-react";
+import { LayoutDashboard, Monitor, AlertTriangle, Activity, RefreshCw, Smartphone, Terminal, Apple, Menu, X, Laptop, Grid3x3 } from "lucide-react";
 import { clsx } from "clsx";
 import { Suspense, useState, useEffect, useId } from "react";
 import { api } from "../api";
@@ -184,6 +184,7 @@ export function Layout() {
 
           <SectionLabel>Monitoring</SectionLabel>
           <NavLinkItem to="/alerts" icon={AlertTriangle} label="Alerts" badge={alertCount} />
+          <NavLinkItem to="/insights" icon={Activity} label="Insights" />
         </nav>
 
         {/* Footer — utility */}
