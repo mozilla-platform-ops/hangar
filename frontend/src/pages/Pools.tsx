@@ -855,15 +855,6 @@ export function Pools() {
         </div>
       )}
 
-      {section === "mac" && summary && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          <MacHardwareCard summary={summary} />
-          <NeedsAttentionCard summary={summary} />
-        </div>
-      )}
-
-      {section === "mac" && <MacMigrationCard />}
-
       {section === "mac" && <ReprovisionActivity />}
 
       {/* macOS sub-page: full detail */}
@@ -907,6 +898,15 @@ export function Pools() {
           <PoolTable pools={signingPools} pinnedPools={[]} navigate={navigate} showLegend={false} pending={pending} />
         </div>
       )}
+
+      {section === "mac" && summary && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <MacHardwareCard summary={summary} />
+          <NeedsAttentionCard summary={summary} />
+        </div>
+      )}
+
+      {section === "mac" && <MacMigrationCard />}
 
       {section === "linux" && linuxHwPools.length > 0 && (
         <div className="space-y-6">
