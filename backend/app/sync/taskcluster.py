@@ -367,11 +367,7 @@ def run_sync(db: Session) -> int:
         for provisioner_id, worker_type in ALL_WORKER_POOLS:
             log.info("Fetching TC workers: %s/%s", provisioner_id, worker_type)
             is_scriptworker = provisioner_id == SCRIPTWORKER_PROVISIONER
-            try:
-                workers = _fetch_pool_workers(provisioner_id, worker_type)
-            except Exception as exc:
-                log.warning("Failed to fetch %s/%s: %s", provisioner_id, worker_type, exc)
-                continue
+            workers = _fetch_pool_workers(provisioner_id, worker_type)
 
             for node in workers:
                 worker_id = node.get("workerId", "")

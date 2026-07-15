@@ -1,15 +1,16 @@
 """Decommission cleanup — delete workers absent from every live source.
 
 The per-source syncs are upsert-only and never remove a row, so a host removed
-from Taskcluster, Puppet inventory, *and* SimpleMDM lingers forever: a stale
+from Taskcluster, Puppet inventory, SimpleMDM, *and* the Windows inventory
+lingers forever: a stale
 ``puppet_role`` keeps it reading as ``production`` and regenerating
 ``missing_from_tc`` alerts. (Resolving those by hand doesn't stick — the next TC
 sync recreates them, because the worker row still looks like a live candidate.)
 
-This deletes a worker (and its alerts) once it is absent from all three sources,
+This deletes a worker (and its alerts) once it is absent from all four sources,
 judged the same way the UI's source badges are: a source counts as present when
 the worker's ``last_synced_<source>`` is at or after that source's most recent
-completed successful sync. A guard skips the whole pass unless all three sources
+completed successful sync. A guard skips the whole pass unless all four sources
 have synced successfully recently, so a broken sync can't trigger mass deletion.
 """
 from __future__ import annotations
@@ -29,6 +30,7 @@ _SOURCE_ATTR = {
     "puppet": "last_synced_puppet",
     "taskcluster": "last_synced_tc",
     "simplemdm": "last_synced_mdm",
+    "windows_inventory": "last_synced_windows_inventory",
 }
 
 
@@ -43,7 +45,7 @@ def _last_success_start(db: Session, source: str) -> datetime | None:
 
 
 def prune_decommissioned(db: Session) -> int:
-    """Delete workers absent from Puppet, Taskcluster, and SimpleMDM.
+    """Delete workers absent from Puppet, Taskcluster, SimpleMDM, and Windows inventory.
 
     A worker is absent from a source when its ``last_synced_<source>`` predates
     that source's latest successful sync (or is unset). Only workers absent from
@@ -77,7 +79,10 @@ def prune_decommissioned(db: Session) -> int:
         db.query(Alert).filter(Alert.hostname == worker.hostname).delete(synchronize_session=False)
         db.delete(worker)
         removed += 1
-        log.info("Decommissioned %s — absent from Puppet, TC, and SimpleMDM", worker.hostname)
+        log.info(
+            "Decommissioned %s — absent from Puppet, TC, SimpleMDM, and Windows inventory",
+            worker.hostname,
+        )
     return removed
 
 
