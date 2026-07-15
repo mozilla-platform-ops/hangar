@@ -22,12 +22,18 @@ function MonitoredPoolExtras({ series, sources }: { series?: PoolSeries; sources
 
   return (
     <div className="mt-3 space-y-3 border-t border-gray-800/60 pt-3">
-      {pts.length >= 2 && (
-        <div>
-          <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-1">Pending · 24h</div>
+      {/* Always reserve the sparkline row so cards stay the same height whether or
+          not a pool has accumulated ≥2 load samples yet (e.g. newly-added pools). */}
+      <div>
+        <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-1">Pending · 24h</div>
+        {pts.length >= 2 ? (
           <Sparkline points={pts} className="w-full h-8" animate={false} />
-        </div>
-      )}
+        ) : (
+          <div className="w-full h-8 flex items-center justify-center rounded bg-gray-800/20">
+            <span className="text-[10px] text-gray-700">collecting…</span>
+          </div>
+        )}
+      </div>
       {hasSourceData && (
         <>
           <div>
