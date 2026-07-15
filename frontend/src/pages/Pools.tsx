@@ -912,6 +912,9 @@ export function Pools() {
         </div>
       )}
 
+      {/* Fleet composition summary — sits below Monitored pools, above the pool tables */}
+      {section === "mac" && summary && <MacHardwareCard summary={summary} />}
+
       {section === "mac" && <ReprovisionActivity />}
 
       {/* macOS sub-page: full detail */}
@@ -1118,9 +1121,6 @@ export function Pools() {
           {showOther && <PoolTable pools={otherPools} pinnedPools={[]} navigate={navigate} showLegend={false} pending={pending} />}
         </div>
       )}
-
-      {/* Fleet composition — closes the macOS page as a full-width summary strip */}
-      {section === "mac" && summary && <MacHardwareCard summary={summary} />}
     </div>
   );
 }
