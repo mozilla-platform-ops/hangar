@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
-import { Pin, AlertTriangle, GitBranch, Users, Lock, Hammer, FlaskConical, ChevronDown, Terminal, Smartphone, Monitor, Pencil, Check, X, RotateCcw, GripVertical, Cpu } from "lucide-react";
+import { Pin, AlertTriangle, GitBranch, Users, Lock, Hammer, FlaskConical, ChevronDown, Terminal, Smartphone, Monitor, Pencil, Check, X, RotateCcw, GripVertical, Cpu, Link2 } from "lucide-react";
 import { api } from "../api";
 import type { PoolHealth, PoolSources, CloudPool, FleetSummary, RoninPR, PoolSeries, PoolLoadSnapshot } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
@@ -203,6 +203,26 @@ function SourceBar({ sources }: { sources: PoolSources | null | undefined }) {
   );
 }
 
+
+// Anchored section heading: gives each pool section a stable id so it can be
+// deep-linked (e.g. #signing-pools) and reveals a copyable link icon on hover.
+// scroll-mt keeps the target clear of the top edge when jumped to.
+function SectionHeading({ id, icon, title, className = "mb-1" }: {
+  id: string;
+  icon: ReactNode;
+  title: string;
+  className?: string;
+}) {
+  return (
+    <h2 id={id} className={`group scroll-mt-6 text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2 ${className}`}>
+      {icon} {title}
+      <a href={`#${id}`} aria-label={`Link to ${title}`}
+        className="opacity-0 group-hover:opacity-100 text-gray-600 hover:text-gray-300 transition-opacity">
+        <Link2 size={11} />
+      </a>
+    </h2>
+  );
+}
 
 function PoolTable({ pools, pinnedPools, navigate, showLegend, pending, showProvisioner = false }: {
   pools: PoolHealth[];
@@ -724,6 +744,17 @@ export function Pools() {
     }
   }, [section, pools, trackedMap]);
 
+  // Deep-link support: once data has loaded and the sections have rendered,
+  // scroll to the anchor in the URL hash (e.g. /pools?section=mac#signing-pools).
+  useEffect(() => {
+    if (loading) return;
+    const id = window.location.hash.slice(1);
+    if (!id) return;
+    requestAnimationFrame(() => {
+      document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, [loading, section]);
+
   useEffect(() => {
     api.fleet.pools()
       .then(d => setPools(d.pools))
@@ -920,18 +951,14 @@ export function Pools() {
       {/* macOS sub-page: full detail */}
       {section === "mac" && testerPools.length > 0 && (
         <div>
-          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
-            <FlaskConical size={12} /> Tester Pools
-          </h2>
+          <SectionHeading id="tester-pools" icon={<FlaskConical size={12} />} title="Tester Pools" className="mb-3" />
           <PoolTable pools={testerPools} pinnedPools={[]} navigate={navigate} showLegend pending={pending} />
         </div>
       )}
 
       {section === "mac" && builderPools.length > 0 && (
         <div>
-          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2">
-            <Hammer size={12} /> Builder Pools
-          </h2>
+          <SectionHeading id="builder-pools" icon={<Hammer size={12} />} title="Builder Pools" />
           <p className="text-[11px] text-gray-600 mb-3">Build workers — identified by <span className="font-mono">-b-</span> in pool name.</p>
           <PoolTable pools={builderPools} pinnedPools={[]} navigate={navigate} showLegend={false} pending={pending} />
         </div>
@@ -939,9 +966,7 @@ export function Pools() {
 
       {section === "mac" && vmPools.length > 0 && (
         <div>
-          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2">
-            <Monitor size={12} /> VM Pools
-          </h2>
+          <SectionHeading id="vm-pools" icon={<Monitor size={12} />} title="VM Pools" />
           <p className="text-[11px] text-gray-600 mb-3">Virtual machine pools running on Apple Silicon hosts.</p>
           <PoolTable pools={vmPools} pinnedPools={[]} navigate={navigate} showLegend={false} pending={pending} />
         </div>
@@ -949,9 +974,7 @@ export function Pools() {
 
       {section === "mac" && scriptworkerPools.length > 0 && (
         <div>
-          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2">
-            <Lock size={12} /> Signing Pools
-          </h2>
+          <SectionHeading id="signing-pools" icon={<Lock size={12} />} title="Signing Pools" />
           <p className="text-[11px] text-gray-600 mb-3">
             v4 signing workers on the <span className="font-mono">scriptworker-prov-v1</span> provisioner — live Taskcluster metrics.
           </p>
