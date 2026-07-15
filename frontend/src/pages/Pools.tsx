@@ -82,11 +82,10 @@ function poolLevel(name: string): number {
   return 0;
 }
 
-// Variant order within a family: non-prod variants first (staging, or the
-// dep- signing environment) sit above their prod counterpart, then production,
-// then ipv6.
+// Variant order within a family: staging first (sits above its prod
+// counterpart), then production, then ipv6.
 function poolVariantRank(name: string): number {
-  if (name.endsWith("-staging") || name.startsWith("dep-")) return 0;
+  if (name.endsWith("-staging")) return 0;
   if (name.endsWith("-ipv6")) return 2;
   return 1;
 }
@@ -112,6 +111,24 @@ function sortPoolsByFamily(pools: PoolHealth[]): PoolHealth[] {
     const variant = poolVariantRank(a.name) - poolVariantRank(b.name);
     if (variant !== 0) return variant;
     return a.name.localeCompare(b.name);
+  });
+}
+
+// Signing pools: all production pools first, then the dep block. Both blocks use
+// the same product order (family by largest total, then name) so they read as
+// two parallel columns — e.g. gecko, comm, … then dep-gecko, dep-comm, ….
+function sortSigningPools(pools: PoolHealth[]): PoolHealth[] {
+  const familyMaxTotal = new Map<string, number>();
+  for (const p of pools) {
+    const key = poolFamilyKey(p.name);
+    familyMaxTotal.set(key, Math.max(familyMaxTotal.get(key) ?? 0, p.total));
+  }
+  const isDep = (n: string) => n.startsWith("dep-");
+  return [...pools].sort((a, b) => {
+    if (isDep(a.name) !== isDep(b.name)) return isDep(a.name) ? 1 : -1;  // prod block, then dep block
+    const ka = poolFamilyKey(a.name), kb = poolFamilyKey(b.name);
+    const diff = (familyMaxTotal.get(kb) ?? 0) - (familyMaxTotal.get(ka) ?? 0);
+    return diff !== 0 ? diff : ka.localeCompare(kb);
   });
 }
 
@@ -797,7 +814,7 @@ export function Pools() {
   // Signing pools we surface are the v4 scriptworkers (scriptworker-prov-v1),
   // which report full TC activity/health metrics. The legacy puppet-managed
   // signing pools have no TC data and are not shown on the macOS page.
-  const scriptworkerPools = sortPoolsByFamily(macPools.filter(p => p.name.includes("signing") && p.provisioner === "scriptworker-prov-v1"));
+  const scriptworkerPools = sortSigningPools(macPools.filter(p => p.name.includes("signing") && p.provisioner === "scriptworker-prov-v1"));
   // Tester VM pools (e.g. gecko-t-osx-1500-m-vms) live with the Tester pools;
   // only non-tester VM pools get their own VM section.
   const vmPools      = macPools.filter(p => p.name.endsWith("-vms") && !p.name.includes("-t-"));
