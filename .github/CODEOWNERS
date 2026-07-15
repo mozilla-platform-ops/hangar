@@ -1,0 +1,16 @@
+# CODEOWNERS — require review for security-sensitive changes.
+#
+# GitHub auto-requests these owners on any PR touching the paths below. To make
+# their approval *required* (block merge without it), enable branch protection on
+# the default branch: Settings → Branches → protect `main` →
+# "Require review from Code Owners".
+#
+# NOTE: the handles below are the current reprovision allowlist members. Verify
+# each resolves to a real GitHub org member — an unrecognized handle silently
+# disables that rule. Adjust to a team handle (e.g. an @org/team) if you prefer.
+
+# The reprovision authorization allowlist (who may trigger a destructive
+# EACS wipe/rebuild) and its enforcement. Changing who can reprovision must be
+# reviewed by someone already trusted to reprovision.
+/backend/app/reprovision_access.py   @rcurran @aerickson @jmoss @jgibbs @mcornmesser
+/backend/app/api/reprovision.py      @rcurran @aerickson @jmoss @jgibbs @mcornmesser
