@@ -186,16 +186,19 @@ function SourceBar({ sources }: { sources: PoolSources | null | undefined }) {
 }
 
 
-function PoolTable({ pools, pinnedPools, navigate, showLegend, pending, showProvisioner = false }: {
+function PoolTable({ pools, pinnedPools, navigate, showLegend, pending, showProvisioner = false, totalOnly = false }: {
   pools: PoolHealth[];
   pinnedPools: string[];
   navigate: (path: string) => void;
   showLegend: boolean;
   pending: Record<string, number | null>;
   showProvisioner?: boolean;
+  totalOnly?: boolean;  // signing pools: activity/health metrics are meaningless, show Total only
 }) {
-  const headers = ["Pool", "Gen", "Health", "Activity", "Pending", "Total", "Prod", "Running", "Active", "Stale", "Issues", "Branch"];
-  if (showProvisioner) headers.splice(1, 0, "Provisioner");
+  const headers = totalOnly
+    ? ["Pool", "Total"]
+    : ["Pool", "Gen", "Health", "Activity", "Pending", "Total", "Prod", "Running", "Active", "Stale", "Issues", "Branch"];
+  if (showProvisioner && !totalOnly) headers.splice(1, 0, "Provisioner");
 
   return (
     <div className="card overflow-hidden">
@@ -223,6 +226,10 @@ function PoolTable({ pools, pinnedPools, navigate, showLegend, pending, showProv
                     <span className="text-xs font-mono text-gray-300">{pool.name}</span>
                   </div>
                 </td>
+                {totalOnly ? (
+                  <td className="px-4 py-2.5 text-xs text-gray-400 tabular-nums">{pool.total}</td>
+                ) : (
+                <>
                 {showProvisioner && (
                   <td className="px-4 py-2.5">
                     {pool.provisioner ? (
@@ -272,6 +279,8 @@ function PoolTable({ pools, pinnedPools, navigate, showLegend, pending, showProv
                     <span className="flex items-center gap-1 text-xs text-amber-400 tabular-nums"><GitBranch size={10} /> {pool.branch_override_count}</span>
                   ) : <span className="text-xs text-gray-700">—</span>}
                 </td>
+                </>
+                )}
               </tr>
             );
           })}
@@ -794,9 +803,11 @@ export function Pools() {
   const windowsHwPools = pools.filter(p => isWindowsPool(p.name));
   const macPools       = pools.filter(p => !isLinuxPool(p.name) && !isWindowsPool(p.name));
   const signingPools = macPools.filter(p => p.name.includes("signing"));
-  const vmPools      = macPools.filter(p => p.name.endsWith("-vms"));
+  // Tester VM pools (e.g. gecko-t-osx-1500-m-vms) live with the Tester pools;
+  // only non-tester VM pools get their own VM section.
+  const vmPools      = macPools.filter(p => p.name.endsWith("-vms") && !p.name.includes("-t-"));
   const builderPools = sortPoolsByFamily(macPools.filter(p => !p.name.includes("signing") && !p.name.endsWith("-vms") && p.name.includes("-b-")));
-  const testerPools  = sortPoolsByFamily(macPools.filter(p => !p.name.includes("signing") && !p.name.endsWith("-vms") && !p.name.includes("-b-") && p.name.includes("-t-")));
+  const testerPools  = sortPoolsByFamily(macPools.filter(p => !p.name.includes("signing") && !p.name.includes("-b-") && p.name.includes("-t-")));
   const otherPools   = macPools.filter(p => !p.name.includes("signing") && !p.name.endsWith("-vms") && !p.name.includes("-b-") && !p.name.includes("-t-"));
 
   // Tracked-pool support per section (mac / linux / windows)
@@ -926,7 +937,7 @@ export function Pools() {
           <p className="text-[11px] text-gray-600 mb-3">
             Signing workers operate differently — activity and health metrics may not reflect actual pool status.
           </p>
-          <PoolTable pools={signingPools} pinnedPools={[]} navigate={navigate} showLegend={false} pending={pending} />
+          <PoolTable pools={signingPools} pinnedPools={[]} navigate={navigate} showLegend={false} pending={pending} totalOnly />
         </div>
       )}
 
