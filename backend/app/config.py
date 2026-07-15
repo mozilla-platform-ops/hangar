@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from .reprovision_access import REPROVISION_AUTHORIZED_USERS_DEFAULT
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -58,10 +60,10 @@ class Settings(BaseSettings):
     cors_origins: str = "*"
 
     # Reprovision action is gated to these emails (comma-separated, case-insensitive). The
-    # panel is hidden and the endpoints 403 for anyone not listed. Start small; widen later.
-    reprovision_authorized_users: str = (
-        "rcurran@mozilla.com,aerickson@mozilla.com,jmoss@mozilla.com,jgibbs@mozilla.com,mcornmesser@mozilla.com"
-    )
+    # panel is hidden and the endpoints 403 for anyone not listed. The default lives in
+    # reprovision_access.py, which is CODEOWNERS-gated so the allowlist can't be widened
+    # without review (adding an entry grants destructive wipe/rebuild of prod workers).
+    reprovision_authorized_users: str = REPROVISION_AUTHORIZED_USERS_DEFAULT
 
     # The on-network reprovision runner authenticates one of two ways:
     #  1. mTLS (preferred): the forge-style LB validates its step-ca client cert against the
