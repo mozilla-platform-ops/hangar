@@ -65,6 +65,55 @@ function isWindowsPool(name: string): boolean {
   return name.includes("win");
 }
 
+// Family key = pool name with the trust-level token (1/3) and variant suffixes
+// (staging/ipv6) stripped, so related pools collapse to the same group. e.g.
+// gecko-1-b-osx-arm64 and gecko-3-b-osx-arm64 -> gecko-b-osx-arm64.
+function poolFamilyKey(name: string): string {
+  return name
+    .split("-")
+    .filter(seg => seg !== "1" && seg !== "3" && seg !== "staging" && seg !== "ipv6")
+    .join("-");
+}
+
+function poolLevel(name: string): number {
+  const segs = name.split("-");
+  if (segs.includes("3")) return 3;
+  if (segs.includes("1")) return 1;
+  return 0;
+}
+
+// Variant order within a family: staging first (sits above its prod
+// counterpart), then production, then ipv6.
+function poolVariantRank(name: string): number {
+  if (name.endsWith("-staging")) return 0;
+  if (name.endsWith("-ipv6")) return 2;
+  return 1;
+}
+
+// Group related pools together and order families by their largest pool's Total
+// (desc), keeping the big/important pools near the top. Within a family, order
+// by trust level asc (1 before 3) then variant, so a staging pool sits directly
+// above its production sibling (ipv6 sits just below).
+function sortPoolsByFamily(pools: PoolHealth[]): PoolHealth[] {
+  const familyMaxTotal = new Map<string, number>();
+  for (const p of pools) {
+    const key = poolFamilyKey(p.name);
+    familyMaxTotal.set(key, Math.max(familyMaxTotal.get(key) ?? 0, p.total));
+  }
+  return [...pools].sort((a, b) => {
+    const ka = poolFamilyKey(a.name), kb = poolFamilyKey(b.name);
+    if (ka !== kb) {
+      const diff = (familyMaxTotal.get(kb) ?? 0) - (familyMaxTotal.get(ka) ?? 0);
+      return diff !== 0 ? diff : ka.localeCompare(kb);
+    }
+    const lvl = poolLevel(a.name) - poolLevel(b.name);
+    if (lvl !== 0) return lvl;
+    const variant = poolVariantRank(a.name) - poolVariantRank(b.name);
+    if (variant !== 0) return variant;
+    return a.name.localeCompare(b.name);
+  });
+}
+
 function cloudPoolId(pool: CloudPool): string {
   return pool.id || `${pool.provisioner}/${pool.name}`;
 }
@@ -746,8 +795,8 @@ export function Pools() {
   const macPools       = pools.filter(p => !isLinuxPool(p.name) && !isWindowsPool(p.name));
   const signingPools = macPools.filter(p => p.name.includes("signing"));
   const vmPools      = macPools.filter(p => p.name.endsWith("-vms"));
-  const builderPools = macPools.filter(p => !p.name.includes("signing") && !p.name.endsWith("-vms") && p.name.includes("-b-"));
-  const testerPools  = macPools.filter(p => !p.name.includes("signing") && !p.name.endsWith("-vms") && !p.name.includes("-b-") && p.name.includes("-t-"));
+  const builderPools = sortPoolsByFamily(macPools.filter(p => !p.name.includes("signing") && !p.name.endsWith("-vms") && p.name.includes("-b-")));
+  const testerPools  = sortPoolsByFamily(macPools.filter(p => !p.name.includes("signing") && !p.name.endsWith("-vms") && !p.name.includes("-b-") && p.name.includes("-t-")));
   const otherPools   = macPools.filter(p => !p.name.includes("signing") && !p.name.endsWith("-vms") && !p.name.includes("-b-") && !p.name.includes("-t-"));
 
   // Tracked-pool support per section (mac / linux / windows)
