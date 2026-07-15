@@ -1127,7 +1127,7 @@ export function Overview() {
   const grad = { backgroundImage: FF_GRADIENT } as const;
 
   return (
-    <div className="p-8 space-y-6 max-w-7xl">
+    <div className="p-8 space-y-6">
       {/* Greeting */}
       <div className="flex items-end justify-between">
         <div className="space-y-1">
