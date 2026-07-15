@@ -808,7 +808,10 @@ export function Pools() {
   const vmPools      = macPools.filter(p => p.name.endsWith("-vms") && !p.name.includes("-t-"));
   const builderPools = sortPoolsByFamily(macPools.filter(p => !p.name.includes("signing") && !p.name.endsWith("-vms") && p.name.includes("-b-")));
   const testerPools  = sortPoolsByFamily(macPools.filter(p => !p.name.includes("signing") && !p.name.includes("-b-") && p.name.includes("-t-")));
-  const otherPools   = macPools.filter(p => !p.name.includes("signing") && !p.name.endsWith("-vms") && !p.name.includes("-b-") && !p.name.includes("-t-"));
+  // Non-worker buckets we don't surface on the macOS page: "unknown" (hosts with
+  // no worker_pool) and the deploystudio imaging pool.
+  const HIDDEN_MAC_POOLS = new Set(["unknown", "deploystudio"]);
+  const otherPools   = macPools.filter(p => !p.name.includes("signing") && !p.name.endsWith("-vms") && !p.name.includes("-b-") && !p.name.includes("-t-") && !HIDDEN_MAC_POOLS.has(p.name));
 
   // Tracked-pool support per section (mac / linux / windows)
   const trackSection = section === "mac" || section === "linux" || section === "windows";
