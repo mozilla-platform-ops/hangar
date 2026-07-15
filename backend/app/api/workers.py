@@ -7,7 +7,7 @@ from typing import Any
 
 import requests
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
-from sqlalchemy import asc, desc, func, nullslast
+from sqlalchemy import asc, desc, func, nullslast, or_
 from sqlalchemy.orm import Session
 
 from .. import cache
@@ -15,7 +15,7 @@ from ..config import settings
 from ..database import get_db
 from .fleet import DEFAULT_BRANCH
 from ..hosts import worker_fqdn
-from ..models import FailureEvent, SyncLog, Worker
+from ..models import EXCLUDED_MDM_GROUPS, FailureEvent, SyncLog, Worker
 
 router = APIRouter(prefix="/workers", tags=["workers"])
 
@@ -184,6 +184,11 @@ def list_workers(
             q = q.filter(Worker.sheet_state == state)
     if worker_pool:
         q = q.filter(Worker.worker_pool == worker_pool)
+        # A host keeps its last-known worker_pool after being moved to a
+        # non-production SimpleMDM group (e.g. Defective/Spares, Loaners); it's
+        # not really a member of the pool, so drop it from the pool's table.
+        for grp in EXCLUDED_MDM_GROUPS:
+            q = q.filter(or_(Worker.mdm_groups.is_(None), ~Worker.mdm_groups.contains(f'"{grp}"')))
     if tc_quarantined is not None:
         q = q.filter(Worker.tc_quarantined == tc_quarantined)
     if mdm_enrollment:

@@ -257,6 +257,9 @@ def pool_health(db: Session = Depends(get_db)) -> dict[str, Any]:
     pools: dict[str, dict] = {}
 
     for w in workers:
+        if w.in_excluded_mdm_group:
+            continue  # defective/spare/loaner host; its stale worker_pool label
+            # is not real membership, so it counts toward no pool
         pool = w.worker_pool or "unknown"
         if pool in DECOMMISSIONED_POOLS:
             continue  # retired pool lingering on a stray worker's metadata
