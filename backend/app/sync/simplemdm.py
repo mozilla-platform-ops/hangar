@@ -5,6 +5,7 @@ Auth: HTTP Basic with API key as username, blank password.
 """
 from __future__ import annotations
 
+import json
 import logging
 from base64 import b64encode
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -47,6 +48,27 @@ class SimpleMDMClient:
             last_id = data["data"][-1]["id"]
             params["starting_after"] = last_id
         return devices
+
+    def assignment_group_names(self) -> dict[int, str]:
+        """Return {group_id: group_name} for all SimpleMDM assignment groups.
+
+        Assignment groups (not device_groups) are the actively-managed membership
+        in this SimpleMDM instance — a device's `relationships.groups` references
+        them, and they carry the pool/state semantics (e.g. "Defective / Spares",
+        "Loaner", "gecko-3-b-osx-arm64"). A device's singular `device_group` is
+        often null, so it can't be relied on."""
+        groups: dict[int, str] = {}
+        params: dict[str, Any] = {"limit": 100}
+        while True:
+            data = self._get("/assignment_groups", params)
+            for item in data.get("data", []):
+                name = item.get("attributes", {}).get("name")
+                if name:
+                    groups[item["id"]] = name
+            if not data.get("has_more"):
+                break
+            params["starting_after"] = data["data"][-1]["id"]
+        return groups
 
     def get_device_custom_attributes(self, device_id: int) -> dict[str, str]:
         """Return {attr_name: value} for a single device."""
@@ -104,6 +126,9 @@ def run_sync(db: Session) -> int:
         devices = client.list_devices()
         log.info("Fetched %d devices", len(devices))
 
+        group_names = client.assignment_group_names()
+        log.info("Fetched %d SimpleMDM assignment groups", len(group_names))
+
         device_ids = [d["id"] for d in devices]
         log.info("Fetching SimpleMDM custom attribute values for %d devices...", len(device_ids))
         custom_attrs = client.bulk_custom_attribute_values(device_ids)
@@ -132,6 +157,17 @@ def run_sync(db: Session) -> int:
             worker.serial_number = attrs.get("serial_number")
             worker.os_version = attrs.get("os_version")
             worker.mdm_enrollment_status = attrs.get("status")  # enrolled/unenrolled
+
+            # SimpleMDM assignment group membership. A device can be in several
+            # (a pool group plus utility groups like Puppet Agent / Chrome), so
+            # store all names as a JSON list to match the mdm_groups contract.
+            group_refs = (
+                device.get("relationships", {})
+                .get("groups", {})
+                .get("data", [])
+            )
+            names = [group_names[g["id"]] for g in group_refs if g.get("id") in group_names]
+            worker.mdm_groups = json.dumps(names) if names else None
 
             # Custom attributes for this device
             ca = custom_attrs.get(device_id, {})

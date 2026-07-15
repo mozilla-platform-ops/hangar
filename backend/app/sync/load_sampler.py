@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 
 from ..models import PoolLoadSample, Worker
-from .taskcluster import HW_WORKER_POOLS
+from .taskcluster import ALL_WORKER_POOLS
 
 log = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ def run_sync(db: Session) -> int:
     # Live pending per hardware pool (Taskcluster Queue API), fetched in parallel.
     pending: dict[str, int | None] = {}
     with ThreadPoolExecutor(max_workers=8) as ex:
-        futures = [ex.submit(_fetch_pending_count, prov, wt) for prov, wt in HW_WORKER_POOLS]
+        futures = [ex.submit(_fetch_pending_count, prov, wt) for prov, wt in ALL_WORKER_POOLS]
         for fut in futures:
             worker_type, count = fut.result()
             pending[worker_type] = count
@@ -44,7 +44,7 @@ def run_sync(db: Session) -> int:
             running[pool] = running.get(pool, 0) + 1
 
     ts = datetime.utcnow()
-    worker_types = [wt for _, wt in HW_WORKER_POOLS]
+    worker_types = [wt for _, wt in ALL_WORKER_POOLS]
     for pool in worker_types:
         db.add(PoolLoadSample(
             pool=pool,

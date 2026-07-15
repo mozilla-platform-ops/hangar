@@ -14,7 +14,7 @@ from .. import cache
 from ..config import settings
 from ..database import SessionLocal, get_db
 from ..models import Alert, FailureEvent, PoolLoadSample, SyncLog, Worker
-from ..sync.taskcluster import HW_WORKER_POOLS
+from ..sync.taskcluster import ALL_WORKER_POOLS, HW_WORKER_POOLS
 
 # Job-source sampling is served through the SWR cache so page loads never block on
 # live Taskcluster fan-out; a task's project/user is immutable, so it's cached too.
@@ -257,6 +257,9 @@ def pool_health(db: Session = Depends(get_db)) -> dict[str, Any]:
     pools: dict[str, dict] = {}
 
     for w in workers:
+        if w.in_excluded_mdm_group:
+            continue  # defective/spare/loaner host; its stale worker_pool label
+            # is not real membership, so it counts toward no pool
         pool = w.worker_pool or "unknown"
         if pool in DECOMMISSIONED_POOLS:
             continue  # retired pool lingering on a stray worker's metadata
@@ -446,7 +449,7 @@ def _linux_cloud_worker_pools() -> list[tuple[str, str]]:
 def pending_counts() -> dict[str, Any]:
     """Live pending task counts from TC Queue API for all monitored hardware pools."""
     with ThreadPoolExecutor(max_workers=10) as ex:
-        futures = {ex.submit(_fetch_pending_count, p, w): w for p, w in HW_WORKER_POOLS}
+        futures = {ex.submit(_fetch_pending_count, p, w): w for p, w in ALL_WORKER_POOLS}
         results: dict[str, int | None] = {}
         for fut in as_completed(futures):
             worker_type, count = fut.result()

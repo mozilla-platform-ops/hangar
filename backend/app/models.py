@@ -1,12 +1,21 @@
 """SQLAlchemy ORM models."""
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Integer, LargeBinary, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .database import Base
+
+# SimpleMDM assignment groups whose members are out of production service. A host
+# keeps its last-known worker_pool label after it's pulled from ronin_puppet and
+# moved to one of these groups (no sync clears worker_pool), so it would otherwise
+# inflate the pool total and show up in the pool's fleet table. Members of these
+# groups count toward no worker pool. Names must match SimpleMDM exactly. Edit
+# this set to add/remove excluded groups.
+EXCLUDED_MDM_GROUPS = {"Defective / Spares", "Loaner", "Loaner - No Profiles"}
 
 
 class Worker(Base):
@@ -66,6 +75,23 @@ class Worker(Base):
         if self.tc_worker_pool_id or self.puppet_role:
             return "production"
         return "unknown"
+
+    @property
+    def mdm_group_names(self) -> list[str]:
+        """SimpleMDM group names for this host (mdm_groups is a JSON list)."""
+        if not self.mdm_groups:
+            return []
+        try:
+            groups = json.loads(self.mdm_groups)
+        except (ValueError, TypeError):
+            return []
+        return groups if isinstance(groups, list) else []
+
+    @property
+    def in_excluded_mdm_group(self) -> bool:
+        """True if this host is in a non-production SimpleMDM group (e.g.
+        Defective/Spares, Loaners) and so belongs to no worker pool."""
+        return any(g in EXCLUDED_MDM_GROUPS for g in self.mdm_group_names)
 
     # Sync bookkeeping
     last_synced_puppet: Mapped[datetime | None] = mapped_column(DateTime)

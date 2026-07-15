@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
-import { Pin, AlertTriangle, GitBranch, Users, Lock, Hammer, FlaskConical, ChevronDown, Terminal, Smartphone, Monitor, Pencil, Check, X, RotateCcw, GripVertical, Cpu } from "lucide-react";
+import { Pin, AlertTriangle, GitBranch, Users, Lock, Hammer, FlaskConical, ChevronDown, Terminal, Smartphone, Monitor, Pencil, Check, X, RotateCcw, GripVertical, Cpu, Link2 } from "lucide-react";
 import { api } from "../api";
 import type { PoolHealth, PoolSources, CloudPool, FleetSummary, RoninPR, PoolSeries, PoolLoadSnapshot } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
@@ -63,6 +63,73 @@ function isLinuxPool(name: string): boolean {
 
 function isWindowsPool(name: string): boolean {
   return name.includes("win");
+}
+
+// Family key = pool name with the trust-level token (1/3) and variant suffixes
+// (staging/ipv6) stripped, so related pools collapse to the same group. e.g.
+// gecko-1-b-osx-arm64 and gecko-3-b-osx-arm64 -> gecko-b-osx-arm64.
+function poolFamilyKey(name: string): string {
+  return name
+    .split("-")
+    .filter(seg => seg !== "1" && seg !== "3" && seg !== "staging" && seg !== "ipv6" && seg !== "dep")
+    .join("-");
+}
+
+function poolLevel(name: string): number {
+  const segs = name.split("-");
+  if (segs.includes("3")) return 3;
+  if (segs.includes("1")) return 1;
+  return 0;
+}
+
+// Variant order within a family: staging first (sits above its prod
+// counterpart), then production, then ipv6.
+function poolVariantRank(name: string): number {
+  if (name.endsWith("-staging")) return 0;
+  if (name.endsWith("-ipv6")) return 2;
+  return 1;
+}
+
+// Group related pools together and order families by their largest pool's Total
+// (desc), keeping the big/important pools near the top. Within a family, order
+// by trust level asc (1 before 3) then variant, so a staging pool sits directly
+// above its production sibling (ipv6 sits just below).
+function sortPoolsByFamily(pools: PoolHealth[]): PoolHealth[] {
+  const familyMaxTotal = new Map<string, number>();
+  for (const p of pools) {
+    const key = poolFamilyKey(p.name);
+    familyMaxTotal.set(key, Math.max(familyMaxTotal.get(key) ?? 0, p.total));
+  }
+  return [...pools].sort((a, b) => {
+    const ka = poolFamilyKey(a.name), kb = poolFamilyKey(b.name);
+    if (ka !== kb) {
+      const diff = (familyMaxTotal.get(kb) ?? 0) - (familyMaxTotal.get(ka) ?? 0);
+      return diff !== 0 ? diff : ka.localeCompare(kb);
+    }
+    const lvl = poolLevel(a.name) - poolLevel(b.name);
+    if (lvl !== 0) return lvl;
+    const variant = poolVariantRank(a.name) - poolVariantRank(b.name);
+    if (variant !== 0) return variant;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+// Signing pools: all production pools first, then the dep block. Both blocks use
+// the same product order (family by largest total, then name) so they read as
+// two parallel columns — e.g. gecko, comm, … then dep-gecko, dep-comm, ….
+function sortSigningPools(pools: PoolHealth[]): PoolHealth[] {
+  const familyMaxTotal = new Map<string, number>();
+  for (const p of pools) {
+    const key = poolFamilyKey(p.name);
+    familyMaxTotal.set(key, Math.max(familyMaxTotal.get(key) ?? 0, p.total));
+  }
+  const isDep = (n: string) => n.startsWith("dep-");
+  return [...pools].sort((a, b) => {
+    if (isDep(a.name) !== isDep(b.name)) return isDep(a.name) ? 1 : -1;  // prod block, then dep block
+    const ka = poolFamilyKey(a.name), kb = poolFamilyKey(b.name);
+    const diff = (familyMaxTotal.get(kb) ?? 0) - (familyMaxTotal.get(ka) ?? 0);
+    return diff !== 0 ? diff : ka.localeCompare(kb);
+  });
 }
 
 function cloudPoolId(pool: CloudPool): string {
@@ -136,6 +203,28 @@ function SourceBar({ sources }: { sources: PoolSources | null | undefined }) {
   );
 }
 
+
+// Anchored section heading: gives each pool section a stable id so it can be
+// deep-linked (e.g. #signing-pools) and reveals a copyable link icon on hover.
+// scroll-mt keeps the target clear of the top edge when jumped to.
+function SectionHeading({ id, icon, title, className = "mb-1", children }: {
+  id: string;
+  icon: ReactNode;
+  title: string;
+  className?: string;
+  children?: ReactNode;  // optional trailing content (e.g. a provisioner badge)
+}) {
+  return (
+    <h2 id={id} className={`group scroll-mt-6 text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2 ${className}`}>
+      {icon} {title}
+      {children}
+      <a href={`#${id}`} aria-label={`Link to ${title}`}
+        className="opacity-0 group-hover:opacity-100 text-gray-600 hover:text-gray-300 transition-opacity">
+        <Link2 size={11} />
+      </a>
+    </h2>
+  );
+}
 
 function PoolTable({ pools, pinnedPools, navigate, showLegend, pending, showProvisioner = false }: {
   pools: PoolHealth[];
@@ -657,6 +746,19 @@ export function Pools() {
     }
   }, [section, pools, trackedMap]);
 
+  // Deep-link support: once data has loaded and the sections have rendered,
+  // scroll to the anchor in the URL hash (e.g. /pools?section=mac#signing-pools).
+  useEffect(() => {
+    if (loading) return;
+    const id = window.location.hash.slice(1);
+    if (!id) return;
+    requestAnimationFrame(() => {
+      document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    // cloud/android pools load into separate state after the initial pools fetch,
+    // so re-run when their counts change to catch anchors in those sections.
+  }, [loading, section, cloudPoolData.length, androidPoolData.length]);
+
   useEffect(() => {
     api.fleet.pools()
       .then(d => setPools(d.pools))
@@ -744,11 +846,19 @@ export function Pools() {
   const linuxHwPools   = pools.filter(p => isLinuxPool(p.name));
   const windowsHwPools = pools.filter(p => isWindowsPool(p.name));
   const macPools       = pools.filter(p => !isLinuxPool(p.name) && !isWindowsPool(p.name));
-  const signingPools = macPools.filter(p => p.name.includes("signing"));
-  const vmPools      = macPools.filter(p => p.name.endsWith("-vms"));
-  const builderPools = macPools.filter(p => !p.name.includes("signing") && !p.name.endsWith("-vms") && p.name.includes("-b-"));
-  const testerPools  = macPools.filter(p => !p.name.includes("signing") && !p.name.endsWith("-vms") && !p.name.includes("-b-") && p.name.includes("-t-"));
-  const otherPools   = macPools.filter(p => !p.name.includes("signing") && !p.name.endsWith("-vms") && !p.name.includes("-b-") && !p.name.includes("-t-"));
+  // Signing pools we surface are the v4 scriptworkers (scriptworker-prov-v1),
+  // which report full TC activity/health metrics. The legacy puppet-managed
+  // signing pools have no TC data and are not shown on the macOS page.
+  const scriptworkerPools = sortSigningPools(macPools.filter(p => p.name.includes("signing") && p.provisioner === "scriptworker-prov-v1"));
+  // Tester VM pools (e.g. gecko-t-osx-1500-m-vms) live with the Tester pools;
+  // only non-tester VM pools get their own VM section.
+  const vmPools      = macPools.filter(p => p.name.endsWith("-vms") && !p.name.includes("-t-"));
+  const builderPools = sortPoolsByFamily(macPools.filter(p => !p.name.includes("signing") && !p.name.endsWith("-vms") && p.name.includes("-b-")));
+  const testerPools  = sortPoolsByFamily(macPools.filter(p => !p.name.includes("signing") && !p.name.includes("-b-") && p.name.includes("-t-")));
+  // Non-worker buckets we don't surface on the macOS page: "unknown" (hosts with
+  // no worker_pool) and the deploystudio imaging pool.
+  const HIDDEN_MAC_POOLS = new Set(["unknown", "deploystudio"]);
+  const otherPools   = macPools.filter(p => !p.name.includes("signing") && !p.name.endsWith("-vms") && !p.name.includes("-b-") && !p.name.includes("-t-") && !HIDDEN_MAC_POOLS.has(p.name));
 
   // Tracked-pool support per section (mac / linux / windows)
   const trackSection = section === "mac" || section === "linux" || section === "windows";
@@ -837,23 +947,22 @@ export function Pools() {
         </div>
       )}
 
+      {/* Fleet composition summary — sits below Monitored pools, above the pool tables */}
+      {section === "mac" && summary && <MacHardwareCard summary={summary} />}
+
       {section === "mac" && <ReprovisionActivity />}
 
       {/* macOS sub-page: full detail */}
       {section === "mac" && testerPools.length > 0 && (
         <div>
-          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
-            <FlaskConical size={12} /> Tester Pools
-          </h2>
+          <SectionHeading id="tester-pools" icon={<FlaskConical size={12} />} title="Tester Pools" className="mb-3" />
           <PoolTable pools={testerPools} pinnedPools={[]} navigate={navigate} showLegend pending={pending} />
         </div>
       )}
 
       {section === "mac" && builderPools.length > 0 && (
         <div>
-          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2">
-            <Hammer size={12} /> Builder Pools
-          </h2>
+          <SectionHeading id="builder-pools" icon={<Hammer size={12} />} title="Builder Pools" />
           <p className="text-[11px] text-gray-600 mb-3">Build workers — identified by <span className="font-mono">-b-</span> in pool name.</p>
           <PoolTable pools={builderPools} pinnedPools={[]} navigate={navigate} showLegend={false} pending={pending} />
         </div>
@@ -861,23 +970,19 @@ export function Pools() {
 
       {section === "mac" && vmPools.length > 0 && (
         <div>
-          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2">
-            <Monitor size={12} /> VM Pools
-          </h2>
+          <SectionHeading id="vm-pools" icon={<Monitor size={12} />} title="VM Pools" />
           <p className="text-[11px] text-gray-600 mb-3">Virtual machine pools running on Apple Silicon hosts.</p>
           <PoolTable pools={vmPools} pinnedPools={[]} navigate={navigate} showLegend={false} pending={pending} />
         </div>
       )}
 
-      {section === "mac" && signingPools.length > 0 && (
+      {section === "mac" && scriptworkerPools.length > 0 && (
         <div>
-          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2">
-            <Lock size={12} /> Signing Pools
-          </h2>
+          <SectionHeading id="signing-pools" icon={<Lock size={12} />} title="Signing Pools" />
           <p className="text-[11px] text-gray-600 mb-3">
-            Signing workers operate differently — activity and health metrics may not reflect actual pool status.
+            v4 signing workers on the <span className="font-mono">scriptworker-prov-v1</span> provisioner — live Taskcluster metrics.
           </p>
-          <PoolTable pools={signingPools} pinnedPools={[]} navigate={navigate} showLegend={false} pending={pending} />
+          <PoolTable pools={scriptworkerPools} pinnedPools={[]} navigate={navigate} showLegend pending={pending} />
         </div>
       )}
 
@@ -886,12 +991,11 @@ export function Pools() {
       {section === "linux" && linuxHwPools.length > 0 && (
         <div className="space-y-6">
           <div>
-            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
-              <Terminal size={12} /> All Linux Hardware Pools
+            <SectionHeading id="linux-hardware-pools" icon={<Terminal size={12} />} title="All Linux Hardware Pools" className="mb-3">
               <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/35 border border-emerald-900/40 rounded px-1.5 py-0.5 normal-case tracking-normal">
                 releng-hardware
               </span>
-            </h2>
+            </SectionHeading>
             <PoolTable pools={linuxHwPools} pinnedPools={[]} navigate={navigate} showLegend pending={pending} showProvisioner />
           </div>
         </div>
@@ -900,9 +1004,7 @@ export function Pools() {
       {section === "windows" && windowsHwPools.length > 0 && (
         <div className="space-y-6">
           <div>
-            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
-              <Terminal size={12} /> All Windows Hardware Pools
-            </h2>
+            <SectionHeading id="windows-hardware-pools" icon={<Terminal size={12} />} title="All Windows Hardware Pools" className="mb-3" />
             <PoolTable pools={windowsHwPools} pinnedPools={[]} navigate={navigate} showLegend pending={pending} />
           </div>
         </div>
@@ -922,9 +1024,7 @@ export function Pools() {
           </div>
           {section === "linux" && (
             <div>
-              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
-                <Terminal size={12} /> All Linux Cloud Pools
-              </h2>
+              <SectionHeading id="linux-cloud-pools" icon={<Terminal size={12} />} title="All Linux Cloud Pools" className="mb-3" />
               <CloudPoolTable pools={cloudPoolData} />
             </div>
           )}
@@ -935,9 +1035,7 @@ export function Pools() {
         <div className="space-y-6">
           <AndroidPoolCards pools={androidPoolData} sources={sources} seriesMap={seriesMap} />
           <div>
-            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
-              <Smartphone size={12} /> All Android Hardware Pools
-            </h2>
+            <SectionHeading id="android-hardware-pools" icon={<Smartphone size={12} />} title="All Android Hardware Pools" className="mb-3" />
             <div className="card overflow-hidden">
               <table className="w-full text-sm">
                 <thead>
@@ -1043,9 +1141,6 @@ export function Pools() {
           {showOther && <PoolTable pools={otherPools} pinnedPools={[]} navigate={navigate} showLegend={false} pending={pending} />}
         </div>
       )}
-
-      {/* Fleet composition — closes the macOS page as a full-width summary strip */}
-      {section === "mac" && summary && <MacHardwareCard summary={summary} />}
     </div>
   );
 }
@@ -1071,8 +1166,9 @@ function RoninPRPanel({ prs, onVote }: { prs: RoninPR[]; onVote: (pr: RoninPR) =
 
   return (
     <div className="card p-5">
-      <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
-        <GitBranch size={12} /> Incoming Changes
+      <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2"
+        title="Open ronin_puppet pull requests affecting the worker fleet">
+        <GitBranch size={12} /> Open ronin_puppet Worker PRs
         <span className="ml-1 text-gray-400 font-bold">{prs.length}</span>
       </h3>
       <div className="space-y-2">
