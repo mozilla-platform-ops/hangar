@@ -1134,8 +1134,9 @@ function RoninPRPanel({ prs, onVote }: { prs: RoninPR[]; onVote: (pr: RoninPR) =
 
   return (
     <div className="card p-5">
-      <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
-        <GitBranch size={12} /> Incoming Changes
+      <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2"
+        title="Open ronin_puppet pull requests affecting the worker fleet">
+        <GitBranch size={12} /> Open ronin_puppet Worker PRs
         <span className="ml-1 text-gray-400 font-bold">{prs.length}</span>
       </h3>
       <div className="space-y-2">
