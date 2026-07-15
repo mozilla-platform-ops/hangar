@@ -207,15 +207,17 @@ function SourceBar({ sources }: { sources: PoolSources | null | undefined }) {
 // Anchored section heading: gives each pool section a stable id so it can be
 // deep-linked (e.g. #signing-pools) and reveals a copyable link icon on hover.
 // scroll-mt keeps the target clear of the top edge when jumped to.
-function SectionHeading({ id, icon, title, className = "mb-1" }: {
+function SectionHeading({ id, icon, title, className = "mb-1", children }: {
   id: string;
   icon: ReactNode;
   title: string;
   className?: string;
+  children?: ReactNode;  // optional trailing content (e.g. a provisioner badge)
 }) {
   return (
     <h2 id={id} className={`group scroll-mt-6 text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2 ${className}`}>
       {icon} {title}
+      {children}
       <a href={`#${id}`} aria-label={`Link to ${title}`}
         className="opacity-0 group-hover:opacity-100 text-gray-600 hover:text-gray-300 transition-opacity">
         <Link2 size={11} />
@@ -753,7 +755,9 @@ export function Pools() {
     requestAnimationFrame(() => {
       document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
-  }, [loading, section]);
+    // cloud/android pools load into separate state after the initial pools fetch,
+    // so re-run when their counts change to catch anchors in those sections.
+  }, [loading, section, cloudPoolData.length, androidPoolData.length]);
 
   useEffect(() => {
     api.fleet.pools()
@@ -987,12 +991,11 @@ export function Pools() {
       {section === "linux" && linuxHwPools.length > 0 && (
         <div className="space-y-6">
           <div>
-            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
-              <Terminal size={12} /> All Linux Hardware Pools
+            <SectionHeading id="linux-hardware-pools" icon={<Terminal size={12} />} title="All Linux Hardware Pools" className="mb-3">
               <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/35 border border-emerald-900/40 rounded px-1.5 py-0.5 normal-case tracking-normal">
                 releng-hardware
               </span>
-            </h2>
+            </SectionHeading>
             <PoolTable pools={linuxHwPools} pinnedPools={[]} navigate={navigate} showLegend pending={pending} showProvisioner />
           </div>
         </div>
@@ -1001,9 +1004,7 @@ export function Pools() {
       {section === "windows" && windowsHwPools.length > 0 && (
         <div className="space-y-6">
           <div>
-            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
-              <Terminal size={12} /> All Windows Hardware Pools
-            </h2>
+            <SectionHeading id="windows-hardware-pools" icon={<Terminal size={12} />} title="All Windows Hardware Pools" className="mb-3" />
             <PoolTable pools={windowsHwPools} pinnedPools={[]} navigate={navigate} showLegend pending={pending} />
           </div>
         </div>
@@ -1023,9 +1024,7 @@ export function Pools() {
           </div>
           {section === "linux" && (
             <div>
-              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
-                <Terminal size={12} /> All Linux Cloud Pools
-              </h2>
+              <SectionHeading id="linux-cloud-pools" icon={<Terminal size={12} />} title="All Linux Cloud Pools" className="mb-3" />
               <CloudPoolTable pools={cloudPoolData} />
             </div>
           )}
@@ -1036,9 +1035,7 @@ export function Pools() {
         <div className="space-y-6">
           <AndroidPoolCards pools={androidPoolData} sources={sources} seriesMap={seriesMap} />
           <div>
-            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
-              <Smartphone size={12} /> All Android Hardware Pools
-            </h2>
+            <SectionHeading id="android-hardware-pools" icon={<Smartphone size={12} />} title="All Android Hardware Pools" className="mb-3" />
             <div className="card overflow-hidden">
               <table className="w-full text-sm">
                 <thead>
