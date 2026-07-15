@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, type ReactNode } from "react";
 import { FlaskConical, ArrowUpRight, Gauge, Pin, Plus, X, Check, GripVertical, Pencil, Rocket, CalendarClock, ExternalLink, Bug,
   Bell, BellRing, BellOff,
   Sun, Moon, Cloud, CloudSun, CloudMoon, CloudRain, CloudDrizzle, CloudSnow, CloudLightning, CloudFog, Search, LocateFixed, LoaderCircle } from "lucide-react";
+import { Link } from "react-router-dom";
 import { api } from "../api";
 import type { FleetSummary, LoadHistory, ReleaseSchedule, WeatherNow, WeatherPref, GeocodeResult, ShowcaseData, TryPush, Needinfo, PoolSources, PoolSeries } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
@@ -12,8 +13,6 @@ import { MonitoredPoolCard } from "../components/MonitoredPoolCard";
 
 const YARDSTICK_BASE = "https://yardstick.mozilla.org/d/ieg6Sho5/workers?orgId=1&from=now-2d&to=now&timezone=browser&refresh=5m";
 const yardstickAll = `${YARDSTICK_BASE}&var-provisioner=$__all&var-workerType=$__all`;
-const yardstickPool = (pool: string) =>
-  `${YARDSTICK_BASE}&var-provisioner=$__all&var-workerType=${encodeURIComponent(pool)}`;
 
 // Mapped across the Firefox gradient (orange → magenta → violet) so the meter echoes the
 // health ring / sparkline accents and leaves emerald free for "healthy"/production.
@@ -1203,7 +1202,7 @@ export function Overview() {
             ) : (
               <div className="space-y-2">
                 {topLoad.map(p => (
-                  <a key={p.pool} href={yardstickPool(p.pool)} target="_blank" rel="noopener noreferrer"
+                  <Link key={p.pool} to={`/fleet?worker_pool=${encodeURIComponent(p.pool)}&view=table`}
                     className="flex items-center gap-3 group">
                     <span className="text-[11px] font-mono text-gray-400 group-hover:text-gray-200 transition-colors w-48 flex-shrink-0 truncate" title={p.pool}>
                       {p.pool}
@@ -1212,7 +1211,7 @@ export function Overview() {
                       <div className="h-full rounded-full" style={{ width: `${((p.pending ?? 0) / maxPending) * 100}%`, backgroundImage: FF_GRADIENT }} />
                     </div>
                     <span className="text-[11px] font-mono text-gray-300 tabular-nums w-12 text-right">{(p.pending ?? 0).toLocaleString()}</span>
-                  </a>
+                  </Link>
                 ))}
               </div>
             )}
