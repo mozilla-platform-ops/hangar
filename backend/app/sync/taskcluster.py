@@ -88,6 +88,28 @@ HW_WORKER_POOLS: list[tuple[str, str]] = [
     ("releng-hardware", "gecko-t-win7-32-hw"),
 ]
 
+# macOS v4 signing scriptworkers. These report under the scriptworker-prov-v1
+# provisioner (not releng-hardware) and their workerId is a logical instance name
+# (e.g. gecko-signing-mac14m2-01), NOT a hostname — one physical mini runs several
+# instances. They're keyed by workerId rather than an FQDN (see run_sync).
+SCRIPTWORKER_POOLS: list[tuple[str, str]] = [
+    ("scriptworker-prov-v1", "gecko-signing-mac14m2"),
+    ("scriptworker-prov-v1", "dep-gecko-signing-mac14m2"),
+    ("scriptworker-prov-v1", "comm-signing-mac14m2"),
+    ("scriptworker-prov-v1", "dep-comm-signing-mac14m2"),
+    ("scriptworker-prov-v1", "enterprise-signing-mac14m2"),
+    ("scriptworker-prov-v1", "dep-enterprise-signing-mac14m2"),
+    ("scriptworker-prov-v1", "mozillavpn-signing-mac14m2"),
+    ("scriptworker-prov-v1", "dep-mozillavpn-signing-mac14m2"),
+    ("scriptworker-prov-v1", "adhoc-signing-mac14m2"),
+    ("scriptworker-prov-v1", "dep-adhoc-signing-mac14m2"),
+]
+
+# All pools the sync fetches and the pending-count endpoint polls.
+ALL_WORKER_POOLS: list[tuple[str, str]] = HW_WORKER_POOLS + SCRIPTWORKER_POOLS
+
+SCRIPTWORKER_PROVISIONER = "scriptworker-prov-v1"
+
 # Keep old name as alias so fleet.py import doesn't break until updated
 MAC_WORKER_POOLS = HW_WORKER_POOLS
 
@@ -342,8 +364,9 @@ def run_sync(db: Session) -> int:
         # objects, so workers appearing in multiple pools would get double-inserted.
         session_workers: dict[str, Worker] = {}
 
-        for provisioner_id, worker_type in HW_WORKER_POOLS:
+        for provisioner_id, worker_type in ALL_WORKER_POOLS:
             log.info("Fetching TC workers: %s/%s", provisioner_id, worker_type)
+            is_scriptworker = provisioner_id == SCRIPTWORKER_PROVISIONER
             try:
                 workers = _fetch_pool_workers(provisioner_id, worker_type)
             except Exception as exc:
@@ -352,7 +375,9 @@ def run_sync(db: Session) -> int:
 
             for node in workers:
                 worker_id = node.get("workerId", "")
-                hostname = _worker_hostname(worker_id)
+                # Scriptworker workerIds are logical instance names, not hostnames,
+                # so key on the workerId directly instead of synthesising an FQDN.
+                hostname = worker_id if is_scriptworker else _worker_hostname(worker_id)
                 seen_hostnames.add(hostname)
 
                 worker = session_workers.get(hostname) or db.get(Worker, hostname)
@@ -428,7 +453,7 @@ def run_sync(db: Session) -> int:
         log_entry.records_updated = total
         log_entry.success = True
         db.commit()
-        log.info("TC sync complete: %d records across %d pools", total, len(MAC_WORKER_POOLS))
+        log.info("TC sync complete: %d records across %d pools", total, len(ALL_WORKER_POOLS))
         return total
 
     except Exception as exc:

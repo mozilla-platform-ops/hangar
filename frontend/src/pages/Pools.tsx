@@ -802,7 +802,12 @@ export function Pools() {
   const linuxHwPools   = pools.filter(p => isLinuxPool(p.name));
   const windowsHwPools = pools.filter(p => isWindowsPool(p.name));
   const macPools       = pools.filter(p => !isLinuxPool(p.name) && !isWindowsPool(p.name));
-  const signingPools = macPools.filter(p => p.name.includes("signing"));
+  const allSigningPools = macPools.filter(p => p.name.includes("signing"));
+  // v4 signing scriptworkers report to TC (scriptworker-prov-v1) with full
+  // activity/health metrics; the legacy puppet-managed signing pools have no TC
+  // data, so those stay Total-only.
+  const scriptworkerPools = sortPoolsByFamily(allSigningPools.filter(p => p.provisioner === "scriptworker-prov-v1"));
+  const signingPools = allSigningPools.filter(p => p.provisioner !== "scriptworker-prov-v1");
   // Tester VM pools (e.g. gecko-t-osx-1500-m-vms) live with the Tester pools;
   // only non-tester VM pools get their own VM section.
   const vmPools      = macPools.filter(p => p.name.endsWith("-vms") && !p.name.includes("-t-"));
@@ -929,6 +934,18 @@ export function Pools() {
           </h2>
           <p className="text-[11px] text-gray-600 mb-3">Virtual machine pools running on Apple Silicon hosts.</p>
           <PoolTable pools={vmPools} pinnedPools={[]} navigate={navigate} showLegend={false} pending={pending} />
+        </div>
+      )}
+
+      {section === "mac" && scriptworkerPools.length > 0 && (
+        <div>
+          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2">
+            <Lock size={12} /> Signing Pools — Scriptworker
+          </h2>
+          <p className="text-[11px] text-gray-600 mb-3">
+            v4 signing workers on the <span className="font-mono">scriptworker-prov-v1</span> provisioner — live Taskcluster metrics.
+          </p>
+          <PoolTable pools={scriptworkerPools} pinnedPools={[]} navigate={navigate} showLegend pending={pending} />
         </div>
       )}
 
