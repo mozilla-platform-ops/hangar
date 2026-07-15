@@ -71,7 +71,7 @@ function isWindowsPool(name: string): boolean {
 function poolFamilyKey(name: string): string {
   return name
     .split("-")
-    .filter(seg => seg !== "1" && seg !== "3" && seg !== "staging" && seg !== "ipv6")
+    .filter(seg => seg !== "1" && seg !== "3" && seg !== "staging" && seg !== "ipv6" && seg !== "dep")
     .join("-");
 }
 
@@ -82,10 +82,11 @@ function poolLevel(name: string): number {
   return 0;
 }
 
-// Variant order within a family: staging first (sits above its prod
-// counterpart), then production, then ipv6.
+// Variant order within a family: non-prod variants first (staging, or the
+// dep- signing environment) sit above their prod counterpart, then production,
+// then ipv6.
 function poolVariantRank(name: string): number {
-  if (name.endsWith("-staging")) return 0;
+  if (name.endsWith("-staging") || name.startsWith("dep-")) return 0;
   if (name.endsWith("-ipv6")) return 2;
   return 1;
 }
@@ -186,19 +187,16 @@ function SourceBar({ sources }: { sources: PoolSources | null | undefined }) {
 }
 
 
-function PoolTable({ pools, pinnedPools, navigate, showLegend, pending, showProvisioner = false, totalOnly = false }: {
+function PoolTable({ pools, pinnedPools, navigate, showLegend, pending, showProvisioner = false }: {
   pools: PoolHealth[];
   pinnedPools: string[];
   navigate: (path: string) => void;
   showLegend: boolean;
   pending: Record<string, number | null>;
   showProvisioner?: boolean;
-  totalOnly?: boolean;  // signing pools: activity/health metrics are meaningless, show Total only
 }) {
-  const headers = totalOnly
-    ? ["Pool", "Total"]
-    : ["Pool", "Gen", "Health", "Activity", "Pending", "Total", "Prod", "Running", "Active", "Stale", "Issues", "Branch"];
-  if (showProvisioner && !totalOnly) headers.splice(1, 0, "Provisioner");
+  const headers = ["Pool", "Gen", "Health", "Activity", "Pending", "Total", "Prod", "Running", "Active", "Stale", "Issues", "Branch"];
+  if (showProvisioner) headers.splice(1, 0, "Provisioner");
 
   return (
     <div className="card overflow-hidden">
@@ -226,10 +224,6 @@ function PoolTable({ pools, pinnedPools, navigate, showLegend, pending, showProv
                     <span className="text-xs font-mono text-gray-300">{pool.name}</span>
                   </div>
                 </td>
-                {totalOnly ? (
-                  <td className="px-4 py-2.5 text-xs text-gray-400 tabular-nums">{pool.total}</td>
-                ) : (
-                <>
                 {showProvisioner && (
                   <td className="px-4 py-2.5">
                     {pool.provisioner ? (
@@ -279,8 +273,6 @@ function PoolTable({ pools, pinnedPools, navigate, showLegend, pending, showProv
                     <span className="flex items-center gap-1 text-xs text-amber-400 tabular-nums"><GitBranch size={10} /> {pool.branch_override_count}</span>
                   ) : <span className="text-xs text-gray-700">—</span>}
                 </td>
-                </>
-                )}
               </tr>
             );
           })}
@@ -802,12 +794,10 @@ export function Pools() {
   const linuxHwPools   = pools.filter(p => isLinuxPool(p.name));
   const windowsHwPools = pools.filter(p => isWindowsPool(p.name));
   const macPools       = pools.filter(p => !isLinuxPool(p.name) && !isWindowsPool(p.name));
-  const allSigningPools = macPools.filter(p => p.name.includes("signing"));
-  // v4 signing scriptworkers report to TC (scriptworker-prov-v1) with full
-  // activity/health metrics; the legacy puppet-managed signing pools have no TC
-  // data, so those stay Total-only.
-  const scriptworkerPools = sortPoolsByFamily(allSigningPools.filter(p => p.provisioner === "scriptworker-prov-v1"));
-  const signingPools = allSigningPools.filter(p => p.provisioner !== "scriptworker-prov-v1");
+  // Signing pools we surface are the v4 scriptworkers (scriptworker-prov-v1),
+  // which report full TC activity/health metrics. The legacy puppet-managed
+  // signing pools have no TC data and are not shown on the macOS page.
+  const scriptworkerPools = sortPoolsByFamily(macPools.filter(p => p.name.includes("signing") && p.provisioner === "scriptworker-prov-v1"));
   // Tester VM pools (e.g. gecko-t-osx-1500-m-vms) live with the Tester pools;
   // only non-tester VM pools get their own VM section.
   const vmPools      = macPools.filter(p => p.name.endsWith("-vms") && !p.name.includes("-t-"));
@@ -940,24 +930,12 @@ export function Pools() {
       {section === "mac" && scriptworkerPools.length > 0 && (
         <div>
           <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2">
-            <Lock size={12} /> Signing Pools — Scriptworker
+            <Lock size={12} /> Signing Pools
           </h2>
           <p className="text-[11px] text-gray-600 mb-3">
             v4 signing workers on the <span className="font-mono">scriptworker-prov-v1</span> provisioner — live Taskcluster metrics.
           </p>
           <PoolTable pools={scriptworkerPools} pinnedPools={[]} navigate={navigate} showLegend pending={pending} />
-        </div>
-      )}
-
-      {section === "mac" && signingPools.length > 0 && (
-        <div>
-          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2">
-            <Lock size={12} /> Signing Pools
-          </h2>
-          <p className="text-[11px] text-gray-600 mb-3">
-            Signing workers operate differently — activity and health metrics may not reflect actual pool status.
-          </p>
-          <PoolTable pools={signingPools} pinnedPools={[]} navigate={navigate} showLegend={false} pending={pending} totalOnly />
         </div>
       )}
 
