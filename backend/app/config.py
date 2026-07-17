@@ -36,6 +36,13 @@ class Settings(BaseSettings):
     # GitHub (optional — increases rate limit from 60 to 5000 req/hr)
     github_token: str = ""
 
+    # macOS VM image pipeline card (build → promote → rollout).
+    # The on-network OCI registry serving the tester image (anon pull), the
+    # GitHub repo whose Actions build it, and the image repository name.
+    oci_registry_url: str = "http://10.49.56.161:5000"
+    macos_vms_repo: str = "mozilla-platform-ops/macos-vms"
+    oci_image_repo: str = "sequoia-tester"
+
     # Sync intervals (seconds)
     sync_interval_tc: int = 300
     sync_interval_simplemdm: int = 900

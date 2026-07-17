@@ -6,6 +6,7 @@ import type { PoolHealth, PoolSources, CloudPool, FleetSummary, RoninPR, PoolSer
 import { FF_GRADIENT } from "../lib/brand";
 import { PROJECT_COLORS, PROJECT_TEXT } from "../lib/projects";
 import { MacMigrationCard } from "../components/Showcase";
+import { VMImagePipelineCard } from "../components/VMImagePipelineCard";
 import { ReprovisionActivity } from "../components/ReprovisionActivity";
 import { MonitoredPoolCard } from "../components/MonitoredPoolCard";
 import { usePoll } from "../lib/useLive";
@@ -947,10 +948,10 @@ export function Pools() {
         </div>
       )}
 
-      {/* Fleet composition summary — sits below Monitored pools, above the pool tables */}
-      {section === "mac" && summary && <MacHardwareCard summary={summary} />}
-
       {section === "mac" && <ReprovisionActivity />}
+
+      {/* VM image pipeline — build → promote → rollout for the tester VM image */}
+      {section === "mac" && <VMImagePipelineCard />}
 
       {/* macOS sub-page: full detail */}
       {section === "mac" && testerPools.length > 0 && (
@@ -985,6 +986,9 @@ export function Pools() {
           <PoolTable pools={scriptworkerPools} pinnedPools={[]} navigate={navigate} showLegend pending={pending} />
         </div>
       )}
+
+      {/* Fleet composition summary + Intel→Apple Silicon migration story */}
+      {section === "mac" && summary && <MacHardwareCard summary={summary} />}
 
       {section === "mac" && <MacMigrationCard />}
 

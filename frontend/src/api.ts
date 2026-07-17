@@ -291,6 +291,61 @@ export interface ReleaseSchedule {
   sources: string[];
 }
 
+// ── macOS VM image pipeline (build → promote → rollout) ──────────────────────
+
+export interface VMPipelineRun {
+  run_number: number | null;
+  status: string | null;      // queued | in_progress | completed
+  conclusion: string | null;  // success | failure | cancelled | null
+  title: string | null;
+  actor: string | null;
+  url: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  event: string | null;
+  sha: string | null;
+  short_sha: string | null;
+}
+export interface VMPipelineBuild {
+  tag: string;
+  sha: string;
+  short_sha: string | null;
+  digest: string | null;
+  digest_short: string | null;
+  is_current: boolean;
+  run: VMPipelineRun | null;
+  built_at: string | null;
+}
+export interface VMPipelineRegistry {
+  url: string;
+  repo: string;
+  reachable: boolean;
+  prod_latest_digest: string | null;
+  prod_latest_digest_short: string | null;
+  tag_count: number | null;
+  error: string | null;
+}
+export interface VMPipelineRollout {
+  vm_worker_count: number;
+  active_24h: number;
+  pools: Record<string, number>;
+  digest_drift_instrumented: boolean;
+  note: string;
+}
+export interface VMPipeline {
+  registry: VMPipelineRegistry;
+  current: {
+    digest: string | null; digest_short: string | null;
+    sha: string | null; short_sha: string | null;
+    run: VMPipelineRun | null; built_at?: string | null;
+  };
+  latest_run: VMPipelineRun | null;
+  history: VMPipelineBuild[];
+  rollout: VMPipelineRollout;
+  repo_url: string;
+  generated_at: string;
+}
+
 // ── Showcase (team-impact rollups for the Overview) ──────────────────────────
 
 export interface ShowcaseAxis {
@@ -541,6 +596,9 @@ export const api = {
   },
   releases: {
     schedule: () => get<ReleaseSchedule>("/releases"),
+  },
+  vmPipeline: {
+    get: () => get<VMPipeline>("/vm-pipeline"),
   },
   weather: {
     current: (lat: number, lon: number, unit: string) =>
