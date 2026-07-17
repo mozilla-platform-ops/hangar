@@ -16,7 +16,9 @@ const yardstickAll = `${YARDSTICK_BASE}&var-provisioner=$__all&var-workerType=$_
 
 // Mapped across the Firefox gradient (orange → magenta → violet) so the meter echoes the
 // health ring / sparkline accents and leaves emerald free for "healthy"/production.
-const PLATFORM_COLORS = { macOS: "#FF9400", Linux: "#FF1AD9", Windows: "#9059FF" } as const;
+// Android gets its own iconic robot-green — it sits outside the gradient (its devices are
+// Taskcluster-only, not in the worker DB) and the label disambiguates it from health greens.
+const PLATFORM_COLORS = { macOS: "#FF9400", Linux: "#FF1AD9", Windows: "#9059FF", Android: "#3DDC84" } as const;
 
 function timeAgo(iso: string | null, now = Date.now()) {
   if (!iso) return "never";
@@ -1067,12 +1069,19 @@ export function Overview() {
   const [data, setData] = useState<FleetSummary | null>(null);
   const [load, setLoad] = useState<LoadHistory | null>(null);
   const [scale, setScale] = useState<ShowcaseData["scale"] | null>(null);
+  // Android device pools are Taskcluster-only (no worker DB rows), so pull their live
+  // device total separately to fold into the platform breakdown below.
+  const [androidTotal, setAndroidTotal] = useState<number | null>(null);
   const [error, setError] = useState("");
+
+  const loadAndroid = () =>
+    api.fleet.androidPools().then(d => setAndroidTotal(d.pools.reduce((s, p) => s + p.total, 0)));
 
   useEffect(() => {
     api.fleet.summary().then(setData).catch(e => setError(e.message));
     api.fleet.loadHistory(48).then(setLoad).catch(() => {});
     api.fleet.showcase().then(d => setScale(d.scale)).catch(() => {});
+    loadAndroid().catch(() => {});
   }, []);
 
   // Keep the dashboard live: silently refresh everything while the tab is visible.
@@ -1080,6 +1089,7 @@ export function Overview() {
     api.fleet.summary().then(setData).catch(() => {});
     api.fleet.loadHistory(48).then(setLoad).catch(() => {});
     api.fleet.showcase().then(d => setScale(d.scale)).catch(() => {});
+    loadAndroid().catch(() => {});
   }, 60_000);
 
   if (error) return <div className="p-8 text-red-400 text-sm">{error}</div>;
@@ -1098,9 +1108,10 @@ export function Overview() {
       else if (name.includes("win") || name.includes("nuc")) windows += count;
     });
     return [
-      { name: "macOS" as const,   value: mac,     color: PLATFORM_COLORS.macOS },
-      { name: "Linux" as const,   value: linux,   color: PLATFORM_COLORS.Linux },
-      { name: "Windows" as const, value: windows, color: PLATFORM_COLORS.Windows },
+      { name: "macOS" as const,   value: mac,                color: PLATFORM_COLORS.macOS },
+      { name: "Linux" as const,   value: linux,              color: PLATFORM_COLORS.Linux },
+      { name: "Windows" as const, value: windows,            color: PLATFORM_COLORS.Windows },
+      { name: "Android" as const, value: androidTotal ?? 0,  color: PLATFORM_COLORS.Android },
     ].filter(d => d.value > 0);
   })();
   const platformTotal = platforms.reduce((s, p) => s + p.value, 0) || 1;
@@ -1237,7 +1248,7 @@ export function Overview() {
           <div className="flex-1 w-full space-y-5">
             <div className="flex flex-wrap items-end gap-x-10 gap-y-4">
               <div>
-                <div className="text-4xl font-bold text-white tabular-nums leading-none"><AnimatedNumber value={data.total_workers} /></div>
+                <div className="text-4xl font-bold text-white tabular-nums leading-none"><AnimatedNumber value={data.total_workers + (androidTotal ?? 0)} /></div>
                 <div className="text-[11px] text-gray-500 uppercase tracking-wider mt-1.5">Total workers</div>
               </div>
             </div>
