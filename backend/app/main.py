@@ -22,6 +22,7 @@ from .api.releases import router as releases_router
 from .api.reprovision import router as reprovision_router
 from .api.screen import router as screen_router
 from .api.treeherder import router as treeherder_router
+from .api.vm_pipeline import router as vm_pipeline_router
 from .api.weather import router as weather_router
 from .api.workers import router as workers_router
 from .config import settings
@@ -110,6 +111,7 @@ app.include_router(releases_router, prefix="/api")
 app.include_router(treeherder_router, prefix="/api")
 app.include_router(bugzilla_router, prefix="/api")
 app.include_router(weather_router, prefix="/api")
+app.include_router(vm_pipeline_router, prefix="/api")
 
 
 @app.post("/api/sync/run")
