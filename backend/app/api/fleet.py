@@ -829,6 +829,179 @@ def android_pool_sources(pool: str) -> dict[str, Any]:
     }
 
 
+# ── Android per-device health (creds-free) ───────────────────────────────────
+# Android devices (Bitbar / Lambda) have no rows in the Worker table and we don't
+# yet have Bitbar/Lambda API access. But the Taskcluster queue is fully public, and
+# its worker listing carries everything we need for a first-order health read:
+# per-device quarantine state, last-active recency, and the current/last task. This
+# endpoint derives a device inventory + health rollup from that alone — no secrets.
+STALE_ANDROID_MINUTES = 60
+
+
+def _android_device_model(worker_type: str) -> str:
+    if "a55" in worker_type:
+        return "Samsung A55"
+    if "p6" in worker_type:
+        return "Pixel 6"
+    if "s24" in worker_type:
+        return "Galaxy S24"
+    if "p5" in worker_type:
+        return "Pixel 5"
+    return "—"
+
+
+def _android_infra(worker_type: str) -> str:
+    return "Lambda" if "lambda" in worker_type else "Bitbar"
+
+
+def _parse_tc_iso(s: str | None) -> datetime | None:
+    """Parse a Taskcluster ISO timestamp (e.g. 2026-07-17T19:00:19.906Z) to naive UTC."""
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        return None
+
+
+def _fetch_task_state(task_id: str) -> tuple[str, str | None]:
+    """Current task state (running/completed/failed/…) from the public TC queue."""
+    try:
+        r = requests.get(
+            f"{settings.tc_root_url}/api/queue/v1/task/{task_id}/status",
+            timeout=4,
+            headers={"User-Agent": "relops-dashboard/1.0"},
+        )
+        if r.ok:
+            return task_id, (r.json().get("status") or {}).get("state")
+    except Exception:
+        pass
+    return task_id, None
+
+
+def _fetch_android_pool_workers(provisioner: str, worker_type: str) -> tuple[str, str, list[dict[str, Any]]]:
+    try:
+        resp = requests.get(
+            f"{settings.tc_root_url}/api/queue/v1/provisioners/{provisioner}/worker-types/{worker_type}/workers",
+            params={"limit": 1000},
+            timeout=8,
+            headers={"User-Agent": "relops-dashboard/1.0"},
+        )
+        if resp.ok:
+            return worker_type, provisioner, resp.json().get("workers", [])
+    except Exception:
+        pass
+    return worker_type, provisioner, []
+
+
+@router.get("/android-devices")
+def android_devices() -> dict[str, Any]:
+    """Per-device health for the Android pools, derived entirely from the public
+    Taskcluster queue (no Bitbar/Lambda credentials). Returns a device inventory
+    plus fleet/infra/model/pool rollups so the dashboard can render device health."""
+    now = datetime.utcnow()
+    # TC uses year-3000+ quarantine dates as a "parked/staging" marker, not a real
+    # near-term quarantine — mirror the taskcluster sync's two-year cutoff.
+    parked_cutoff = now + timedelta(days=730)
+
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        pending_by_pool = {
+            wt: (count or 0)
+            for wt, count in [f.result() for f in [ex.submit(_fetch_pending_count, p, w) for p, w in ANDROID_WORKER_POOLS]]
+        }
+        raw = [f.result() for f in [ex.submit(_fetch_android_pool_workers, p, w) for p, w in ANDROID_WORKER_POOLS]]
+
+    devices: list[dict[str, Any]] = []
+    task_ids: set[str] = set()
+    for worker_type, provisioner, workers in raw:
+        model = _android_device_model(worker_type)
+        infra = _android_infra(worker_type)
+        for w in workers:
+            q = _parse_tc_iso(w.get("quarantineUntil"))
+            last = _parse_tc_iso(w.get("lastDateActive"))
+            lt = w.get("latestTask") if isinstance(w.get("latestTask"), dict) else None
+            task_id = lt.get("taskId") if lt else None
+            if task_id:
+                task_ids.add(task_id)
+            devices.append({
+                "worker_id": w.get("workerId", ""),
+                "worker_group": w.get("workerGroup"),
+                "pool": worker_type,
+                "provisioner": provisioner,
+                "device_model": model,
+                "infra": infra,
+                "quarantined": bool(q and now < q < parked_cutoff),
+                "parked": bool(q and q >= parked_cutoff),
+                "quarantine_until": q.isoformat() if q else None,
+                "last_active": last.isoformat() if last else None,
+                "last_active_mins": round((now - last).total_seconds() / 60) if last else None,
+                "first_claim": w.get("firstClaim"),
+                "task_id": task_id,
+                "task_state": None,
+            })
+
+    # Best-effort: mark devices "working" from their current task's live state. If the
+    # status call fails we simply don't claim the device is working (fall back to idle/stale).
+    states: dict[str, str | None] = {}
+    if task_ids:
+        with ThreadPoolExecutor(max_workers=20) as ex:
+            states = dict(f.result() for f in [ex.submit(_fetch_task_state, tid) for tid in task_ids])
+
+    for d in devices:
+        st = states.get(d["task_id"]) if d["task_id"] else None
+        d["task_state"] = st
+        mins = d["last_active_mins"]
+        if d["quarantined"]:
+            d["state"] = "quarantined"
+        elif d["parked"]:
+            d["state"] = "parked"
+        elif st == "running":
+            d["state"] = "working"
+        elif mins is None:
+            d["state"] = "unknown"
+        elif mins > STALE_ANDROID_MINUTES:
+            d["state"] = "stale"
+        else:
+            d["state"] = "idle"
+
+    devices.sort(key=lambda d: (d["pool"], d["worker_id"]))
+
+    states_order = ("working", "idle", "stale", "quarantined", "parked", "unknown")
+    summary: dict[str, int] = {s: sum(1 for d in devices if d["state"] == s) for s in states_order}
+    summary["devices"] = len(devices)
+    summary["pending"] = sum(pending_by_pool.values())
+
+    by_infra: dict[str, int] = {}
+    by_model: dict[str, int] = {}
+    for d in devices:
+        by_infra[d["infra"]] = by_infra.get(d["infra"], 0) + 1
+        by_model[d["device_model"]] = by_model.get(d["device_model"], 0) + 1
+
+    # Per-pool rollup, seeded so pools with zero live workers still show up.
+    pools_roll: dict[str, dict[str, Any]] = {
+        wt: {
+            "pool": wt, "provisioner": prov,
+            "device_model": _android_device_model(wt), "infra": _android_infra(wt),
+            "devices": 0, "pending": pending_by_pool.get(wt, 0),
+            **{s: 0 for s in states_order},
+        }
+        for prov, wt in ANDROID_WORKER_POOLS
+    }
+    for d in devices:
+        r = pools_roll[d["pool"]]
+        r["devices"] += 1
+        r[d["state"]] += 1
+
+    return {
+        "generated_at": now.isoformat(),
+        "summary": summary,
+        "by_infra": dict(sorted(by_infra.items(), key=lambda x: x[1], reverse=True)),
+        "by_model": dict(sorted(by_model.items(), key=lambda x: x[1], reverse=True)),
+        "pools": sorted(pools_roll.values(), key=lambda x: x["pool"]),
+        "devices": devices,
+    }
+
+
 def _scheduler_project(scheduler_id: str) -> str:
     if "level-3" in scheduler_id:
         return "autoland"

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
-import { Pin, AlertTriangle, GitBranch, Users, Lock, Hammer, FlaskConical, ChevronDown, Terminal, Smartphone, Monitor, Pencil, Check, X, RotateCcw, GripVertical, Cpu, Link2 } from "lucide-react";
+import { Pin, AlertTriangle, GitBranch, Users, Lock, Hammer, FlaskConical, ChevronDown, Terminal, Smartphone, Monitor, Pencil, Check, X, RotateCcw, GripVertical, Cpu, Link2, Clock, ExternalLink, Activity } from "lucide-react";
 import { api } from "../api";
-import type { PoolHealth, PoolSources, CloudPool, FleetSummary, RoninPR, PoolSeries, PoolLoadSnapshot } from "../api";
+import type { PoolHealth, PoolSources, CloudPool, FleetSummary, RoninPR, PoolSeries, PoolLoadSnapshot, AndroidDevicesResponse, AndroidDevice, AndroidDeviceState } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
 import { PROJECT_COLORS, PROJECT_TEXT } from "../lib/projects";
 import { MacMigrationCard } from "../components/Showcase";
@@ -440,6 +440,176 @@ function AndroidPoolCards({ pools, sources, seriesMap }: { pools: CloudPool[]; s
   );
 }
 
+// ── Android device health (creds-free, derived from the public Taskcluster queue) ──
+const TC_ROOT = "https://firefox-ci-tc.services.mozilla.com";
+
+const AD_STATE: Record<AndroidDeviceState, { label: string; dot: string; text: string; chip: string }> = {
+  working:     { label: "Working",     dot: "bg-emerald-500", text: "text-emerald-400", chip: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30" },
+  idle:        { label: "Idle",        dot: "bg-gray-500",    text: "text-gray-400",    chip: "bg-gray-500/10 text-gray-300 border-gray-600/40" },
+  stale:       { label: "Stale",       dot: "bg-amber-400",   text: "text-amber-400",   chip: "bg-amber-500/10 text-amber-300 border-amber-500/30" },
+  quarantined: { label: "Quarantined", dot: "bg-red-500",     text: "text-red-400",     chip: "bg-red-500/10 text-red-300 border-red-500/30" },
+  parked:      { label: "Parked",      dot: "bg-violet-500",  text: "text-violet-400",  chip: "bg-violet-500/10 text-violet-300 border-violet-500/30" },
+  unknown:     { label: "Unknown",     dot: "bg-gray-600",    text: "text-gray-500",    chip: "bg-gray-500/10 text-gray-400 border-gray-700/40" },
+};
+// Problem states float to the top of the device table; "parked" (intentionally shelved) sinks.
+const AD_SEVERITY: Record<AndroidDeviceState, number> = { quarantined: 0, stale: 1, working: 2, idle: 3, unknown: 4, parked: 5 };
+
+function agoLabel(mins: number | null): string {
+  if (mins === null) return "—";
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const h = Math.round(mins / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.round(h / 24)}d ago`;
+}
+
+function AndroidHealthStrip({ data }: { data: AndroidDevicesResponse }) {
+  const s = data.summary;
+  const updatedMins = Math.round((Date.now() - new Date(data.generated_at + "Z").getTime()) / 60000);
+  const infraTotal = Object.values(data.by_infra).reduce((a, b) => a + b, 0) || 1;
+  const INFRA_COLOR: Record<string, string> = { Bitbar: "#FF9400", Lambda: "#378ADD" };
+  const tiles: Array<{ label: string; value: number; text: string }> = [
+    { label: "devices",     value: s.devices,     text: "text-white" },
+    { label: "working",     value: s.working,     text: "text-emerald-400" },
+    { label: "idle",        value: s.idle,        text: "text-gray-300" },
+    { label: "stale",       value: s.stale,       text: s.stale > 0 ? "text-amber-400" : "text-gray-500" },
+    { label: "quarantined", value: s.quarantined, text: s.quarantined > 0 ? "text-red-400" : "text-gray-500" },
+    { label: "pending",     value: s.pending,     text: s.pending > 0 ? "text-brand-300" : "text-gray-500" },
+  ];
+
+  return (
+    <div className="card p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
+          <Activity size={13} className="text-gray-500" /> Android Device Health
+          <span className="flex items-center gap-1 text-[10px] text-gray-600 normal-case tracking-normal font-normal">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> live
+          </span>
+        </h3>
+        <span className="text-[10px] text-gray-600">
+          from public Taskcluster · updated {updatedMins < 1 ? "just now" : `${updatedMins}m ago`}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+        {tiles.map(t => (
+          <div key={t.label} className="rounded-lg border border-gray-800/60 bg-gray-900/40 px-3 py-2.5">
+            <div className={`text-2xl font-bold tabular-nums leading-none ${t.text}`}>{t.value.toLocaleString()}</div>
+            <div className="text-[10px] text-gray-500 uppercase tracking-wider mt-1">{t.label}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {/* Infra split */}
+        <div>
+          <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-2">Infra</div>
+          <div className="flex w-full h-2.5 rounded-full overflow-hidden gap-px">
+            {Object.entries(data.by_infra).map(([name, n]) => (
+              <div key={name} style={{ width: `${(n / infraTotal) * 100}%`, backgroundColor: INFRA_COLOR[name] ?? "#6b7280" }} title={`${name}: ${n}`} />
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-x-5 gap-y-1 mt-2.5">
+            {Object.entries(data.by_infra).map(([name, n]) => (
+              <div key={name} className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: INFRA_COLOR[name] ?? "#6b7280" }} />
+                <span className="text-xs text-gray-300">{name}</span>
+                <span className="text-xs font-mono text-gray-500 tabular-nums">{n}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* Model breakdown */}
+        <div>
+          <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-2">Device models</div>
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(data.by_model).map(([model, n]) => (
+              <span key={model} className="inline-flex items-center gap-1.5 rounded-full border border-gray-800 bg-gray-900/60 px-2.5 py-1">
+                <span className="text-xs text-gray-300">{model === "—" ? "other" : model}</span>
+                <span className="text-xs font-mono text-gray-500 tabular-nums">{n}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AndroidDeviceTable({ devices }: { devices: AndroidDevice[] }) {
+  const [filter, setFilter] = useState<AndroidDeviceState | "all">("all");
+  const counts = devices.reduce<Record<string, number>>((acc, d) => { acc[d.state] = (acc[d.state] ?? 0) + 1; return acc; }, {});
+  const chips: Array<AndroidDeviceState | "all"> = ["all", "quarantined", "stale", "working", "idle", "parked"];
+  const shown = devices
+    .filter(d => filter === "all" || d.state === filter)
+    .slice()
+    .sort((a, b) => AD_SEVERITY[a.state] - AD_SEVERITY[b.state] || a.pool.localeCompare(b.pool) || a.worker_id.localeCompare(b.worker_id));
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        {chips.map(c => {
+          const active = filter === c;
+          const n = c === "all" ? devices.length : (counts[c] ?? 0);
+          if (c !== "all" && n === 0) return null;
+          return (
+            <button key={c} onClick={() => setFilter(c)}
+              className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                active ? "border-brand-500/50 bg-brand-900/20 text-brand-200" : "border-gray-800 text-gray-400 hover:text-gray-200 hover:border-gray-700"}`}>
+              {c !== "all" && <span className={`w-1.5 h-1.5 rounded-full ${AD_STATE[c].dot}`} />}
+              {c === "all" ? "All" : AD_STATE[c].label}
+              <span className="tabular-nums text-gray-600">{n}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="card overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-800/80">
+              {["Device", "Model", "Infra", "State", "Last active", "Current task"].map(h => (
+                <th key={h} className="text-left px-4 py-3 text-[11px] font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map(d => {
+              const st = AD_STATE[d.state];
+              const stale = d.state === "stale" || d.state === "quarantined";
+              return (
+                <tr key={`${d.pool}/${d.worker_id}`} className="border-b border-gray-800/40 last:border-0 hover:bg-gray-800/20 transition-colors">
+                  <td className="px-4 py-2.5 text-xs font-mono text-gray-200 whitespace-nowrap" title={d.pool}>{d.worker_id}</td>
+                  <td className="px-4 py-2.5 text-xs text-gray-400 whitespace-nowrap">{d.device_model === "—" ? "—" : d.device_model}</td>
+                  <td className="px-4 py-2.5 text-xs text-gray-500">{d.infra}</td>
+                  <td className="px-4 py-2.5">
+                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-medium ${st.chip}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} /> {st.label}
+                    </span>
+                  </td>
+                  <td className={`px-4 py-2.5 text-xs tabular-nums whitespace-nowrap ${stale ? "text-amber-400" : "text-gray-400"}`}>
+                    <span className="inline-flex items-center gap-1.5"><Clock size={11} className="text-gray-600" /> {agoLabel(d.last_active_mins)}</span>
+                  </td>
+                  <td className="px-4 py-2.5 text-xs whitespace-nowrap">
+                    {d.task_id ? (
+                      <a href={`${TC_ROOT}/tasks/${d.task_id}`} target="_blank" rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 font-mono text-brand-400 hover:text-brand-300 transition-colors">
+                        {d.task_id.slice(0, 8)}
+                        {d.task_state && <span className="text-gray-600">· {d.task_state}</span>}
+                        <ExternalLink size={10} />
+                      </a>
+                    ) : <span className="text-gray-700">—</span>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function CloudPoolTable({ pools }: { pools: CloudPool[] }) {
   return (
     <div className="card overflow-hidden">
@@ -694,6 +864,7 @@ export function Pools() {
   const [loadByName, setLoadByName] = useState<Record<string, PoolLoadSnapshot>>({});
   const [cloudPoolData, setCloudPoolData] = useState<CloudPool[]>([]);
   const [androidPoolData, setAndroidPoolData] = useState<CloudPool[]>([]);
+  const [androidHealth, setAndroidHealth] = useState<AndroidDevicesResponse | null>(null);
   const [branchOverrides, setBranchOverrides] = useState<FleetSummary["branch_overrides"] | null>(null);
   const [summary, setSummary] = useState<FleetSummary | null>(null);
   const [roninPRs, setRoninPRs] = useState<RoninPR[]>([]);
@@ -825,6 +996,17 @@ export function Pools() {
         .catch(() => {});
     }
   }, [linuxWindowsNames]);
+
+  // Per-device Android health is a heavier server-side fan-out to the public TC queue,
+  // so only fetch (and poll) it while the Android section is actually being viewed.
+  useEffect(() => {
+    if (section !== "android") return;
+    let cancelled = false;
+    const load = () => api.fleet.androidDevices().then(d => { if (!cancelled) setAndroidHealth(d); }).catch(() => {});
+    load();
+    const t = setInterval(load, 300_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [section]);
 
   const androidNames = androidPoolData.map(p => p.name).sort().join(",");
   useEffect(() => {
@@ -1037,52 +1219,17 @@ export function Pools() {
 
       {section === "android" && androidPoolData.length > 0 && (
         <div className="space-y-6">
+          {androidHealth && <AndroidHealthStrip data={androidHealth} />}
           <AndroidPoolCards pools={androidPoolData} sources={sources} seriesMap={seriesMap} />
           <div>
-            <SectionHeading id="android-hardware-pools" icon={<Smartphone size={12} />} title="All Android Hardware Pools" className="mb-3" />
-            <div className="card overflow-hidden">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-800/80">
-                    {["Pool", "Device", "Infra", "Pending", "Running", "Total", "Load"].map(h => (
-                      <th key={h} className="text-left px-4 py-3 text-[11px] font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {androidPoolData.map(p => {
-                    const load = p.total > 0 ? Math.round((p.running / p.total) * 100) : 0;
-                    const isLambda = p.name.includes("lambda");
-                    const deviceLabel = p.name.includes("a55") ? "Samsung A55"
-                      : p.name.includes("p6") ? "Pixel 6"
-                      : p.name.includes("s24") ? "Galaxy S24"
-                      : p.name.includes("p5") ? "Pixel 5"
-                      : "—";
-                    return (
-                      <tr key={cloudPoolId(p)} className="border-b border-gray-800/40 last:border-0 hover:bg-gray-800/20 transition-colors">
-                        <td className="px-4 py-2.5 text-xs font-mono text-gray-300">{p.name}</td>
-                        <td className="px-4 py-2.5 text-xs text-gray-300 font-medium">{deviceLabel}</td>
-                        <td className="px-4 py-2.5 text-xs text-gray-500">{isLambda ? "Lambda" : "Bitbar"}</td>
-                        <td className="px-4 py-2.5">
-                          <span className={`text-xs font-mono font-medium tabular-nums ${pendingColor(p.pending, 50, 10)}`}>{p.pending.toLocaleString()}</span>
-                        </td>
-                        <td className="px-4 py-2.5 text-xs text-gray-400 tabular-nums">{p.running}</td>
-                        <td className="px-4 py-2.5 text-xs text-gray-400 tabular-nums">{p.total}</td>
-                        <td className="px-4 py-2.5">
-                          <div className="flex items-center gap-2">
-                            <div className="w-16 h-1.5 bg-gray-800 rounded-full overflow-hidden">
-                              <div className="h-full rounded-full"
-                                style={{ width: `${load}%`, backgroundImage: FF_GRADIENT }} />
-                            </div>
-                            <span className="text-xs text-gray-600 tabular-nums">{load}%</span>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <SectionHeading id="android-devices" icon={<Smartphone size={12} />} title="Android Devices" className="mb-3" />
+            {androidHealth ? (
+              <AndroidDeviceTable devices={androidHealth.devices} />
+            ) : (
+              <div className="card p-8 flex items-center gap-3 text-gray-600 text-xs">
+                <span className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-pulse" /> Reading device health from Taskcluster…
+              </div>
+            )}
           </div>
         </div>
       )}
