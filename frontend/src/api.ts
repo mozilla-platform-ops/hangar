@@ -186,6 +186,50 @@ export interface CloudPoolsResponse {
   pools: CloudPool[];
 }
 
+export type AndroidDeviceState = "working" | "idle" | "stale" | "quarantined" | "parked" | "unknown";
+
+export interface AndroidDevice {
+  worker_id: string;
+  worker_group: string | null;
+  pool: string;
+  provisioner: string;
+  device_model: string;
+  infra: string;
+  quarantined: boolean;
+  parked: boolean;
+  quarantine_until: string | null;
+  last_active: string | null;
+  last_active_mins: number | null;
+  first_claim: string | null;
+  task_id: string | null;
+  task_state: string | null;
+  state: AndroidDeviceState;
+}
+
+export interface AndroidPoolHealth {
+  pool: string;
+  provisioner: string;
+  device_model: string;
+  infra: string;
+  devices: number;
+  pending: number;
+  working: number;
+  idle: number;
+  stale: number;
+  quarantined: number;
+  parked: number;
+  unknown: number;
+}
+
+export interface AndroidDevicesResponse {
+  generated_at: string;
+  summary: { devices: number; pending: number; working: number; idle: number; stale: number; quarantined: number; parked: number; unknown: number };
+  by_infra: Record<string, number>;
+  by_model: Record<string, number>;
+  pools: AndroidPoolHealth[];
+  devices: AndroidDevice[];
+}
+
 export interface FailureInsights {
   machine_failures: Array<{
     hostname: string;
@@ -562,6 +606,7 @@ export const api = {
     cloudPools: () => get<CloudPoolsResponse>("/fleet/cloud-pools"),
     androidPools: () => get<CloudPoolsResponse>("/fleet/android-pools"),
     androidPoolSources: (pool: string) => get<PoolSources>("/fleet/android-pool-sources", { pool }),
+    androidDevices: () => get<AndroidDevicesResponse>("/fleet/android-devices"),
     showcase: () => get<ShowcaseData>("/fleet/showcase"),
   },
   workers: {
