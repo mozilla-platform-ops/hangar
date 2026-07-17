@@ -338,6 +338,7 @@ export interface VMPipeline {
     digest: string | null; digest_short: string | null;
     sha: string | null; short_sha: string | null;
     run: VMPipelineRun | null; built_at?: string | null;
+    source: "registry" | "github" | null;
   };
   latest_run: VMPipelineRun | null;
   history: VMPipelineBuild[];
