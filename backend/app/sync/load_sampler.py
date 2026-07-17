@@ -22,7 +22,8 @@ RETENTION_DAYS = 14
 
 def run_sync(db: Session) -> int:
     """Record one load sample per hardware pool. Returns the number of pools sampled."""
-    from ..api.fleet import _fetch_pending_count  # lazy import avoids an import cycle
+    # Lazy import avoids an import cycle (fleet imports from this package's siblings).
+    from ..api.fleet import ANDROID_WORKER_POOLS, _fetch_cloud_pool, _fetch_pending_count
 
     # Live pending per hardware pool (Taskcluster Queue API), fetched in parallel.
     pending: dict[str, int | None] = {}
@@ -54,10 +55,27 @@ def run_sync(db: Session) -> int:
             capacity=capacity.get(pool, 0),
         ))
 
+    # Android (proj-autophone) pools live entirely in Taskcluster — they have no rows in
+    # our Worker table — so pending/running/capacity all come straight from the TC queue,
+    # exactly like /fleet/android-pools. Without this the dashboard's Android sparklines
+    # never accumulate any history and stay stuck on the "collecting…" placeholder.
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futures = {ex.submit(_fetch_cloud_pool, prov, wt): wt for prov, wt in ANDROID_WORKER_POOLS}
+        for fut in futures:
+            p = fut.result()
+            db.add(PoolLoadSample(
+                pool=futures[fut],
+                ts=ts,
+                pending=p["pending"],
+                running=p["running"],
+                capacity=p["total"],
+            ))
+    total_pools = len(worker_types) + len(ANDROID_WORKER_POOLS)
+
     # Bound table growth — Grafana keeps the long history; we only need a short horizon.
     cutoff = ts - timedelta(days=RETENTION_DAYS)
     deleted = db.query(PoolLoadSample).filter(PoolLoadSample.ts < cutoff).delete(synchronize_session=False)
 
     db.commit()
-    log.info("Load sampler: recorded %d pools, pruned %d old samples", len(worker_types), deleted)
-    return len(worker_types)
+    log.info("Load sampler: recorded %d pools, pruned %d old samples", total_pools, deleted)
+    return total_pools
