@@ -98,6 +98,7 @@ def _run_dict(run: dict[str, Any]) -> dict[str, Any]:
         "created_at": run.get("created_at"),
         "updated_at": run.get("updated_at"),
         "event": run.get("event"),
+        "head_branch": run.get("head_branch"),
         "sha": sha,
         "short_sha": _short(sha, 7),
     }
@@ -138,7 +139,8 @@ def _build_payload() -> dict[str, Any]:
         "tag_count": None,
         "error": None,
     }
-    current: dict[str, Any] = {"digest": None, "digest_short": None, "sha": None, "short_sha": None, "run": None}
+    current: dict[str, Any] = {"digest": None, "digest_short": None, "sha": None,
+                               "short_sha": None, "run": None, "built_at": None, "source": None}
     history: list[dict[str, Any]] = []
 
     sess = requests.Session()
@@ -192,6 +194,33 @@ def _build_payload() -> dict[str, Any]:
         log.warning("vm-pipeline: registry unreachable (%s): %s", base, exc)
     finally:
         sess.close()
+
+    # GitHub-derived fallback: the registry lives inside MDC1 and is unreachable
+    # from Cloud Run (only reachable on-VPN), so in production we can't read the
+    # live prod-latest digest. But `main` builds are exactly what push
+    # prod-latest, so the latest successful `main` run IS the promoted image —
+    # surface its provenance (commit / run / time) without a digest and mark the
+    # source, so the card degrades to "promoted from build #N" instead of an
+    # "unreachable" error. When the registry IS reachable its digest wins.
+    main_successes = [r for r in runs
+                      if r.get("head_branch") == "main" and r.get("conclusion") == "success"]
+    if current["sha"]:
+        current["source"] = "registry"
+    elif main_successes:
+        top = main_successes[0]
+        current.update({
+            "sha": top["sha"], "short_sha": top["short_sha"],
+            "run": top, "built_at": top["created_at"], "source": "github",
+        })
+
+    if not history and main_successes:
+        for r in main_successes[:_HISTORY_LIMIT]:
+            history.append({
+                "tag": f"prod-{r['sha']}", "sha": r["sha"], "short_sha": r["short_sha"],
+                "digest": None, "digest_short": None,
+                "is_current": r["sha"] == current.get("sha"),
+                "run": r, "built_at": r["created_at"],
+            })
 
     return {
         "registry": registry,

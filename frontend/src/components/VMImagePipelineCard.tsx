@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Package, Server, GitCommit, ExternalLink, ArrowRight, AlertTriangle,
+import { Package, Server, GitCommit, ExternalLink, ArrowRight,
   CircleDot, LoaderCircle, CheckCircle2, XCircle, Rocket } from "lucide-react";
 import { api } from "../api";
 import type { VMPipeline, VMPipelineRun } from "../api";
@@ -106,36 +106,40 @@ export function VMImagePipelineCard() {
 
         <Arrow />
 
-        {/* Registry — current prod-latest */}
+        {/* prod-latest — live digest when the registry is reachable (on-VPN),
+            otherwise the promoted commit derived from the latest main build. */}
         <Stage icon={<Package size={13} />} label="prod-latest">
-          {registry.reachable ? (
-            current.digest_short ? (
-              <>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-mono text-emerald-300">{current.digest_short}</span>
-                  <Badge label="live" variant="green" dot pulse />
-                </div>
-                <div className="text-[11px] text-gray-500 mt-1">
-                  {current.short_sha ? (
-                    <a href={current.run?.url ?? repo_url} target="_blank" rel="noopener noreferrer"
-                      className="font-mono hover:text-gray-300">{current.short_sha}</a>
-                  ) : "unmatched commit"}
-                  {current.built_at ? <> · built {ago(current.built_at, now)}</> : null}
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="text-sm font-mono text-gray-300">
-                  {registry.prod_latest_digest_short ?? "—"}
-                </div>
-                <div className="text-[11px] text-gray-500 mt-1">
-                  {registry.prod_latest_digest_short ? "commit not matched to a run" : "no prod-latest tag"}
-                </div>
-              </>
-            )
+          {current.source === "registry" && current.digest_short ? (
+            <>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-mono text-emerald-300">{current.digest_short}</span>
+                <Badge label="live" variant="green" dot pulse />
+              </div>
+              <div className="text-[11px] text-gray-500 mt-1">
+                {current.short_sha ? (
+                  <a href={current.run?.url ?? repo_url} target="_blank" rel="noopener noreferrer"
+                    className="font-mono hover:text-gray-300">{current.short_sha}</a>
+                ) : "unmatched commit"}
+                {current.built_at ? <> · built {ago(current.built_at, now)}</> : null}
+              </div>
+            </>
+          ) : current.source === "github" && current.short_sha ? (
+            <>
+              <div className="flex items-center gap-2">
+                <a href={current.run?.url ?? repo_url} target="_blank" rel="noopener noreferrer"
+                  className="text-sm font-mono text-gray-200 hover:text-white">{current.short_sha}</a>
+                <Badge label="promoted" variant="blue" dot />
+              </div>
+              <div className="text-[11px] text-gray-500 mt-1">
+                {current.run?.run_number ? <>build #{current.run.run_number} · </> : null}
+                {current.built_at ? <>built {ago(current.built_at, now)}</> : null}
+                <span title="The OCI registry is on-network (MDC1); the live digest isn't readable from here."
+                  className="text-gray-600"> · digest on-VPN</span>
+              </div>
+            </>
           ) : (
-            <div className="flex items-center gap-1.5 text-[11px] text-orange-300/90">
-              <AlertTriangle size={12} /> registry unreachable
+            <div className="text-[11px] text-gray-600">
+              {registry.reachable ? "no prod-latest tag" : "no promoted build yet"}
             </div>
           )}
         </Stage>
@@ -205,7 +209,9 @@ export function VMImagePipelineCard() {
       <div className="mt-4 flex items-center justify-between text-[10px] text-gray-600">
         <span className="font-mono truncate" title={registry.url}>
           {registry.repo} @ {registry.url.replace(/^https?:\/\//, "")}
-          {registry.tag_count != null ? ` · ${registry.tag_count} tags` : ""}
+          {registry.reachable
+            ? (registry.tag_count != null ? ` · ${registry.tag_count} tags` : "")
+            : " · on-VPN"}
         </span>
         <span>updated {ago(data.generated_at, now)}</span>
       </div>
