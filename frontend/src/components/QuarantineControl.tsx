@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useRef, useLayoutEffect } from "react";
+import { createPortal } from "react-dom";
 import { Ban, ShieldCheck, Loader2, ChevronDown } from "lucide-react";
 import { api, type QuarantineDuration } from "../api";
 
@@ -45,6 +46,26 @@ export function QuarantineControl({
   const [reason, setReason] = useState("");
   const [err, setErr] = useState("");
   const [queued, setQueued] = useState("");
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
+
+  // The menu is rendered in a body portal so it escapes the surrounding card's
+  // stacking context (cards use backdrop-blur → their own stacking context, and
+  // the fleet table clips overflow), which otherwise hides it behind sibling
+  // cards. Position it under the trigger; close on scroll/resize to avoid drift.
+  useLayoutEffect(() => {
+    if (!open || !btnRef.current) return;
+    const r = btnRef.current.getBoundingClientRect();
+    const MENU_W = 224; // w-56
+    setMenuPos({ top: r.bottom + 4, left: Math.max(8, r.right - MENU_W) });
+    const close = () => setOpen(false);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [open]);
 
   if (!authorized) return null;
 
@@ -96,6 +117,7 @@ export function QuarantineControl({
   return (
     <div className="relative inline-block" onClick={e => e.stopPropagation()}>
       <button
+        ref={btnRef}
         type="button"
         disabled={busy || !runnerEnabled}
         title={disabledHint}
@@ -108,11 +130,15 @@ export function QuarantineControl({
       </button>
       {queued && !open && <div className="mt-1 text-[10px] text-gray-500">{queued} — runner will apply</div>}
       {err && !open && <div className="mt-1 text-[10px] text-red-400 max-w-[220px]">{err}</div>}
-      {open && (
+      {open && menuPos && createPortal(
         <>
           {/* click-away backdrop */}
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-20 mt-1 w-56 rounded-lg border border-gray-700 bg-gray-900 shadow-xl p-2">
+          <div className="fixed inset-0 z-[100]" onClick={() => setOpen(false)} />
+          <div
+            className="fixed z-[101] w-56 rounded-lg border border-gray-700 bg-gray-900 shadow-xl p-2"
+            style={{ top: menuPos.top, left: menuPos.left }}
+            onClick={e => e.stopPropagation()}
+          >
             <div className="text-[10px] text-gray-500 uppercase tracking-wider px-1 pb-1">Quarantine for</div>
             <div className="flex flex-col">
               {DURATIONS.map(d => (
@@ -135,7 +161,8 @@ export function QuarantineControl({
             />
             {err && <div className="mt-1.5 text-[10px] text-red-400">{err}</div>}
           </div>
-        </>
+        </>,
+        document.body,
       )}
     </div>
   );
