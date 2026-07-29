@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, ExternalLink, Pencil, CheckCircle2, X } from "lucide-react";
 import { api } from "../api";
-import type { Worker, FailureScreenshotItem } from "../api";
+import type { Worker, FailureScreenshotItem, QuarantineAccess } from "../api";
 import { stateBadge, tcStatusBadge, enrollmentBadge, SourceBadges } from "../components/Badge";
 import { ReprovisionPanel } from "../components/ReprovisionPanel";
+import { QuarantineControl } from "../components/QuarantineControl";
 import { usePoll } from "../lib/useLive";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -140,10 +141,18 @@ export function WorkerDetail() {
   const navigate = useNavigate();
   const [worker, setWorker] = useState<Worker | null>(null);
   const [error, setError] = useState("");
+  const [qAccess, setQAccess] = useState<QuarantineAccess | null>(null);
+
+  const reload = () => {
+    if (hostname) api.workers.get(hostname).then(setWorker).catch(() => {});
+  };
 
   useEffect(() => {
     if (hostname) api.workers.get(hostname).then(setWorker).catch(e => setError(e.message));
   }, [hostname]);
+  useEffect(() => {
+    api.quarantine.access().then(setQAccess).catch(() => setQAccess(null));
+  }, []);
   // Live-refresh so you can watch a worker come back (quarantine lift, TC re-claim) without reloading.
   usePoll(() => {
     if (hostname) api.workers.get(hostname).then(setWorker).catch(() => {});
@@ -195,6 +204,16 @@ export function WorkerDetail() {
                 >
                   Taskcluster <ExternalLink size={10} />
                 </a>
+              )}
+              {qAccess?.authorized && (
+                <QuarantineControl
+                  hostname={worker.hostname}
+                  quarantined={!!worker.tc.quarantined}
+                  quarantineUntil={worker.tc.quarantine_until}
+                  authorized={!!qAccess.authorized}
+                  runnerEnabled={!!qAccess.runner_enabled}
+                  onChanged={reload}
+                />
               )}
             </div>
             <p className="text-xs text-gray-600 font-mono">{worker.hostname}</p>

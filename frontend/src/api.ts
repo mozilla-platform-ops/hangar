@@ -548,6 +548,18 @@ export interface ReprovisionAccess {
   user: string;
   authorized: boolean;
 }
+export type QuarantineDuration = "1h" | "4h" | "1d" | "1w" | "indefinite";
+export interface QuarantineAccess {
+  user: string;
+  authorized: boolean;
+  runner_enabled: boolean;
+}
+export interface QuarantineResult {
+  ok: boolean;
+  job?: ReprovisionJob;
+  quarantine_until?: string;
+  duration?: string;
+}
 export interface ReprovisionPoolEligible {
   host: string;
   hostname: string;
@@ -624,6 +636,13 @@ export const api = {
     poolStatus: (pool: string) => get<ReprovisionPoolPlan>(`/reprovision/pool/${pool}`),
     poolEnqueue: (pool: string, hosts?: string[]) =>
       post<ReprovisionPoolEnqueueResult>(`/reprovision/pool/${pool}/enqueue`, hosts ? { hosts } : undefined),
+  },
+  quarantine: {
+    access: () => get<QuarantineAccess>("/quarantine/access"),
+    set: (hostname: string, duration: QuarantineDuration, reason?: string) =>
+      post<QuarantineResult>(`/quarantine/${hostname}`, { duration, reason: reason ?? "" }),
+    lift: (hostname: string) =>
+      post<QuarantineResult>(`/quarantine/${hostname}/lift`),
   },
   screen: {
     request: (hostname: string) => post<{ ok: boolean }>(`/screen/${hostname}/request`),

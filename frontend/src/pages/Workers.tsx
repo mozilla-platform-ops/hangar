@@ -7,8 +7,9 @@ import {
 import type { SortingState, ColumnDef } from "@tanstack/react-table";
 import { Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, X, GitBranch } from "lucide-react";
 import { api } from "../api";
-import type { Worker } from "../api";
+import type { Worker, QuarantineAccess } from "../api";
 import { ReprovisionPoolButton } from "../components/ReprovisionPoolButton";
+import { QuarantineControl } from "../components/QuarantineControl";
 import { stateBadge, tcStatusBadge, enrollmentBadge, SourceBadges } from "../components/Badge";
 import { usePoll } from "../lib/useLive";
 
@@ -57,9 +58,11 @@ export function WorkersTableView() {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [page, setPage] = useState(0);
   const [poolOptions, setPoolOptions] = useState<string[]>([]);
+  const [qAccess, setQAccess] = useState<QuarantineAccess | null>(null);
 
   useEffect(() => {
     api.fleet.pools().then(d => setPoolOptions(d.pools.map((p: { name: string }) => p.name).sort()));
+    api.quarantine.access().then(setQAccess).catch(() => setQAccess(null));
   }, []);
 
   const search = searchParams.get("search") || "";
@@ -212,6 +215,25 @@ export function WorkersTableView() {
       },
     },
   ];
+
+  // Quarantine action column — only for authorized operators (same allowlist as reprovision).
+  if (qAccess?.authorized) {
+    columns.push({
+      id: "quarantine",
+      header: "",
+      cell: ({ row }) => (
+        <QuarantineControl
+          compact
+          hostname={row.original.hostname}
+          quarantined={!!row.original.tc.quarantined}
+          quarantineUntil={row.original.tc.quarantine_until}
+          authorized={!!qAccess?.authorized}
+          runnerEnabled={!!qAccess?.runner_enabled}
+          onChanged={() => load(true)}
+        />
+      ),
+    });
+  }
 
   const table = useReactTable({
     data: workers,

@@ -10,6 +10,7 @@ initiated a reprovision of what. Access is limited to the emails in
 from __future__ import annotations
 
 import base64
+import json
 import secrets as _secrets
 from datetime import datetime, timedelta
 from typing import Any
@@ -158,11 +159,17 @@ def _last_job(db: Session, hostname: str) -> ReprovisionJob | None:
 
 
 def _job_dict(j: ReprovisionJob) -> dict[str, Any]:
+    try:
+        params = json.loads(j.params) if j.params else {}
+    except (ValueError, TypeError):
+        params = {}
     return {
         "id": j.id,
         "hostname": j.hostname,
         "short": _short(j.hostname),
         "requested_by": j.requested_by,
+        "action": j.action or "reprovision",
+        "params": params,
         "state": j.state,
         "runner": j.runner,
         "detail": j.detail,

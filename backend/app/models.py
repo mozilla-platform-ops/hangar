@@ -143,6 +143,10 @@ class ReprovisionJob(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     hostname: Mapped[str] = mapped_column(String(255))
     requested_by: Mapped[str] = mapped_column(String(255))          # IAP email that enqueued it
+    # What the runner should do: "reprovision" (default/legacy) | "quarantine" | "unquarantine".
+    # Same pull-based queue + runner; the runner branches on this. NULL = "reprovision" (old rows).
+    action: Mapped[str | None] = mapped_column(String(20), default="reprovision")
+    params: Mapped[str | None] = mapped_column(Text)               # JSON args for the action (e.g. quarantine until/info)
     # queued → claimed → running → succeeded | failed | canceled
     state: Mapped[str] = mapped_column(String(20), default="queued")
     runner: Mapped[str | None] = mapped_column(String(255))         # which runner claimed it
