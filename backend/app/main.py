@@ -18,6 +18,7 @@ from .api.bugzilla import router as bugzilla_router
 from .api.fleet import router as fleet_router
 from .api.me import router as me_router
 from .api.prs import router as prs_router
+from .api.quarantine import router as quarantine_router
 from .api.releases import router as releases_router
 from .api.reprovision import router as reprovision_router
 from .api.screen import router as screen_router
@@ -105,6 +106,7 @@ app.include_router(fleet_router, prefix="/api")
 app.include_router(alerts_router, prefix="/api")
 app.include_router(prs_router, prefix="/api")
 app.include_router(reprovision_router, prefix="/api")
+app.include_router(quarantine_router, prefix="/api")
 app.include_router(screen_router, prefix="/api")
 app.include_router(me_router, prefix="/api")
 app.include_router(releases_router, prefix="/api")
