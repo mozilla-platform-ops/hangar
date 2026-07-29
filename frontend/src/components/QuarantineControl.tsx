@@ -28,7 +28,7 @@ export function QuarantineControl({
   quarantined,
   quarantineUntil,
   authorized,
-  tcConfigured,
+  runnerEnabled,
   onChanged,
   compact = false,
 }: {
@@ -36,7 +36,7 @@ export function QuarantineControl({
   quarantined: boolean;
   quarantineUntil?: string | null;
   authorized: boolean;
-  tcConfigured: boolean;
+  runnerEnabled: boolean;
   onChanged?: () => void;
   compact?: boolean;
 }) {
@@ -44,16 +44,19 @@ export function QuarantineControl({
   const [busy, setBusy] = useState(false);
   const [reason, setReason] = useState("");
   const [err, setErr] = useState("");
+  const [queued, setQueued] = useState("");
 
   if (!authorized) return null;
 
-  async function run(fn: () => Promise<unknown>) {
+  async function run(fn: () => Promise<unknown>, queuedMsg: string) {
     setBusy(true);
     setErr("");
     try {
       await fn();
       setOpen(false);
       setReason("");
+      // The runner applies it asynchronously; reflect "queued" until the next sync.
+      setQueued(queuedMsg);
       onChanged?.();
     } catch (e) {
       setErr((e as Error).message);
@@ -62,8 +65,8 @@ export function QuarantineControl({
     }
   }
 
-  const disabledHint = !tcConfigured
-    ? "Taskcluster credentials aren't configured (TC_CLIENT_ID / TC_ACCESS_TOKEN)"
+  const disabledHint = !runnerEnabled
+    ? "The reprovision runner isn't enabled"
     : undefined;
   const btnBase = compact
     ? "inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition-colors disabled:opacity-40"
@@ -75,14 +78,15 @@ export function QuarantineControl({
       <div className="inline-flex flex-col items-start gap-1" onClick={e => e.stopPropagation()}>
         <button
           type="button"
-          disabled={busy || !tcConfigured}
+          disabled={busy || !runnerEnabled}
           title={disabledHint ?? (quarantineUntil ? `Quarantined ${untilLabel(quarantineUntil)}` : "Quarantined")}
-          onClick={() => run(() => api.quarantine.lift(hostname))}
+          onClick={() => run(() => api.quarantine.lift(hostname), "un-quarantine queued")}
           className={`${btnBase} text-emerald-300 bg-emerald-950/40 border border-emerald-900/50 hover:bg-emerald-900/40`}
         >
           {busy ? <Loader2 size={12} className="animate-spin" /> : <ShieldCheck size={12} />}
           Un-quarantine
         </button>
+        {queued && <span className="text-[10px] text-gray-500">{queued} — runner will apply</span>}
         {err && <span className="text-[10px] text-red-400 max-w-[220px]">{err}</span>}
       </div>
     );
@@ -93,7 +97,7 @@ export function QuarantineControl({
     <div className="relative inline-block" onClick={e => e.stopPropagation()}>
       <button
         type="button"
-        disabled={busy || !tcConfigured}
+        disabled={busy || !runnerEnabled}
         title={disabledHint}
         onClick={() => setOpen(o => !o)}
         className={`${btnBase} text-amber-300 bg-amber-950/40 border border-amber-900/50 hover:bg-amber-900/40`}
@@ -102,6 +106,7 @@ export function QuarantineControl({
         Quarantine
         <ChevronDown size={11} className={`transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
+      {queued && !open && <div className="mt-1 text-[10px] text-gray-500">{queued} — runner will apply</div>}
       {err && !open && <div className="mt-1 text-[10px] text-red-400 max-w-[220px]">{err}</div>}
       {open && (
         <>
@@ -115,7 +120,7 @@ export function QuarantineControl({
                   key={d.key}
                   type="button"
                   disabled={busy}
-                  onClick={() => run(() => api.quarantine.set(hostname, d.key, reason))}
+                  onClick={() => run(() => api.quarantine.set(hostname, d.key, reason), `quarantine (${d.label}) queued`)}
                   className="text-left text-xs text-gray-300 hover:bg-gray-800 rounded px-2 py-1.5 transition-colors disabled:opacity-40"
                 >
                   {d.label}

@@ -552,12 +552,11 @@ export type QuarantineDuration = "1h" | "4h" | "1d" | "1w" | "indefinite";
 export interface QuarantineAccess {
   user: string;
   authorized: boolean;
-  tc_configured: boolean;
+  runner_enabled: boolean;
 }
 export interface QuarantineResult {
   ok: boolean;
-  hostname: string;
-  quarantined: boolean;
+  job?: ReprovisionJob;
   quarantine_until?: string;
   duration?: string;
 }

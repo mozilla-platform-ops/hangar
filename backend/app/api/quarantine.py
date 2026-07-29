@@ -1,13 +1,16 @@
 """Worker quarantine — allowlist-gated (same list as reprovision).
 
-Quarantine is a single Taskcluster ``quarantineWorker`` call, and Cloud Run can
-reach the public TC API, so — unlike reprovision (which needs the on-network
-runner for SSH) — Hangar performs this directly. Access is limited to the emails
-in ``settings.reprovision_authorized_list`` (verified via Google IAP), reusing
-the reprovision gate so there's a single control surface allowlist.
+Reprovision already quarantines/un-quarantines hosts via its on-network runner
+(orchestrator/clients/taskcluster.py), which holds the TC credentials. Rather than
+give Hangar its own TC write creds, a standalone quarantine reuses that exact
+wiring: Hangar enqueues a job on the shared runner queue with action
+"quarantine"/"unquarantine"; the runner claims it and runs the `reprovision`
+CLI's matching subcommand. Access is limited to ``settings.reprovision_authorized_list``
+(IAP-verified) — the same gate as reprovision.
 """
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timedelta
 from typing import Any
@@ -16,11 +19,11 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from ..auth import current_user
+from ..config import settings
 from ..database import get_db
 from ..hosts import worker_fqdn
-from ..models import Worker
-from .. import tc
-from .reprovision import _authorized, _short, require_access
+from ..models import ReprovisionEvent, ReprovisionJob, Worker
+from .reprovision import _active_job, _authorized, _job_dict, _short, require_access
 
 log = logging.getLogger(__name__)
 
@@ -33,9 +36,17 @@ _DURATIONS: dict[str, timedelta] = {
     "1d": timedelta(days=1),
     "1w": timedelta(weeks=1),
 }
-# "indefinite" uses a far-future date — the same convention the TC sync already
-# treats as a parked/long-hold marker (see taskcluster.py's year-3000 cutoff).
+# "indefinite" uses a far-future date — the convention the TC sync already treats
+# as a parked/long-hold marker (see taskcluster.py's year-3000 cutoff).
 _INDEFINITE = datetime(3000, 1, 1)
+
+
+def _runner_enabled() -> bool:
+    return bool(settings.reprovision_runner_token or settings.reprovision_runner_host_list)
+
+
+def _stamp(dt: datetime) -> str:
+    return dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
 
 def _lookup(db: Session, hostname: str) -> Worker | None:
@@ -43,25 +54,34 @@ def _lookup(db: Session, hostname: str) -> Worker | None:
     return db.get(Worker, hostname) or db.get(Worker, worker_fqdn(hostname))
 
 
-def _tc_identity(w: Worker) -> tuple[str, str, str, str] | None:
-    """(provisionerId, workerType, workerGroup, workerId) or None if the worker
-    isn't currently registered in TC (nothing to quarantine)."""
-    if not w.tc_worker_pool_id or "/" not in w.tc_worker_pool_id or not w.tc_worker_id:
-        return None
-    provisioner_id, worker_type = w.tc_worker_pool_id.split("/", 1)
-    worker_group = w.tc_worker_group or worker_type
-    return provisioner_id, worker_type, worker_group, w.tc_worker_id
+def _enqueue(db: Session, w: Worker, user: str, action: str, params: dict[str, Any], summary: str) -> ReprovisionJob:
+    if not w.tc_worker_pool_id:
+        raise HTTPException(status_code=409, detail=f"{_short(w.hostname)} is not registered in Taskcluster")
+    if _active_job(db, w.hostname):
+        raise HTTPException(status_code=409, detail=f"a runner job is already open for {_short(w.hostname)}")
+    if not _runner_enabled():
+        raise HTTPException(status_code=503, detail="the reprovision runner is not enabled")
+    job = ReprovisionJob(
+        hostname=w.hostname, requested_by=user, action=action,
+        params=json.dumps(params), state="queued",
+    )
+    db.add(job)
+    db.add(ReprovisionEvent(hostname=w.hostname, user=user, action="enqueued", detail=summary))
+    db.commit()
+    db.refresh(job)
+    log.info("%s enqueued %s for %s", user, action, w.hostname)
+    return job
 
 
 @router.get("/access")
 def access(request: Request) -> dict[str, Any]:
-    """Whether the caller may quarantine, and whether TC creds are configured
-    (drives showing the control + a 'not configured' hint)."""
+    """Whether the caller may quarantine, and whether the runner is enabled
+    (drives showing/enabling the control)."""
     user = current_user(request)
     return {
         "user": user,
         "authorized": _authorized(user),
-        "tc_configured": tc.credentials_configured(),
+        "runner_enabled": _runner_enabled(),
     }
 
 
@@ -71,27 +91,15 @@ def lift(
     user: str = Depends(require_access),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    """Lift a worker's quarantine (quarantineUntil = now)."""
+    """Queue an un-quarantine for the on-network runner."""
     w = _lookup(db, hostname)
     if not w:
         raise HTTPException(status_code=404, detail=f"Worker {hostname} not found")
-    ident = _tc_identity(w)
-    if not ident:
-        raise HTTPException(status_code=409, detail=f"{_short(w.hostname)} is not registered in Taskcluster")
-    info = f"un-quarantined via Hangar by {user}"
-    try:
-        tc.quarantine_worker(*ident, datetime.utcnow(), info)
-    except tc.TCCredentialsError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:  # noqa: BLE001 — surface the TC error to the operator
-        log.exception("quarantine lift failed for %s", w.hostname)
-        raise HTTPException(status_code=502, detail=f"Taskcluster rejected the request: {e}")
-    # Optimistic local update so the UI reflects it before the next TC sync.
-    w.tc_quarantined = False
-    w.tc_quarantine_until = None
-    db.commit()
-    log.info("%s un-quarantined %s", user, w.hostname)
-    return {"ok": True, "hostname": w.hostname, "quarantined": False}
+    job = _enqueue(
+        db, w, user, "unquarantine", {},
+        summary="un-quarantine enqueued for the on-network runner",
+    )
+    return {"ok": True, "job": _job_dict(job)}
 
 
 @router.post("/{hostname:path}")
@@ -102,34 +110,16 @@ def quarantine(
     duration: str = Body(..., embed=True),
     reason: str = Body("", embed=True),
 ) -> dict[str, Any]:
-    """Quarantine a worker for a preset duration (or indefinitely)."""
+    """Queue a quarantine (preset duration, optional reason) for the runner."""
     if duration != "indefinite" and duration not in _DURATIONS:
         raise HTTPException(status_code=400, detail=f"invalid duration '{duration}'")
     w = _lookup(db, hostname)
     if not w:
         raise HTTPException(status_code=404, detail=f"Worker {hostname} not found")
-    ident = _tc_identity(w)
-    if not ident:
-        raise HTTPException(status_code=409, detail=f"{_short(w.hostname)} is not registered in Taskcluster")
 
     until = _INDEFINITE if duration == "indefinite" else datetime.utcnow() + _DURATIONS[duration]
     info = f"quarantined via Hangar by {user} ({duration})" + (f": {reason.strip()}" if reason.strip() else "")
-    try:
-        tc.quarantine_worker(*ident, until, info)
-    except tc.TCCredentialsError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:  # noqa: BLE001
-        log.exception("quarantine failed for %s", w.hostname)
-        raise HTTPException(status_code=502, detail=f"Taskcluster rejected the request: {e}")
-    # Optimistic local update so the UI reflects it before the next TC sync.
-    w.tc_quarantined = True
-    w.tc_quarantine_until = until
-    db.commit()
-    log.info("%s quarantined %s until %s (%s)", user, w.hostname, until, duration)
-    return {
-        "ok": True,
-        "hostname": w.hostname,
-        "quarantined": True,
-        "quarantine_until": until.isoformat(),
-        "duration": duration,
-    }
+    params = {"until": _stamp(until), "info": info, "duration": duration}
+    summary = f"quarantine ({duration}) enqueued for the on-network runner" + (f": {reason.strip()}" if reason.strip() else "")
+    job = _enqueue(db, w, user, "quarantine", params, summary)
+    return {"ok": True, "job": _job_dict(job), "quarantine_until": until.isoformat(), "duration": duration}

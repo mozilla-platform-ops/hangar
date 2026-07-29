@@ -211,7 +211,7 @@ export function WorkerDetail() {
                   quarantined={!!worker.tc.quarantined}
                   quarantineUntil={worker.tc.quarantine_until}
                   authorized={!!qAccess.authorized}
-                  tcConfigured={!!qAccess.tc_configured}
+                  runnerEnabled={!!qAccess.runner_enabled}
                   onChanged={reload}
                 />
               )}

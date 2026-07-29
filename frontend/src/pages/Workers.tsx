@@ -228,7 +228,7 @@ export function WorkersTableView() {
           quarantined={!!row.original.tc.quarantined}
           quarantineUntil={row.original.tc.quarantine_until}
           authorized={!!qAccess?.authorized}
-          tcConfigured={!!qAccess?.tc_configured}
+          runnerEnabled={!!qAccess?.runner_enabled}
           onChanged={() => load(true)}
         />
       ),
