@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Monitor, AlertTriangle, Activity, RefreshCw, Smartphone, Terminal, Apple, Menu, X, Laptop, Grid3x3 } from "lucide-react";
+import { LayoutDashboard, Monitor, AlertTriangle, Activity, RefreshCw, Smartphone, Terminal, Apple, Menu, X, Laptop, Grid3x3, MonitorSmartphone } from "lucide-react";
 import { clsx } from "clsx";
 import { Suspense, useState, useEffect, useId } from "react";
 import { api } from "../api";
@@ -42,11 +42,16 @@ function timeAgo(iso: string | null, now = Date.now()) {
   return `${Math.round(mins / 60)}h ago`;
 }
 
+// Platform sections. `children` are real routed pages that belong to a platform but
+// are not pool tables — a tart host runs two VMs that fail independently, so its
+// slots need their own page rather than a row in the macOS pool list.
 const POOL_SECTIONS = [
-  { section: "android", label: "Android",  icon: Smartphone },
-  { section: "linux",   label: "Linux",    icon: Terminal },
-  { section: "mac",     label: "macOS",    icon: Apple },
-  { section: "windows", label: "Windows",  icon: Laptop },
+  { section: "android", label: "Android",  icon: Smartphone, children: [] },
+  { section: "linux",   label: "Linux",    icon: Terminal,   children: [] },
+  { section: "mac",     label: "macOS",    icon: Apple,      children: [
+    { to: "/tart-vms", label: "Tart VMs", icon: MonitorSmartphone },
+  ] },
+  { section: "windows", label: "Windows",  icon: Laptop,     children: [] },
 ];
 
 // Shared styling for sidebar items (NavLink anchors and query-param pool buttons alike).
@@ -70,6 +75,24 @@ function NavLinkItem({ to, icon: Icon, label, end, badge }: { to: string; icon: 
               {badge}
             </span>
           ) : null}
+        </>
+      )}
+    </NavLink>
+  );
+}
+
+// A nested link under a platform section: indented, quieter, same active accent.
+function SubNavLinkItem({ to, icon: Icon, label }: { to: string; icon: typeof Monitor; label: string }) {
+  return (
+    <NavLink to={to} className={({ isActive }) => clsx(
+      "flex items-center gap-2.5 pl-9 pr-3 py-1.5 rounded-lg text-[13px] transition-all duration-150 relative",
+      isActive ? "bg-brand-500/10 text-brand-300 border border-brand-500/20"
+               : "text-gray-600 hover:text-gray-300 hover:bg-gray-800/60 border border-transparent"
+    )}>
+      {({ isActive }) => (
+        <>
+          {isActive && <ActiveBar />}
+          <Icon size={13} />{label}
         </>
       )}
     </NavLink>
@@ -171,13 +194,16 @@ export function Layout() {
 
           <SectionLabel>Platforms</SectionLabel>
           <div className="space-y-0.5">
-            {POOL_SECTIONS.map(({ section, label, icon: Icon }) => {
+            {POOL_SECTIONS.map(({ section, label, icon: Icon, children }) => {
               const active = onPools && currentSection === section;
               return (
-                <button key={section} onClick={() => navigate(`/pools?section=${section}`)} className={clsx("w-full text-left", navItemClass(active))}>
-                  {active && <ActiveBar />}
-                  <Icon size={15} />{label}
-                </button>
+                <div key={section}>
+                  <button onClick={() => navigate(`/pools?section=${section}`)} className={clsx("w-full text-left", navItemClass(active))}>
+                    {active && <ActiveBar />}
+                    <Icon size={15} />{label}
+                  </button>
+                  {children.map(c => <SubNavLinkItem key={c.to} {...c} />)}
+                </div>
               );
             })}
           </div>
