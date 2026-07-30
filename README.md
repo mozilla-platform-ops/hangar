@@ -99,12 +99,12 @@ All variables are optional unless marked required.
 ```
 ┌─────────────────────────────────────────────────────┐
 │                   React SPA (Vite)                  │
-│  Overview · Workers · Alerts · Pools · Consolidation│
+│  Overview · Workers · Alerts · Pools · Tart VMs      │
 └──────────────────────┬──────────────────────────────┘
                        │ REST
 ┌──────────────────────▼──────────────────────────────┐
 │                  FastAPI backend                     │
-│  /api/workers  /api/fleet  /api/alerts  /api/prs     │
+│  /api/workers /api/fleet /api/alerts /api/tart-health│
 │                                                     │
 │  APScheduler ─── sync/taskcluster.py   (5 min)      │
 │               ├── sync/simplemdm.py    (15 min)      │
@@ -115,6 +115,7 @@ All variables are optional unless marked required.
 ┌──────────────────────▼──────────────────────────────┐
 │              PostgreSQL 16                          │
 │  workers · alerts · sync_logs · failure_events      │
+│  tart_slot_health (pushed by the on-network agent)  │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -165,6 +166,20 @@ Per-pool health scores, staleness breakdowns (active <24 h / 1–7 d / 7–30 d 
 ### 📦 Consolidation
 Side-by-side hardware generation comparison — state breakdowns, inactive machines, and retirement candidates.
 
+### 🖲️ Tart VMs
+Per-slot health for the tart VM hosts behind `gecko-t-osx-1500-m-vms` (macOS → Tart VMs in the sidebar).
+
+The unit is the **slot**, not the host: each host runs two VMs that fail independently, and Taskcluster's view — which is what Pool Health shows — can't see inside one. In July 2026 five of 26 slots were out of production for weeks because three guests were crash-rebooting every ~84 s while `tart run` on the host stayed up 11+ days, so every host-level signal read green.
+
+Columns cover the worker id, TC registration, `tart run` uptime, whether credentials are host-**injected** or image-**baked**, and guest disk headroom; rows expand to the problem list plus VM state, clock skew, configured-vs-actual identity, puppet SHA and cert expiry.
+
+Two behaviours worth knowing:
+
+- **Stale reads as `unknown`, never `ok`.** Rows older than 30 minutes are reported stale — a wedged collector must not leave the fleet looking green.
+- **Cert expiry is judged against the cert's own lifetime**, not a fixed number of days. These hosts hold 168 h certs, so "expires within 7 days" is the steady state; a warning means the renew daemon has actually missed its window.
+
+Data arrives from an on-network agent, not from Hangar — see [Tart VM slot health](#-tart-vm-slot-health) below.
+
 ---
 
 ## 🔁 Reprovision — one-click EACS → prod
@@ -185,6 +200,40 @@ The runner holds all SSH/admin creds; **Hangar holds none**. A server-side reape
 
 ---
 
+## 🖲️ Tart VM slot health
+
+Same architectural constraint as Reprovision: Cloud Run can't reach MDC1, so **Hangar never SSHes a tart host**. An on-network agent does the collecting and pushes results in.
+
+```
+macmini-m4-81 (Puppet-managed)                      Hangar
+  com.mozilla.hangar-tart-health-agent
+    every 600s:
+      ssh admin@<13 tart hosts>  ──collect──▶
+      POST /api/tart-health/agent/push   ─────▶  require_runner (mTLS client cert)
+                                                   ↓
+                                                 evaluate() → ok/warn/crit/unknown
+                                                   ↓
+  browser ──▶ GET /api/tart-health  ─────────▶  require_access (IAP)
+```
+
+The agent is `hangar-tart-health-agent` in [relops-bootstrap](https://github.com/mozilla-platform-ops/relops-bootstrap), the third daemon on the reprovision runner host, reusing its venv, env file and mTLS cert.
+
+**Severity is derived server-side, in `evaluate()`, not by the agent.** The agent is a dumb collector, so thresholds can be retuned by deploying Hangar alone — nothing on-network changes — and the API and UI can't disagree about what `crit` means.
+
+### Routing is load-bearing
+
+Only `/api/tart-health/agent/*` is routed to the non-IAP mTLS backend (`terraform/lb_runner.tf`). `GET /api/tart-health` deliberately stays on the IAP frontend.
+
+`require_runner` does **no per-path scoping**, so that URL map is the only thing keeping the read rollup behind human auth. Routing a broad `/api/tart-health/*` to the runner backend as a convenience would expose fleet data to anything inside `runner_source_cidrs` holding a valid cert, with no Google identity attached.
+
+Diagnostic, if a push ever stops landing: on the runner hostname a path that reaches the right backend returns **403** (Cloud Armor source deny from anywhere but MDC1). A **301** to the IAP domain means the path isn't in the allowlist at all.
+
+### Known gap
+
+`tart_health_guests` is currently **false**, so guest-level checks — disk headroom, clock skew, worker identity — are not collected and those columns are blank. Those are the checks that catch a crash-looping guest inside a healthy host, i.e. the July 2026 failure mode. Until it's enabled, treat a green Tart VMs page as "the hosts look fine", not "the fleet is fine".
+
+---
+
 ## 🗄️ Database Schema
 
 ```
@@ -192,6 +241,7 @@ workers          — one row per hostname, columns from all four sources
 alerts           — active/resolved per-worker alerts
 sync_logs        — audit trail for each sync run (source, duration, records updated, errors)
 failure_events   — TC task failures indexed by hostname and task name
+tart_slot_health — latest health row per tart VM slot (PK hostname+slot), pushed by the agent
 ```
 
 **Worker state precedence:** `sheet_state` (if set) → inferred from TC/Puppet membership → `unknown`
@@ -222,6 +272,10 @@ GET    /api/prs/ronin                   ronin_puppet PR queue + voting
 POST   /api/prs/ronin/{n}/upvote
 POST   /api/prs/ronin/{n}/downvote
 
+GET    /api/tart-health                 tart VM slot rollup, worst-first (IAP)
+GET    /api/tart-health/{hostname}      one host's slots (IAP)
+POST   /api/tart-health/agent/push      on-network agent push (mTLS runner cert)
+
 POST   /api/sync/run                    trigger manual sync
 GET    /api/health                      liveness check
 ```
@@ -242,6 +296,7 @@ hangar/
 │   │   │   ├── workers.py
 │   │   │   ├── fleet.py
 │   │   │   ├── alerts.py
+│   │   │   ├── tart_health.py   tart slot rollup + agent push, severity logic
 │   │   │   └── prs.py           ronin_puppet PR voting
 │   │   └── sync/
 │   │       ├── scheduler.py     APScheduler job registration
@@ -265,6 +320,7 @@ hangar/
 │   │       ├── WorkerDetail.tsx
 │   │       ├── Alerts.tsx
 │   │       ├── Pools.tsx
+│   │       ├── TartVMs.tsx      per-slot tart VM health
 │   │       └── Consolidation.tsx
 │   ├── vite.config.ts           Dev proxy → :8000
 │   └── package.json
@@ -272,6 +328,7 @@ hangar/
 │   ├── main.tf                  Provider, APIs, VPC, VPC connector
 │   ├── run.tf                   Cloud Run service
 │   ├── lb.tf                    Load balancer, IAP, Cloud Armor, SSL cert
+│   ├── lb_runner.tf             mTLS frontend — runner/agent path allowlist
 │   ├── iam.tf                   Service accounts, IAM bindings, IAP access
 │   ├── sql.tf                   Cloud SQL Postgres 16
 │   ├── secrets.tf               Secret Manager secrets
