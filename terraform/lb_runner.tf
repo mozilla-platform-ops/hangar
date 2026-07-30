@@ -60,6 +60,16 @@ resource "google_compute_url_map" "hangar_runner" {
       paths   = ["/api/screen/agent", "/api/screen/agent/*"]
       service = google_compute_backend_service.hangar_runner.id
     }
+
+    # Tart VM slot health: the on-network collector pushes here (require_runner).
+    # ONLY the agent subtree belongs on this hostname. `GET /api/tart-health`, the
+    # read rollup, must keep falling through to the redirect above and be served by
+    # the IAP frontend — routing it here would hand fleet data to anything inside
+    # runner_source_cidrs with no Google identity attached.
+    path_rule {
+      paths   = ["/api/tart-health/agent", "/api/tart-health/agent/*"]
+      service = google_compute_backend_service.hangar_runner.id
+    }
   }
 }
 
