@@ -391,6 +391,42 @@ export interface VMPipeline {
   generated_at: string;
 }
 
+/** One tart VM slot, as collected by the on-network agent and graded by the backend. */
+export interface TartSlot {
+  hostname: string;
+  slot: number;
+  vm_name: string | null;
+  worker_id: string | null;
+  configured_worker_id: string | null;
+  identity_ok: boolean | null;
+  vm_state: string | null;
+  guest_reachable: boolean | null;
+  guest_uptime_s: number | null;
+  tart_run_uptime_s: number | null;
+  guest_disk_free_gib: number | null;
+  clock_skew_s: number | null;
+  registered: boolean | null;
+  quarantined: boolean | null;
+  last_task_state: string | null;
+  cert_expiry: string | null;
+  cert_not_before: string | null;
+  cert_owner_ok: boolean | null;
+  inject_vault: boolean | null;
+  vault_present: boolean | null;
+  checkout_sha: string | null;
+  refspec_pinned: boolean | null;
+  status: "ok" | "warn" | "crit" | "unknown";
+  problems: string[];
+  collected_at: string | null;
+  stale: boolean;
+}
+export interface TartHealthResponse {
+  slots: TartSlot[];
+  counts: { ok: number; warn: number; crit: number; unknown: number };
+  total: number;
+  worst: "ok" | "warn" | "crit" | "unknown";
+}
+
 // ── Showcase (team-impact rollups for the Overview) ──────────────────────────
 
 export interface ShowcaseAxis {
@@ -664,6 +700,9 @@ export const api = {
   },
   vmPipeline: {
     get: () => get<VMPipeline>("/vm-pipeline"),
+  },
+  tartHealth: {
+    get: () => get<TartHealthResponse>("/tart-health"),
   },
   weather: {
     current: (lat: number, lon: number, unit: string) =>

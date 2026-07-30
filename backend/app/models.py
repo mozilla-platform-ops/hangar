@@ -240,3 +240,94 @@ class PoolLoadSample(Base):
     pending: Mapped[int | None] = mapped_column(Integer)
     running: Mapped[int | None] = mapped_column(Integer)
     capacity: Mapped[int | None] = mapped_column(Integer)
+
+
+class TartSlotHealth(Base):
+    """Health of one tart VM slot, pushed by the on-network agent.
+
+    Cloud Run can't reach MDC1, so Hangar can't SSH a tart host directly — same
+    constraint as reprovision and screen. The on-network agent SSHes each host,
+    runs the checks below, and pushes one row per slot. Latest-only, no history.
+
+    Every check here is a failure that actually happened and was invisible at the
+    time (2026-07-27..29):
+
+    guest_uptime_s vs tart_run_uptime_s
+        Three slots sat in a crash-reboot loop, guest rebooting every ~84s from an
+        exhausted disk, while `tart run` stayed up 11+ days. The host looked
+        perfectly healthy from outside and the loop ran for weeks. A guest uptime
+        far below the tart-run uptime is the tell.
+    guest_disk_free_gib
+        The root cause of that loop: generic-worker needs 20 GiB free and panics
+        (exit 69, INTERNAL_ERROR) when it can't free enough. Alerting on the
+        margin catches it before the panic instead of after.
+    registered
+        Five of 26 slots were out of production, unnoticed. Hardware pools do not
+        exist in worker-manager, so `reportWorkerError` can never surface this
+        (see the revert of fxci-config #1099) — it has to be checked from here.
+    identity_ok
+        A fresh clone came up running as another host's live workerId, because
+        set_hostname.sh aborted under `set -e` before rewriting the worker config.
+        Quarantine cannot drain an impostor, so it must be detected.
+    clock_skew_s
+        A cloned VM inherits the image's RTC and can sit indefinitely believing it
+        is the capture date, failing every TLS call to Taskcluster and never
+        registering. Not a startup delay — three of five clones never recovered.
+    cert_expiry / cert_owner_ok
+        The injected-vault path needs a cert readable BY THE TART USER; step writes
+        it 0600 root:wheel, which silently breaks injection (ronin_puppet #1303).
+        Owner is as load-bearing as expiry here.
+    checkout_sha / refspec_pinned
+        A host with `remote.origin.fetch = +refs/heads/<branch>:...` is
+        structurally unable to follow master — one sat on 7-week-old code and no
+        `git fetch` would ever have moved it.
+    """
+
+    __tablename__ = "tart_slot_health"
+
+    # hostname + slot identifies a slot; the VM name and workerId both change on reclone.
+    hostname: Mapped[str] = mapped_column(String(255), primary_key=True)
+    slot: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    vm_name: Mapped[str | None] = mapped_column(String(255))
+    worker_id: Mapped[str | None] = mapped_column(String(64))        # MAC-derived, from the host
+    configured_worker_id: Mapped[str | None] = mapped_column(String(64))  # what the guest believes
+    identity_ok: Mapped[bool | None] = mapped_column(Boolean)
+
+    vm_state: Mapped[str | None] = mapped_column(String(32))         # running / stopped / missing
+    guest_reachable: Mapped[bool | None] = mapped_column(Boolean)
+    guest_uptime_s: Mapped[int | None] = mapped_column(Integer)
+    tart_run_uptime_s: Mapped[int | None] = mapped_column(Integer)
+    guest_disk_free_gib: Mapped[int | None] = mapped_column(Integer)
+    clock_skew_s: Mapped[int | None] = mapped_column(Integer)
+
+    registered: Mapped[bool | None] = mapped_column(Boolean)
+    quarantined: Mapped[bool | None] = mapped_column(Boolean)
+    last_task_state: Mapped[str | None] = mapped_column(String(32))
+
+    # host-level, repeated per slot so a slot row is self-contained for the UI
+    cert_expiry: Mapped[datetime | None] = mapped_column(DateTime)
+    # Kept alongside expiry so severity is relative to this cert's own lifetime; a
+    # short-lived cert is otherwise permanently "about to expire".
+    cert_not_before: Mapped[datetime | None] = mapped_column(DateTime)
+    cert_owner_ok: Mapped[bool | None] = mapped_column(Boolean)
+    inject_vault: Mapped[bool | None] = mapped_column(Boolean)
+    vault_present: Mapped[bool | None] = mapped_column(Boolean)
+    checkout_sha: Mapped[str | None] = mapped_column(String(40))
+    refspec_pinned: Mapped[bool | None] = mapped_column(Boolean)
+
+    # Agent-computed rollup so the API and UI agree on severity, plus why.
+    status: Mapped[str | None] = mapped_column(String(16))           # ok / warn / crit / unknown
+    problems: Mapped[str | None] = mapped_column(Text)               # JSON list of strings
+    collected_at: Mapped[datetime | None] = mapped_column(DateTime)
+    agent_error: Mapped[str | None] = mapped_column(Text)            # set when collection itself failed
+
+    @property
+    def problem_list(self) -> list[str]:
+        if not self.problems:
+            return []
+        try:
+            v = json.loads(self.problems)
+            return v if isinstance(v, list) else []
+        except (ValueError, TypeError):
+            return []
