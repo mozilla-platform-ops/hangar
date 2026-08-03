@@ -1,0 +1,38 @@
+version: 2
+
+# Dependabot security alerts were already enabled repo-wide, but without this
+# file nothing opened PRs — alerts just accumulated (3 were sitting open as of
+# 2026-08-03). This turns them into reviewable PRs.
+updates:
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    # Batch routine bumps so the dev toolchain doesn't generate a PR per package.
+    # Majors stay separate — react/react-router majors have needed a node bump.
+    groups:
+      dev-dependencies:
+        dependency-type: "development"
+        update-types: ["minor", "patch"]
+      production-minor-patch:
+        dependency-type: "production"
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "pip"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      backend-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "terraform"
+    directory: "/terraform"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
