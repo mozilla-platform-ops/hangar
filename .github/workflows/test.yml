@@ -1,0 +1,77 @@
+name: test
+
+# Hangar auto-deploys to production on merge to main (cloudbuild.yaml), so this
+# is the only gate between a PR and prod. Modeled on relops-bootstrap's
+# .github/workflows/test.yml to keep the two repos' CI shaped the same way.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  frontend:
+    name: frontend (typecheck + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      # Match the node major the production build uses (backend/Dockerfile,
+      # cloudbuild.yaml) so CI can't pass on a version prod doesn't use.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: install
+        run: npm ci --prefer-offline
+      # `npm run build` is `tsc -b && vite build`, so this is typecheck + bundle.
+      # This is what catches a breaking dependency bump -- e.g. a tailwind or
+      # react-router major landing via Dependabot fails here instead of shipping.
+      - name: build
+        run: npm run build
+
+  image:
+    name: image (docker build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Builds the real multi-stage artifact Cloud Build deploys: node builds the
+      # SPA, then python installs backend/requirements.txt. Catches broken
+      # backend dependency bumps, which nothing else here would -- there are no
+      # backend tests yet, and requirements.txt is unpinned `>=` so the installed
+      # set floats. Does not push; this only proves the image assembles.
+      - name: docker build
+        run: docker build --file=backend/Dockerfile --tag=hangar-ci:${{ github.sha }} .
+
+  lint:
+    name: lint (non-blocking)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: install
+        run: npm ci --prefer-offline
+      # Non-blocking on purpose: main currently has 13 eslint errors + 3 warnings
+      # (mostly @typescript-eslint/no-explicit-any and react-hooks rules) that
+      # predate this workflow. Reporting them without blocking keeps the debt
+      # visible instead of hidden. Once those are cleared, drop
+      # continue-on-error and add this job to the ruleset's required checks.
+      - name: eslint
+        continue-on-error: true
+        run: npm run lint
