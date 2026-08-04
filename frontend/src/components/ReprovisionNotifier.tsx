@@ -53,7 +53,17 @@ export function ReprovisionNotifier() {
     };
 
     poll();
-    const id = setInterval(poll, 15_000);
+    // Deliberately NOT usePoll: this must keep polling while the tab is hidden, or
+    // "notify when the reprovision finishes" only fires once you look back at hangar
+    // — which is the one moment you don't need telling. Same trade as the try-push
+    // poll in Overview.
+    //
+    // But it is app-wide and renders nothing, so every open tab paid for it forever.
+    // At 15s that was 4 req/min/tab and made this endpoint 57% of all LB traffic,
+    // pushing a normal session near the Cloud Armor ceiling (100 req/60s per IP) so a
+    // quick refresh got denied. 60s is still far finer than reprovisions resolve —
+    // they take many minutes — and cuts this source 4x.
+    const id = setInterval(poll, 60_000);
     return () => {
       cancelled = true;
       clearInterval(id);
