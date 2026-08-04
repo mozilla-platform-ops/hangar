@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Copy, Eraser, Lock, RefreshCw, Terminal, Zap } from "lucide-react";
 import { api, type ReprovisionEventItem, type ReprovisionJob, type ReprovisionStatus } from "../api";
+import { usePoll } from "../lib/useLive";
 import { Badge } from "./Badge";
 
 // Apple six-color rainbow — the same palette the `reprovision` CLI paints its steps with
@@ -189,10 +190,15 @@ export function ReprovisionPanel({ hostname }: { hostname: string }) {
   useEffect(() => {
     if (authorized !== true) return;
     load();
-    const id = setInterval(load, active ? 3_000 : 8_000);
-    return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authorized, hostname, active]);
+
+  // Repeat via usePoll so a hidden tab stops polling and refreshes the moment you come
+  // back. The authorized check stays inside the callback because hooks can't be called
+  // conditionally, and an unauthorized viewer would otherwise 403 every few seconds.
+  usePoll(() => {
+    if (authorized === true) load();
+  }, active ? 3_000 : 8_000);
 
   if (authorized !== true) return null;
 

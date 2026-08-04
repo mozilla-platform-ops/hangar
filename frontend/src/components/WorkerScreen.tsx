@@ -41,7 +41,14 @@ export function WorkerScreen({ hostname }: { hostname: string }) {
         .catch(() => {});
     };
     tick();
-    const id = setInterval(tick, 10_000);
+    // Skip ticks while the tab is hidden. Not usePoll only because `tick` closes over
+    // this effect's `cancelled` flag; the gate is what matters. Worth it twice over:
+    // it stops streaming frames nobody is looking at, and it stops the best-effort
+    // screen.request() that keeps the host "watched", so a forgotten background tab
+    // no longer makes the worker keep capturing.
+    const id = setInterval(() => {
+      if (!document.hidden) tick();
+    }, 10_000);
     return () => {
       cancelled = true;
       clearInterval(id);

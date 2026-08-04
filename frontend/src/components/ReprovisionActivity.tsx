@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { RefreshCw, Zap } from "lucide-react";
 import { api, type ReprovisionJob } from "../api";
+import { usePoll } from "../lib/useLive";
 import { Badge } from "./Badge";
 
 const ACTIVE = new Set(["queued", "claimed", "running"]);
@@ -36,11 +37,11 @@ export function ReprovisionActivity() {
   );
   const anyActive = relevant.some((j) => ACTIVE.has(j.state));
 
-  // Poll fast while something's running, slow otherwise.
-  useEffect(() => {
-    const id = setInterval(load, anyActive ? 3_000 : 15_000);
-    return () => clearInterval(id);
-  }, [anyActive]);
+  // Poll fast while something's running, slow otherwise. usePoll (not a raw setInterval)
+  // so a backgrounded tab stops hitting the endpoint and resumes instantly on return:
+  // this is an at-a-glance panel, worthless while nobody's looking, and the shared
+  // reprovision endpoint is the single biggest source of request volume.
+  usePoll(load, anyActive ? 3_000 : 15_000);
 
   if (relevant.length === 0) return null;
 
