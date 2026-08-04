@@ -1,0 +1,30 @@
+# Source of truth for backend dependencies -- loose constraints, human-edited.
+#
+# requirements.txt is GENERATED from this file and is fully pinned with hashes.
+# Do not edit requirements.txt by hand -- the Dockerfile installs it with
+# --require-hashes, so a hand-edited entry fails the build.
+#
+# To change a dependency: edit this file, then regenerate from backend/ with
+#
+#   uv pip compile requirements.in -o requirements.txt --generate-hashes \
+#     --python-version 3.11 --python-platform x86_64-unknown-linux-gnu
+#
+# The --python-version / --python-platform flags target the runtime image
+# (python:3.11-slim, linux/amd64) rather than the developer's machine, so the
+# pins are the ones that will actually be installed. Without them, a macOS
+# checkout resolves platform-specific wheels (psycopg2-binary, uvloop) wrong.
+
+fastapi>=0.141.1
+uvicorn[standard]>=0.52.0
+sqlalchemy>=2.0
+psycopg2-binary>=2.9
+apscheduler>=3.11.3
+requests>=2.31
+pyyaml>=6.0
+google-auth>=2.28
+google-auth-httplib2>=0.2
+google-api-python-client>=2.198.0
+gitpython>=3.1.57
+python-dotenv>=1.0
+pydantic-settings>=2.2
+python-json-logger>=2.0

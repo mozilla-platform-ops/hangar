@@ -105,6 +105,23 @@ gcloud run services update hangar --region=us-central1 \
   --image=us-central1-docker.pkg.dev/relops-dashboard/hangar/backend:<sha>
 ```
 
+## Backend dependencies
+
+`backend/requirements.in` is the **source of truth** (loose `>=` constraints, human-edited). `backend/requirements.txt` is **generated** from it — fully pinned with hashes — and the Dockerfile installs it with `--require-hashes`, so builds are reproducible and a tampered artifact fails rather than installs.
+
+**Never hand-edit `requirements.txt`.** To change a dependency, edit `requirements.in` and regenerate from `backend/`:
+
+```bash
+uv pip compile requirements.in -o requirements.txt --generate-hashes \
+  --python-version 3.11 --python-platform x86_64-unknown-linux-gnu
+```
+
+The `--python-version` / `--python-platform` flags target the runtime image (`python:3.11-slim`, linux/amd64), not your laptop — omit them on macOS and you resolve the wrong platform wheels for `psycopg2-binary` and `uvloop`.
+
+CI's `image (docker build)` job installs this set on every PR, so a bad regeneration fails there rather than at deploy time.
+
+> Dependabot's `pip` ecosystem may propose edits directly to the generated `requirements.txt`. If one lands that strips or mismatches hashes, the `image` job catches it — treat such a PR as "bump `requirements.in` and regenerate" instead of merging as-is.
+
 ## Sync system
 
 Background threads run on configurable intervals (env vars `SYNC_INTERVAL_*`); `scheduler.py` coordinates them and individual sync modules pull from external APIs and upsert into Postgres. Manual trigger: `POST /api/sync/run`. Cloud Run runs `min-instances=1` so the scheduler stays alive for continuous syncs.

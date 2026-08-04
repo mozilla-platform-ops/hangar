@@ -16,7 +16,10 @@ RUN useradd --create-home --shell /bin/bash app
 
 WORKDIR /app
 COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# requirements.txt is generated from requirements.in and fully hash-pinned;
+# --require-hashes is implied by the presence of hashes, but stating it makes the
+# guarantee explicit and fails loudly if someone regenerates without hashes.
+RUN pip install --no-cache-dir --require-hashes -r requirements.txt
 
 COPY backend/ .
 
