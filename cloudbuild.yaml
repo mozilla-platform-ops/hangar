@@ -45,7 +45,14 @@ substitutions:
 
 options:
   logging: CLOUD_LOGGING_ONLY
-  machineType: E2_HIGHCPU_8
+  # Do NOT set machineType: E2_HIGHCPU_8 here. Combined with the user-specified
+  # build service account this trigger runs as (hangar-run@), 8-CPU workers
+  # never get scheduled -- builds sat QUEUED for 48-64 min on 2026-08-03, which
+  # straddles the default 3600s queueTtl, so deploys either landed ~50 min late
+  # or silently EXPIRED with no error. Isolated by probe builds: either factor
+  # alone schedules in 15-75s, only the combination starves. The default machine
+  # type schedules in ~15s and builds this repo in a few minutes, which is
+  # plenty -- the vite build itself is under a second.
 
 images:
   - $_REGION-docker.pkg.dev/$PROJECT_ID/hangar/backend:$COMMIT_SHA
