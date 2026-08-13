@@ -47,10 +47,44 @@ jobs:
       # Builds the real multi-stage artifact Cloud Build deploys: node builds the
       # SPA, then python installs backend/requirements.txt. Catches broken
       # backend dependency bumps, which nothing else here would -- there are no
-      # backend tests yet, and requirements.txt is unpinned `>=` so the installed
-      # set floats. Does not push; this only proves the image assembles.
+      # backend tests yet. requirements.txt is fully pinned and installed with
+      # --require-hashes, so this also fails on a hand-edited or hash-mismatched
+      # entry (see the Dependabot note in CLAUDE.md). Does not push; this only
+      # proves the image assembles.
       - name: docker build
         run: docker build --file=backend/Dockerfile --tag=hangar-ci:${{ github.sha }} .
+
+  terraform:
+    name: terraform (fmt + validate)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - uses: actions/checkout@v7
+      # Pinned to the version RelOps runs locally, for the same reason the
+      # frontend job pins node: `terraform fmt -check` encodes one version's
+      # canonical formatting, so floating on latest would fail unrelated PRs
+      # the day a new release changes it.
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.14.8"
+          terraform_wrapper: false
+      - name: fmt
+        run: terraform fmt -check -recursive -diff
+      # -backend=false is what makes this job possible without GCP credentials:
+      # it installs the providers (so `validate` can check resource schemas)
+      # without touching the local state or needing ADC. That matters because
+      # this repo's terraform is applied by hand from laptops, so CI could not
+      # authenticate even if we wanted it to.
+      - name: init
+        run: terraform init -backend=false -input=false
+      # The gap this closes: before this job, nothing in CI read terraform/ at
+      # all, so Dependabot's provider bumps (#107/#108 -- two google provider
+      # MAJORS) sat green and looked mergeable. `validate` catches exactly that
+      # class of break, e.g. iap.enabled becoming required in provider 6.0.
+      - name: validate
+        run: terraform validate
 
   lint:
     name: lint (non-blocking)
@@ -67,11 +101,13 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: install
         run: npm ci --prefer-offline
-      # Non-blocking on purpose: main currently has 13 eslint errors + 3 warnings
-      # (mostly @typescript-eslint/no-explicit-any and react-hooks rules) that
-      # predate this workflow. Reporting them without blocking keeps the debt
-      # visible instead of hidden. Once those are cleared, drop
-      # continue-on-error and add this job to the ruleset's required checks.
+      # Non-blocking on purpose: main currently has 17 eslint errors + 4 warnings
+      # that predate this workflow -- 9 are react-hooks/set-state-in-effect, the
+      # rest react-refresh/only-export-components, react-hooks/{purity,refs,
+      # exhaustive-deps,incompatible-library} and @typescript-eslint/no-explicit-any.
+      # Reporting them without blocking keeps the debt visible instead of hidden.
+      # Once those are cleared, drop continue-on-error and add this job to the
+      # ruleset's required checks.
       - name: eslint
         continue-on-error: true
         run: npm run lint
