@@ -107,7 +107,12 @@ resource "google_compute_backend_service" "hangar" {
     group = google_compute_region_network_endpoint_group.hangar.id
   }
 
+  # `enabled` became a required argument in provider 6.0 — before that, the mere
+  # presence of an `iap` block implied it was on. It must stay `true`: IAP at the
+  # LB is the only thing authenticating human traffic to the dashboard, so
+  # flipping this to false would expose Hangar to the internet.
   iap {
+    enabled              = true
     oauth2_client_id     = var.iap_oauth2_client_id
     oauth2_client_secret = var.iap_oauth2_client_secret
   }
