@@ -15,8 +15,8 @@
 # checkout resolves platform-specific wheels (psycopg2-binary, uvloop) wrong.
 
 fastapi>=0.141.1
-uvicorn[standard]>=0.52.0
-sqlalchemy>=2.0
+uvicorn[standard]>=0.52.3
+sqlalchemy>=2.0.52
 psycopg2-binary>=2.9
 apscheduler>=3.11.3
 requests>=2.31
