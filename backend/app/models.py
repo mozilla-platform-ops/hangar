@@ -252,11 +252,22 @@ class TartSlotHealth(Base):
     Every check here is a failure that actually happened and was invisible at the
     time (2026-07-27..29):
 
-    guest_uptime_s vs tart_run_uptime_s
+    worker_exit_69_age_s
         Three slots sat in a crash-reboot loop, guest rebooting every ~84s from an
         exhausted disk, while `tart run` stayed up 11+ days. The host looked
-        perfectly healthy from outside and the loop ran for weeks. A guest uptime
-        far below the tart-run uptime is the tell.
+        perfectly healthy from outside and the loop ran for weeks.
+
+        This was originally written as "guest uptime far below tart-run uptime is
+        the tell". It is not: these guests are numberOfTasksToRun=1, so they reboot
+        after EVERY task and a healthy guest's uptime is one task (600-2400s) while
+        tart run is days. Measured 2026-08-17 on two verified-healthy slots:
+        guest 368s vs tart run 5760s, and 616s vs 10464s — both satisfy the ratio.
+        The real loop was ~84s, and no single-sample ratio separates those.
+
+        worker_exit_69 is the honest signal instead. See api/tart_health.py.
+    guest_uptime_s / tart_run_uptime_s
+        Still collected and displayed, because they are what an operator wants to
+        read once something is flagged. Just not a severity input on their own.
     guest_disk_free_gib
         The root cause of that loop: generic-worker needs 20 GiB free and panics
         (exit 69, INTERNAL_ERROR) when it can't free enough. Alerting on the
@@ -300,6 +311,13 @@ class TartSlotHealth(Base):
     tart_run_uptime_s: Mapped[int | None] = mapped_column(Integer)
     guest_disk_free_gib: Mapped[int | None] = mapped_column(Integer)
     clock_skew_s: Mapped[int | None] = mapped_column(Integer)
+    # Age in seconds of the guest's /opt/worker/worker_exit_69 semaphore, or None when
+    # absent. worker-runner.sh creates it the first time generic-worker exits 69 and
+    # deletes it on any other exit ("Worker recovered from previous exit code 69"), so
+    # its mere presence means "the last worker exit was the disk-panic path". This is
+    # the unambiguous crash-loop signal; comparing guest to tart-run uptime is not
+    # (see the note in api/tart_health.py).
+    worker_exit_69_age_s: Mapped[int | None] = mapped_column(Integer)
 
     registered: Mapped[bool | None] = mapped_column(Boolean)
     quarantined: Mapped[bool | None] = mapped_column(Boolean)

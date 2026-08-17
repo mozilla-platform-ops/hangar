@@ -44,10 +44,26 @@ _STALE = timedelta(minutes=30)
 DISK_CRIT_GIB = 22
 DISK_WARN_GIB = 30
 
-# A guest whose uptime is this far below its `tart run` uptime is rebooting underneath
-# a process that looks healthy — the signature of the crash loop.
-REBOOT_LOOP_RATIO = 0.5
-REBOOT_LOOP_MIN_RUN_S = 3600  # ignore the ratio until tart run has been up a while
+# The crash loop is detected from the guest's own /opt/worker/worker_exit_69 semaphore,
+# NOT from guest-vs-tart-run uptime.
+#
+# worker-runner.sh writes that file the first time generic-worker exits 69 (the "cannot
+# free enough disk" path) and deletes it on any other exit, logging "Worker recovered
+# from previous exit code 69". So presence means the last worker exit was the panic path,
+# and the file's age means how long that has been true. worker-runner itself treats
+# `find -mmin +15` on the same file as "problem repeated for 15m", so we reuse that
+# boundary rather than inventing one.
+#
+# The previous rule was `guest_uptime_s < tart_run_uptime_s * 0.5` once tart run had been
+# up an hour. That is wrong for this pool and was never true-tested: these guests are
+# numberOfTasksToRun=1, so they reboot after EVERY task. A healthy guest's uptime is one
+# task (600-2400s) while tart run is days, which satisfies the ratio permanently.
+# Measured 2026-08-17 on two independently verified-healthy slots:
+#   mac-c51932  guest 368s  vs tart run 5760s   -> would CRIT
+#   mac-962a94  guest 616s  vs tart run 10464s  -> would CRIT
+# The genuine loop rebooted every ~84s. No single-sample ratio separates 84s from 600s
+# reliably, so the ratio is gone rather than retuned.
+EXIT69_CRIT_AGE_S = 900  # 15m, matching worker-runner.sh's own "problem repeated" test
 
 CLOCK_SKEW_CRIT_S = 300  # a cloned VM inheriting the image RTC is out by weeks, not minutes
 
@@ -75,6 +91,7 @@ class SlotPush(BaseModel):
     tart_run_uptime_s: int | None = None
     guest_disk_free_gib: int | None = None
     clock_skew_s: int | None = None
+    worker_exit_69_age_s: int | None = None
     registered: bool | None = None
     quarantined: bool | None = None
     last_task_state: str | None = None
@@ -112,17 +129,21 @@ def evaluate(s: SlotPush) -> tuple[str, list[str]]:
 
     # The crash loop. Checked before reachability, because a looping guest is often
     # briefly SSH-able and would otherwise look merely flaky.
-    if (
-        s.guest_uptime_s is not None
-        and s.tart_run_uptime_s is not None
-        and s.tart_run_uptime_s >= REBOOT_LOOP_MIN_RUN_S
-        and s.guest_uptime_s < s.tart_run_uptime_s * REBOOT_LOOP_RATIO
-    ):
-        crit = True
-        problems.append(
-            f"guest rebooting under a healthy tart run "
-            f"(guest up {s.guest_uptime_s // 60}m vs tart run {s.tart_run_uptime_s // 3600}h)"
-        )
+    if s.worker_exit_69_age_s is not None:
+        if s.worker_exit_69_age_s >= EXIT69_CRIT_AGE_S:
+            crit = True
+            problems.append(
+                f"worker has been exiting 69 for {s.worker_exit_69_age_s // 60}m — "
+                "crash-reboot loop, slot is resolving no tasks"
+            )
+        else:
+            # A single exit 69 recovers on its own often enough (a task that filled the
+            # disk, then cleanUpTaskDirs reclaims it) that paging on the first one would
+            # be noise. It becomes crit if it is still there at the next sweep.
+            warn = True
+            problems.append(
+                f"worker exited 69 {s.worker_exit_69_age_s // 60}m ago — watch for a loop"
+            )
 
     if s.guest_disk_free_gib is not None:
         if s.guest_disk_free_gib < DISK_CRIT_GIB:
@@ -217,6 +238,7 @@ def agent_push(
         for field in (
             "vm_name", "worker_id", "configured_worker_id", "vm_state", "guest_reachable",
             "guest_uptime_s", "tart_run_uptime_s", "guest_disk_free_gib", "clock_skew_s",
+            "worker_exit_69_age_s",
             "registered", "quarantined", "last_task_state", "cert_expiry", "cert_not_before", "cert_owner_ok",
             "inject_vault", "vault_present", "checkout_sha", "refspec_pinned", "agent_error",
         ):
@@ -260,6 +282,7 @@ def tart_health(user: str = Depends(require_access), db: Session = Depends(get_d
             "tart_run_uptime_s": r.tart_run_uptime_s,
             "guest_disk_free_gib": r.guest_disk_free_gib,
             "clock_skew_s": r.clock_skew_s,
+            "worker_exit_69_age_s": r.worker_exit_69_age_s,
             "registered": r.registered,
             "quarantined": r.quarantined,
             "last_task_state": r.last_task_state,

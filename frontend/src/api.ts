@@ -403,6 +403,7 @@ export interface TartSlot {
   guest_reachable: boolean | null;
   guest_uptime_s: number | null;
   tart_run_uptime_s: number | null;
+  worker_exit_69_age_s: number | null;
   guest_disk_free_gib: number | null;
   clock_skew_s: number | null;
   registered: boolean | null;
