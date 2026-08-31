@@ -178,7 +178,7 @@ export function WorkerDetail() {
     : null;
 
   return (
-    <div className="p-8 space-y-5 max-w-5xl">
+    <div className="p-8 space-y-5">
       {/* Header */}
       <div>
         <button

@@ -1068,7 +1068,7 @@ export function Pools() {
     : totalWorkers;
 
   return (
-    <div className="p-8 space-y-8 max-w-7xl">
+    <div className="p-8 space-y-8">
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3">
           <span className="w-1 h-9 rounded-full flex-shrink-0" style={{ backgroundImage: FF_GRADIENT }} />
