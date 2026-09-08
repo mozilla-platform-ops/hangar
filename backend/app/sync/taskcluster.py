@@ -1,11 +1,14 @@
 """Sync Taskcluster worker data into the workers table.
 
-Uses the TC GraphQL API (same approach as fleetroll_mvp) which returns richer
-data than the REST API, including latestTask details.
+Uses the TC queue REST API. This previously used the GraphQL API, but TC removed the
+queue-worker surface from its schema (`Query.workers` is gone, and no type exposes
+`lastDateActive`/`quarantineUntil` any more), which silently reduced every pool fetch to
+an error and made the whole fleet look absent from TC.
 """
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -18,7 +21,6 @@ from ..models import Alert, FailureEvent, SyncLog, Worker
 
 log = logging.getLogger(__name__)
 
-TC_GRAPHQL_URL = f"{settings.tc_root_url}/graphql"
 
 # In-memory cache of taskId → task name. Cleared when it exceeds 5 000 entries.
 _task_name_cache: dict[str, str] = {}
@@ -144,78 +146,128 @@ def _detect_generation(hostname: str, worker_pool: str | None) -> str | None:
         return "r8"
     return None
 
-_GRAPHQL_QUERY = """
-query ViewWorkers($provisionerId: String!, $workerType: String!, $workersConnection: PageConnection) {
-  workers(
-    provisionerId: $provisionerId
-    workerType: $workerType
-    connection: $workersConnection
-  ) {
-    pageInfo { hasNextPage nextCursor }
-    edges {
-      node {
-        workerId
-        workerGroup
-        latestTask {
-          run { taskId runId started resolved state reasonResolved }
-        }
-        firstClaim
-        quarantineUntil
-        lastDateActive
-        state
-        capacity
-        workerPoolId
-      }
-    }
-  }
-}
-"""
+# The TC GraphQL API dropped the queue-worker surface (the `workers` query on `Query`
+# no longer exists, and no type exposes `lastDateActive`/`quarantineUntil` any more), so
+# worker listings come from the queue REST API instead. See _fetch_pool_workers.
+_WORKERS_PATH = "{root}/api/queue/v1/provisioners/{prov}/worker-types/{wt}/workers"
+_TASK_STATUS_PATH = "{root}/api/queue/v1/task/{task_id}/status"
+
+# Task states that will never change again — a worker whose latestTask is in one of
+# these needs no further status lookup until it claims a different task.
+_TERMINAL_TASK_STATES = {"completed", "failed", "exception"}
+
+# Concurrency for the per-task status lookups. Deliberately modest: hangar has tripped
+# the Cloud Armor rate limit before (PR #106), and the lookup set is already narrowed to
+# tasks that changed or have not yet reached a terminal state.
+_STATUS_WORKERS = 8
+
+
+def _new_session() -> requests.Session:
+    session = requests.Session()
+    session.headers["User-Agent"] = "relops-dashboard/1.0"
+    return session
 
 
 def _fetch_pool_workers(provisioner_id: str, worker_type: str) -> list[dict[str, Any]]:
-    """Fetch all workers for a pool via GraphQL, with pagination."""
-    session = requests.Session()
-    session.headers["User-Agent"] = "relops-dashboard/1.0"
+    """Fetch all workers for a pool from the queue REST API, with pagination.
 
-    workers: list[dict] = []
-    cursor: str | None = None
+    Returns nodes in the shape the sync loop already expects, so the only fields lost
+    relative to the retired GraphQL query are:
+
+    * ``state`` -- worker-manager state. Not served by the queue API. It read
+      ``standalone`` for essentially every host in this (statically provisioned) fleet,
+      so the caller leaves ``Worker.tc_state`` at its previous value rather than
+      nulling it out.
+    * ``capacity`` -- unused by the sync.
+
+    ``latestTask.run`` carries only ``taskId``/``runId`` here; ``state`` and
+    ``reasonResolved`` are filled in by _fetch_task_statuses.
+    """
+    session = _new_session()
+    workers: list[dict[str, Any]] = []
+    token: str | None = None
+    worker_pool_id = f"{provisioner_id}/{worker_type}"
 
     while True:
-        variables: dict[str, Any] = {
-            "provisionerId": provisioner_id,
-            "workerType": worker_type,
-            "workersConnection": {"limit": 1000},
-        }
-        if cursor:
-            variables["workersConnection"]["cursor"] = cursor
+        params: dict[str, Any] = {"limit": 1000}
+        if token:
+            params["continuationToken"] = token
 
-        resp = session.post(
-            TC_GRAPHQL_URL,
-            json={"operationName": "ViewWorkers", "variables": variables, "query": _GRAPHQL_QUERY},
-            headers={
-                "Content-Type": "application/json",
-                "Origin": settings.tc_root_url,
-                "Referer": f"{settings.tc_root_url}/",
-            },
+        resp = session.get(
+            _WORKERS_PATH.format(root=settings.tc_root_url, prov=provisioner_id, wt=worker_type),
+            params=params,
             timeout=30,
         )
         resp.raise_for_status()
         data = resp.json()
 
-        workers_data = (data.get("data") or {}).get("workers", {})
-        for edge in workers_data.get("edges", []):
-            node = edge.get("node")
-            if node:
-                workers.append(node)
+        for node in data.get("workers") or []:
+            latest = node.get("latestTask") or {}
+            workers.append({
+                "workerId": node.get("workerId"),
+                "workerGroup": node.get("workerGroup"),
+                "firstClaim": node.get("firstClaim"),
+                "lastDateActive": node.get("lastDateActive"),
+                "quarantineUntil": node.get("quarantineUntil"),
+                "workerPoolId": worker_pool_id,
+                "latestTask": {"run": {
+                    "taskId": latest.get("taskId"),
+                    "runId": latest.get("runId"),
+                }},
+            })
 
-        page_info = workers_data.get("pageInfo", {})
-        if not page_info.get("hasNextPage"):
-            break
-        cursor = page_info.get("nextCursor")
-        if not cursor:
+        token = data.get("continuationToken")
+        if not token:
             break
 
     return workers
+
+
+def _fetch_task_status(task_id: str, run_id: int | None) -> tuple[str, dict[str, Any]]:
+    """Return (task_id, {state, reasonResolved}) for one task. Best-effort: {} on error."""
+    try:
+        resp = requests.get(
+            _TASK_STATUS_PATH.format(root=settings.tc_root_url, task_id=task_id),
+            timeout=10,
+            headers={"User-Agent": "relops-dashboard/1.0"},
+        )
+        resp.raise_for_status()
+        status = resp.json().get("status") or {}
+        runs = status.get("runs") or []
+        run = None
+        if run_id is not None:
+            run = next((r for r in runs if r.get("runId") == run_id), None)
+        if run is None:
+            run = runs[-1] if runs else {}
+        return task_id, {
+            "state": run.get("state") or status.get("state"),
+            "reasonResolved": run.get("reasonResolved"),
+        }
+    except Exception as exc:
+        log.debug("task status lookup failed %s: %s", task_id, exc)
+        return task_id, {}
+
+
+def _fetch_task_statuses(tasks: dict[str, int | None]) -> dict[str, dict[str, Any]]:
+    """Concurrently resolve {taskId: runId} -> {taskId: {state, reasonResolved}}.
+
+    Callers pass only tasks that changed or have not yet reached a terminal state, so the
+    size of this set tracks how many workers are actually busy, not the size of the fleet.
+
+    A task that fails to resolve is simply absent from the result; the caller leaves that
+    worker's stored state alone rather than guessing.
+    """
+    if not tasks:
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    with ThreadPoolExecutor(max_workers=_STATUS_WORKERS) as pool:
+        futures = [pool.submit(_fetch_task_status, tid, rid) for tid, rid in tasks.items()]
+        for fut in as_completed(futures):
+            task_id, status = fut.result()
+            if status:
+                out[task_id] = status
+    log.info("Resolved %d/%d task states", len(out), len(tasks))
+    return out
 
 
 def _parse_dt(value: str | None) -> datetime | None:
@@ -364,14 +416,51 @@ def run_sync(db: Session) -> int:
         # objects, so workers appearing in multiple pools would get double-inserted.
         session_workers: dict[str, Worker] = {}
 
+        # Phase 1 — fetch every pool up front and record which ones failed, so the
+        # absence check below can be skipped when the picture is incomplete.
+        fetched: list[tuple[str, str, list[dict[str, Any]]]] = []
+        failed_pools: list[str] = []
         for provisioner_id, worker_type in ALL_WORKER_POOLS:
             log.info("Fetching TC workers: %s/%s", provisioner_id, worker_type)
-            is_scriptworker = provisioner_id == SCRIPTWORKER_PROVISIONER
             try:
-                workers = _fetch_pool_workers(provisioner_id, worker_type)
+                fetched.append(
+                    (provisioner_id, worker_type, _fetch_pool_workers(provisioner_id, worker_type))
+                )
             except Exception as exc:
                 log.warning("Failed to fetch %s/%s: %s", provisioner_id, worker_type, exc)
-                continue
+                failed_pools.append(f"{provisioner_id}/{worker_type}")
+
+        # Phase 2 — resolve task state. The REST worker listing gives only taskId/runId,
+        # so state comes from a per-task lookup. Two cases need one:
+        #   * the taskId changed since the last sync, or
+        #   * the stored state is non-terminal — a worker keeps the same latestTask after
+        #     it resolves, so refreshing only on change would pin it at "running" forever.
+        # Everything else keeps its stored state, which keeps the request count near the
+        # number of genuinely busy workers instead of the whole fleet.
+        stale_tasks: dict[str, int | None] = {}
+        for _prov, _wt, nodes in fetched:
+            for node in nodes:
+                run = (node.get("latestTask") or {}).get("run") or {}
+                task_id = run.get("taskId")
+                if not task_id:
+                    continue
+                hostname = (
+                    node.get("workerId")
+                    if _prov == SCRIPTWORKER_PROVISIONER
+                    else _worker_hostname(node.get("workerId", ""))
+                )
+                existing = db.get(Worker, hostname)
+                if (
+                    existing is None
+                    or existing.tc_latest_task_id != task_id
+                    or (existing.tc_latest_task_state or "").lower() not in _TERMINAL_TASK_STATES
+                ):
+                    stale_tasks[task_id] = run.get("runId")
+        task_statuses = _fetch_task_statuses(stale_tasks)
+
+        # Phase 3 — apply to the DB.
+        for provisioner_id, worker_type, workers in fetched:
+            is_scriptworker = provisioner_id == SCRIPTWORKER_PROVISIONER
 
             for node in workers:
                 worker_id = node.get("workerId", "")
@@ -389,7 +478,8 @@ def run_sync(db: Session) -> int:
                 quarantine_until = _parse_dt(node.get("quarantineUntil"))
                 worker.tc_worker_id = worker_id
                 worker.tc_worker_group = node.get("workerGroup")
-                worker.tc_state = node.get("state")
+                # tc_state (worker-manager state) is not served by the queue REST API;
+                # leave the last known value rather than nulling the column fleet-wide.
                 worker.tc_last_active = _parse_dt(node.get("lastDateActive"))
                 worker.tc_quarantined = quarantine_until is not None and quarantine_until > datetime.utcnow()
                 worker.tc_quarantine_until = quarantine_until
@@ -404,11 +494,18 @@ def run_sync(db: Session) -> int:
                 latest_task_node = node.get("latestTask") or {}
                 latest_task = latest_task_node.get("run") or {}
                 new_task_id = latest_task.get("taskId")
-                new_task_state_raw = latest_task.get("state") or ""
+                resolved = task_statuses.get(new_task_id or "") or {}
 
                 prev_task_id = worker.tc_latest_task_id
+                # Only overwrite the stored state when this sync actually resolved one;
+                # a failed or skipped lookup must not silently mark a busy worker idle,
+                # which is what the reprovision interlock reads (api/reprovision.py).
+                if resolved.get("state"):
+                    worker.tc_latest_task_state = resolved["state"]
+                elif new_task_id != prev_task_id:
+                    worker.tc_latest_task_state = None
+                new_task_state_raw = worker.tc_latest_task_state or ""
                 worker.tc_latest_task_id = new_task_id
-                worker.tc_latest_task_state = new_task_state_raw
 
                 # Record a FailureEvent when we first observe a new failed/exception task.
                 new_state = new_task_state_raw.lower()
@@ -422,7 +519,7 @@ def run_sync(db: Session) -> int:
                         hostname=hostname,
                         worker_pool=worker.worker_pool,
                         state=new_state,
-                        reason_resolved=latest_task.get("reasonResolved"),
+                        reason_resolved=resolved.get("reasonResolved"),
                         failed_at=datetime.utcnow(),
                     ))
 
@@ -435,8 +532,23 @@ def run_sync(db: Session) -> int:
                 _generate_alerts(db, hostname, worker)
                 total += 1
 
-        # Second pass: flag known production workers absent from TC entirely
-        _check_absent_workers(db, seen_hostnames)
+        # Second pass: flag known production workers absent from TC entirely.
+        #
+        # Only safe when this cycle actually saw the whole fleet. A partial fetch makes
+        # every unseen worker look deregistered, which is how an upstream TC API change
+        # once turned into hundreds of false missing_from_tc alerts while the sync still
+        # reported success. Mirrors the guard reconcile.prune_decommissioned already has.
+        if failed_pools:
+            incomplete = f"{len(failed_pools)} pool(s) failed to fetch: {', '.join(failed_pools[:5])}"
+        elif not seen_hostnames:
+            incomplete = "no workers returned by any pool"
+        else:
+            incomplete = ""
+
+        if incomplete:
+            log.error("Skipping absence check — incomplete TC picture (%s)", incomplete)
+        else:
+            _check_absent_workers(db, seen_hostnames)
 
         # Prune failure events older than 14 days
         prune_cutoff = datetime.utcnow() - timedelta(days=14)
@@ -451,9 +563,15 @@ def run_sync(db: Session) -> int:
         dedup_alerts(db)
         log_entry.finished_at = datetime.utcnow()
         log_entry.records_updated = total
-        log_entry.success = True
+        # A partial fetch is a failed sync, even though the rows we did get were saved.
+        # Reporting success here is what let the outage stay invisible for a week.
+        log_entry.success = not incomplete
+        log_entry.error = incomplete[:500] or None
         db.commit()
-        log.info("TC sync complete: %d records across %d pools", total, len(ALL_WORKER_POOLS))
+        log.info(
+            "TC sync complete: %d records across %d pools (%d failed)",
+            total, len(ALL_WORKER_POOLS), len(failed_pools),
+        )
         return total
 
     except Exception as exc:
