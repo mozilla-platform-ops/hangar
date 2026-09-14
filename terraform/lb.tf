@@ -117,6 +117,29 @@ resource "google_compute_backend_service" "hangar" {
     oauth2_client_secret = var.iap_oauth2_client_secret
   }
 
+  # SECURITY — clobber the client-cert headers on the human path. This proxy has NO
+  # server_tls_policy (mTLS lives only on the runner proxy, lb_runner.tf), so a client
+  # can supply its own X-Client-Cert-* headers and, because this backend previously set
+  # none of its own, they passed through untouched to Cloud Run. Both backends share one
+  # Cloud Run service, and the app's require_runner() (backend/app/api/reprovision.py)
+  # trusts these headers regardless of which frontend served the request — so any
+  # IAP-authenticated @mozilla.com user could forge `X-Client-Cert-Chain-Verified: true`
+  # + a SPIFFE/DN naming an allowlisted host and be authorized as the on-network runner
+  # (claim/complete reprovision jobs, forge the audit ledger, push screen frames + tart
+  # health). CONFIRMED live 2026-09-14. Overwriting each header with the LB's own
+  # client-cert variable — which resolves EMPTY on a proxy without mTLS — strips any
+  # inbound value, so require_runner sees chain-verified != "true" and returns 401.
+  # These names mirror the runner backend's custom_request_headers exactly.
+  custom_request_headers = [
+    "X-Client-Cert-Present: {client_cert_present}",
+    "X-Client-Cert-Chain-Verified: {client_cert_chain_verified}",
+    "X-Client-Cert-Error: {client_cert_error}",
+    "X-Client-Cert-SPIFFE: {client_cert_spiffe_id}",
+    "X-Client-Cert-URI-SANs: {client_cert_uri_sans}",
+    "X-Client-Cert-Subject-DN: {client_cert_subject_dn}",
+    "X-Client-Cert-Serial-Number: {client_cert_serial_number}",
+  ]
+
   log_config {
     enable      = true
     sample_rate = 1.0
