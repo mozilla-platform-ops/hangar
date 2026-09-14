@@ -165,10 +165,9 @@ export function Layout() {
       {/* Sidebar */}
       <aside
         className={clsx(
-          "fixed md:relative inset-y-0 left-0 z-30 w-56 flex-shrink-0 flex flex-col border-r border-gray-800/80 transition-transform duration-200 ease-in-out",
+          "sidebar-surface fixed md:relative inset-y-0 left-0 z-30 w-56 flex-shrink-0 flex flex-col border-r border-gray-800/80 transition-transform duration-200 ease-in-out",
           sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
-        )}
-        style={{ background: "linear-gradient(180deg, #0f1117 0%, #0d1117 100%)" }}>
+        )}>
 
         {/* Brand */}
         <div className="px-4 py-5 border-b border-gray-800/60">
@@ -215,6 +214,21 @@ export function Layout() {
 
         {/* Footer — utility */}
         <div className="border-t border-gray-800/60 px-2 pt-2 pb-3 space-y-1">
+          <label className="flex items-center justify-between gap-2 px-3 py-2 text-xs text-gray-400">
+            Theme
+            <select
+              className="rounded border border-gray-700 bg-gray-900 px-2 py-1 text-gray-100"
+              defaultValue={document.documentElement.dataset.theme || "system"}
+              onChange={e => {
+                document.documentElement.dataset.theme = e.target.value;
+                try { localStorage.setItem("theme", e.target.value); } catch { /* Keep the choice for this page. */ }
+              }}
+            >
+              <option value="system">System</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
           <button
             onClick={triggerSync}
             disabled={syncing}

@@ -3,18 +3,21 @@
 @tailwind utilities;
 
 @layer base {
+  :root, :root[data-theme="system"] { color-scheme: light dark; }
+  :root[data-theme="light"] { color-scheme: light; }
+  :root[data-theme="dark"]  { color-scheme: dark; }
   body {
     @apply bg-gray-950 text-gray-100 font-sans antialiased;
     margin: 0;
-    background-image: radial-gradient(circle, #ffffff06 1px, transparent 1px);
+    background-image: radial-gradient(circle, light-dark(#00000006, #ffffff06) 1px, transparent 1px);
     background-size: 24px 24px;
   }
   * { box-sizing: border-box; }
 
   ::-webkit-scrollbar { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: #2d3748; border-radius: 4px; }
-  ::-webkit-scrollbar-thumb:hover { background: #4a5568; }
+  ::-webkit-scrollbar-thumb { background: light-dark(#cbd5e0, #2d3748); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: light-dark(#a0aec0, #4a5568); }
 }
 
 @layer utilities {
@@ -58,4 +61,14 @@
   .card { animation: none; }
   .num-pulse { animation: none; }
   .hm-cell:hover { transform: none; }
+}
+
+@layer components {
+  .sidebar-surface {
+    background: linear-gradient(
+      180deg,
+      light-dark(#ffffff, #0f1117) 0%,
+      light-dark(#f9fafb, #0d1117) 100%
+    );
+  }
 }
