@@ -46,21 +46,27 @@ def _parse_inventory_d(inventory_d: Path) -> tuple[list[dict], bool]:
     clean = True
     for yaml_file in sorted(inventory_d.glob("*.yaml")):
         try:
-            data = yaml.safe_load(yaml_file.read_text())
+            data = yaml.safe_load(yaml_file.read_text()) or {}
+            # A group with no hosts yet is written as `targets:` with only a
+            # comment under it, which parses to None rather than []. `.get(key, [])`
+            # supplies its default only when the key is absent, so this must coerce.
+            # The group loop is inside the try because that TypeError previously
+            # escaped it -- aborting run_sync and rolling back the whole sync --
+            # instead of degrading to clean=False like any other parse failure.
+            for group in data.get("groups") or []:
+                group_name = group.get("name", "")
+                puppet_role = (group.get("facts") or {}).get("puppet_role", "")
+                for target in group.get("targets") or []:
+                    if isinstance(target, str):
+                        entries.append({
+                            "hostname": target,
+                            "worker_pool": group_name,
+                            "puppet_role": puppet_role,
+                        })
         except Exception as exc:
             log.warning("Failed to parse %s: %s", yaml_file, exc)
             clean = False
             continue
-        for group in data.get("groups", []):
-            group_name = group.get("name", "")
-            puppet_role = (group.get("facts") or {}).get("puppet_role", "")
-            for target in group.get("targets", []):
-                if isinstance(target, str):
-                    entries.append({
-                        "hostname": target,
-                        "worker_pool": group_name,
-                        "puppet_role": puppet_role,
-                    })
     return entries, clean
 
 
