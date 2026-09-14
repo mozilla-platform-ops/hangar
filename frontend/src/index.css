@@ -3,11 +3,10 @@
 @tailwind utilities;
 
 @layer base {
-  :root { color-scheme: light dark; }
   body {
     @apply bg-gray-950 text-gray-100 font-sans antialiased;
     margin: 0;
-    background-image: radial-gradient(circle, light-dark(#00000006, #ffffff06) 1px, transparent 1px);
+    background-image: radial-gradient(circle, #ffffff06 1px, transparent 1px);
     background-size: 24px 24px;
   }
   * { box-sizing: border-box; }
