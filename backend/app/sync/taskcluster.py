@@ -57,6 +57,8 @@ HW_WORKER_POOLS: list[tuple[str, str]] = [
     ("releng-hardware", "gecko-t-osx-1500-m4"),
     ("releng-hardware", "gecko-t-osx-1500-m4-staging"),
     ("releng-hardware", "gecko-t-osx-1500-m4-ipv6"),
+    ("releng-hardware", "gecko-t-osx-2600-m4"),
+    ("releng-hardware", "gecko-t-osx-2600-m4-staging"),
     # macOS VM pools
     ("releng-hardware", "gecko-1-b-osx-arm64-vms"),
     ("releng-hardware", "gecko-3-b-osx-arm64-vms"),
@@ -467,6 +469,7 @@ def run_sync(db: Session) -> int:
                 # Scriptworker workerIds are logical instance names, not hostnames,
                 # so key on the workerId directly instead of synthesising an FQDN.
                 hostname = worker_id if is_scriptworker else _worker_hostname(worker_id)
+                already_seen_this_cycle = hostname in seen_hostnames
                 seen_hostnames.add(hostname)
 
                 worker = session_workers.get(hostname) or db.get(Worker, hostname)
@@ -475,12 +478,25 @@ def run_sync(db: Session) -> int:
                     db.add(worker)
                 session_workers[hostname] = worker
 
+                last_active = _parse_dt(node.get("lastDateActive"))
+
+                # A host that has moved pools keeps a record in its old pool, normally
+                # parked with a far-future quarantineUntil and a frozen lastDateActive.
+                # TC returns both, so whichever pool we happen to iterate last would win
+                # and a migrated host reports as quarantined and missing_from_tc. Keep
+                # whichever record was active most recently instead of the last one seen.
+                if already_seen_this_cycle and (
+                    last_active is None
+                    or (worker.tc_last_active is not None and last_active < worker.tc_last_active)
+                ):
+                    continue
+
                 quarantine_until = _parse_dt(node.get("quarantineUntil"))
                 worker.tc_worker_id = worker_id
                 worker.tc_worker_group = node.get("workerGroup")
                 # tc_state (worker-manager state) is not served by the queue REST API;
                 # leave the last known value rather than nulling the column fleet-wide.
-                worker.tc_last_active = _parse_dt(node.get("lastDateActive"))
+                worker.tc_last_active = last_active
                 worker.tc_quarantined = quarantine_until is not None and quarantine_until > datetime.utcnow()
                 worker.tc_quarantine_until = quarantine_until
                 worker.tc_first_claim = _parse_dt(node.get("firstClaim"))
