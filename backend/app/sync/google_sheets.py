@@ -27,6 +27,33 @@ _COL_NOTES = 6
 _COL_KVM = 7  # "Notes" column in source often contains KVM info
 
 
+# Warn once per process instead of on every tick: the scheduler runs this every 30
+# minutes in each instance, and an unconfigured integration should not produce a
+# recurring log entry at all.
+_UNCONFIGURED_WARNED = False
+
+
+def _credentials_usable() -> bool:
+    """True when the credentials path holds a real service-account key.
+
+    A configured path is not enough. The Cloud Run secret volume is mounted
+    unconditionally, so an unpopulated secret still leaves a file on disk that passes
+    both the settings check and ``Path.exists()``. That is what happened here: the
+    secret was created as an 11-byte placeholder and never filled in, so every tick
+    reached ``from_service_account_file`` and raised JSONDecodeError — months of ERROR
+    logs for an integration that was never set up, which is enough noise to bury a
+    real error in the ERROR stream.
+    """
+    cred_path = settings.google_credentials_json
+    if not cred_path:
+        return False
+    try:
+        info = json.loads(Path(cred_path).read_text())
+    except (OSError, ValueError):
+        return False
+    return isinstance(info, dict) and info.get("type") == "service_account" and bool(info.get("private_key"))
+
+
 def _get_sheets_service() -> Any:
     from google.oauth2.service_account import Credentials
     from googleapiclient.discovery import build  # type: ignore[import-untyped]
@@ -46,8 +73,14 @@ def _read_sheet(service: Any, sheet_id: str, range_: str = "A:Z") -> list[list[s
 
 
 def run_sync(db: Session) -> int:
-    if not settings.google_sheets_id or not settings.google_credentials_json:
-        log.warning("Google Sheets not configured — skipping sheets sync")
+    if not settings.google_sheets_id or not _credentials_usable():
+        global _UNCONFIGURED_WARNED
+        if not _UNCONFIGURED_WARNED:
+            log.warning(
+                "Google Sheets not configured (missing sheet id or usable "
+                "service-account credentials) — skipping sheets sync"
+            )
+            _UNCONFIGURED_WARNED = True
         return 0
 
     log_entry = SyncLog(source="sheets", started_at=datetime.utcnow())
