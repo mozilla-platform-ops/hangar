@@ -132,7 +132,11 @@ Auto-migrated on startup via `init_db()` in `database.py` (`ALTER TABLE ... ADD 
 
 ## Worker pools
 
-The macOS pools monitored live in `backend/app/sync/taskcluster.py::MAC_WORKER_POOLS` (`releng-hardware` provisioner).
+The pools monitored live in `backend/app/sync/taskcluster.py`: `HW_WORKER_POOLS` (`releng-hardware`) plus `SCRIPTWORKER_POOLS` (`scriptworker-prov-v1`), joined as `ALL_WORKER_POOLS`.
+
+The list is **hardcoded**, so a pool that exists in TC but is missing here is invisible to the sync. Cross-check against `/api/queue/v1/provisioners/releng-hardware/worker-types`; listing a pool that does not exist is harmless (TC returns an empty worker list).
+
+Two things to know when a host moves pools: TC leaves its old registration behind, parked with a far-future `quarantineUntil` and a frozen `lastDateActive`, so the host is returned by **both** pools; and a pool can return a **partial listing with no error at all** (observed record totals swing by ~25 per cycle). The sync therefore picks one winning record per host up front (`_record_rank`) and never regresses `tc_last_active` to an older value, because writing the parked record makes a busy worker flap `missing_from_tc` on and off.
 
 ## Reprovision action
 

@@ -286,6 +286,20 @@ def _worker_hostname(worker_id: str) -> str:
     return worker_fqdn(worker_id)
 
 
+def _record_rank(entry: tuple[str, str, dict[str, Any]]) -> tuple[bool, datetime, bool]:
+    """Sort key picking the most trustworthy of several TC records for one host.
+
+    Prefers a record that has a lastDateActive at all, then the most recent one, then a
+    record that is not "parked" (TC marks a registration the host has moved away from
+    with an absurdly far-future quarantineUntil; the same >2y rule _generate_alerts uses).
+    """
+    _prov, _wt, node = entry
+    last_active = _parse_dt(node.get("lastDateActive"))
+    quarantine_until = _parse_dt(node.get("quarantineUntil"))
+    parked = quarantine_until is not None and quarantine_until > datetime.utcnow() + timedelta(days=730)
+    return (last_active is not None, last_active or datetime.min, not parked)
+
+
 def _generate_alerts(db: Session, hostname: str, worker: Worker) -> None:
     """Create or resolve alerts for a worker based on current TC state."""
     now = datetime.utcnow()
@@ -432,7 +446,32 @@ def run_sync(db: Session) -> int:
                 log.warning("Failed to fetch %s/%s: %s", provisioner_id, worker_type, exc)
                 failed_pools.append(f"{provisioner_id}/{worker_type}")
 
-        # Phase 2 — resolve task state. The REST worker listing gives only taskId/runId,
+        # Phase 2 — pick one winning record per host before touching the DB.
+        #
+        # A host that has moved pools keeps a registration in its old pool, parked with a
+        # far-future quarantineUntil and a frozen lastDateActive, and TC returns both.
+        # Choosing up front rather than writing whichever pool is iterated last (and
+        # correcting afterwards) matters for two reasons: iteration order stops mattering,
+        # and _generate_alerts runs exactly once per host, so a cycle can never commit a
+        # transient alert that a later pool in the same cycle resolves.
+        best_nodes: dict[str, tuple[str, str, dict[str, Any]]] = {}
+        for provisioner_id, worker_type, workers in fetched:
+            for node in workers:
+                worker_id = node.get("workerId", "")
+                # Scriptworker workerIds are logical instance names, not hostnames,
+                # so key on the workerId directly instead of synthesising an FQDN.
+                hostname = (
+                    worker_id
+                    if provisioner_id == SCRIPTWORKER_PROVISIONER
+                    else _worker_hostname(worker_id)
+                )
+                entry = (provisioner_id, worker_type, node)
+                incumbent = best_nodes.get(hostname)
+                if incumbent is None or _record_rank(entry) > _record_rank(incumbent):
+                    best_nodes[hostname] = entry
+
+        # Phase 3 — resolve task state for the winning records.
+        # The REST worker listing gives only taskId/runId,
         # so state comes from a per-task lookup. Two cases need one:
         #   * the taskId changed since the last sync, or
         #   * the stored state is non-terminal — a worker keeps the same latestTask after
@@ -440,113 +479,112 @@ def run_sync(db: Session) -> int:
         # Everything else keeps its stored state, which keeps the request count near the
         # number of genuinely busy workers instead of the whole fleet.
         stale_tasks: dict[str, int | None] = {}
-        for _prov, _wt, nodes in fetched:
-            for node in nodes:
-                run = (node.get("latestTask") or {}).get("run") or {}
-                task_id = run.get("taskId")
-                if not task_id:
-                    continue
-                hostname = (
-                    node.get("workerId")
-                    if _prov == SCRIPTWORKER_PROVISIONER
-                    else _worker_hostname(node.get("workerId", ""))
-                )
-                existing = db.get(Worker, hostname)
-                if (
-                    existing is None
-                    or existing.tc_latest_task_id != task_id
-                    or (existing.tc_latest_task_state or "").lower() not in _TERMINAL_TASK_STATES
-                ):
-                    stale_tasks[task_id] = run.get("runId")
+        for hostname, (_prov, _wt, node) in best_nodes.items():
+            run = (node.get("latestTask") or {}).get("run") or {}
+            task_id = run.get("taskId")
+            if not task_id:
+                continue
+            existing = db.get(Worker, hostname)
+            if (
+                existing is None
+                or existing.tc_latest_task_id != task_id
+                or (existing.tc_latest_task_state or "").lower() not in _TERMINAL_TASK_STATES
+            ):
+                stale_tasks[task_id] = run.get("runId")
         task_statuses = _fetch_task_statuses(stale_tasks)
 
-        # Phase 3 — apply to the DB.
-        for provisioner_id, worker_type, workers in fetched:
+        # Phase 4 — apply to the DB.
+        for provisioner_id, worker_type, node in best_nodes.values():
             is_scriptworker = provisioner_id == SCRIPTWORKER_PROVISIONER
 
-            for node in workers:
-                worker_id = node.get("workerId", "")
-                # Scriptworker workerIds are logical instance names, not hostnames,
-                # so key on the workerId directly instead of synthesising an FQDN.
-                hostname = worker_id if is_scriptworker else _worker_hostname(worker_id)
-                already_seen_this_cycle = hostname in seen_hostnames
-                seen_hostnames.add(hostname)
+            worker_id = node.get("workerId", "")
+            hostname = worker_id if is_scriptworker else _worker_hostname(worker_id)
+            seen_hostnames.add(hostname)
 
-                worker = session_workers.get(hostname) or db.get(Worker, hostname)
-                if worker is None:
-                    worker = Worker(hostname=hostname, worker_id=worker_id)
-                    db.add(worker)
-                session_workers[hostname] = worker
+            worker = session_workers.get(hostname) or db.get(Worker, hostname)
+            if worker is None:
+                worker = Worker(hostname=hostname, worker_id=worker_id)
+                db.add(worker)
+            session_workers[hostname] = worker
 
-                last_active = _parse_dt(node.get("lastDateActive"))
+            last_active = _parse_dt(node.get("lastDateActive"))
 
-                # A host that has moved pools keeps a record in its old pool, normally
-                # parked with a far-future quarantineUntil and a frozen lastDateActive.
-                # TC returns both, so whichever pool we happen to iterate last would win
-                # and a migrated host reports as quarantined and missing_from_tc. Keep
-                # whichever record was active most recently instead of the last one seen.
-                if already_seen_this_cycle and (
-                    last_active is None
-                    or (worker.tc_last_active is not None and last_active < worker.tc_last_active)
-                ):
-                    continue
-
-                quarantine_until = _parse_dt(node.get("quarantineUntil"))
-                worker.tc_worker_id = worker_id
-                worker.tc_worker_group = node.get("workerGroup")
-                # tc_state (worker-manager state) is not served by the queue REST API;
-                # leave the last known value rather than nulling the column fleet-wide.
-                worker.tc_last_active = last_active
-                worker.tc_quarantined = quarantine_until is not None and quarantine_until > datetime.utcnow()
-                worker.tc_quarantine_until = quarantine_until
-                worker.tc_first_claim = _parse_dt(node.get("firstClaim"))
-                worker.tc_worker_pool_id = node.get("workerPoolId")
-
-                # Backfill worker_pool from TC if Puppet hasn't set it yet.
-                # workerPoolId is "releng-hardware/gecko-t-osx-1500-m4" → "gecko-t-osx-1500-m4"
-                if not worker.worker_pool and worker.tc_worker_pool_id:
-                    worker.worker_pool = worker.tc_worker_pool_id.split("/")[-1]
-
-                latest_task_node = node.get("latestTask") or {}
-                latest_task = latest_task_node.get("run") or {}
-                new_task_id = latest_task.get("taskId")
-                resolved = task_statuses.get(new_task_id or "") or {}
-
-                prev_task_id = worker.tc_latest_task_id
-                # Only overwrite the stored state when this sync actually resolved one;
-                # a failed or skipped lookup must not silently mark a busy worker idle,
-                # which is what the reprovision interlock reads (api/reprovision.py).
-                if resolved.get("state"):
-                    worker.tc_latest_task_state = resolved["state"]
-                elif new_task_id != prev_task_id:
-                    worker.tc_latest_task_state = None
-                new_task_state_raw = worker.tc_latest_task_state or ""
-                worker.tc_latest_task_id = new_task_id
-
-                # Record a FailureEvent when we first observe a new failed/exception task.
-                new_state = new_task_state_raw.lower()
-                if new_task_id and new_task_id != prev_task_id and new_state in ("failed", "exception"):
-                    task_name: str | None = None
-                    if new_state == "failed":
-                        task_name = _fetch_task_name(new_task_id)
-                    db.add(FailureEvent(
-                        task_id=new_task_id,
-                        task_name=task_name,
-                        hostname=hostname,
-                        worker_pool=worker.worker_pool,
-                        state=new_state,
-                        reason_resolved=resolved.get("reasonResolved"),
-                        failed_at=datetime.utcnow(),
-                    ))
-
-                if not worker.platform:
-                    worker.platform = _detect_platform(worker_id, node.get("workerPoolId"))
-                if not worker.generation:
-                    worker.generation = _detect_generation(hostname, worker.worker_pool)
-
+            # lastDateActive only moves forward for a given worker, so a value older
+            # than what we already stored can only have come from a parked
+            # registration in a pool the host has left. That happens even with the
+            # winner chosen above, because a pool intermittently returns a partial
+            # listing with no error at all (observed record totals swing by ~25), so
+            # the live record can simply be missing from a cycle. Writing the parked
+            # record then is what made missing_from_tc flap on and off.
+            #
+            # Keep the last known-good TC state instead, but still evaluate alerts:
+            # a host that has genuinely dropped out of its live pool must not be
+            # silenced, and tc_last_active still holds its real last activity, so the
+            # threshold fires on schedule.
+            if last_active is None or (
+                worker.tc_last_active is not None and last_active < worker.tc_last_active
+            ):
                 worker.last_synced_tc = datetime.utcnow()
                 _generate_alerts(db, hostname, worker)
                 total += 1
+                continue
+
+            quarantine_until = _parse_dt(node.get("quarantineUntil"))
+            worker.tc_worker_id = worker_id
+            worker.tc_worker_group = node.get("workerGroup")
+            # tc_state (worker-manager state) is not served by the queue REST API;
+            # leave the last known value rather than nulling the column fleet-wide.
+            worker.tc_last_active = last_active
+            worker.tc_quarantined = quarantine_until is not None and quarantine_until > datetime.utcnow()
+            worker.tc_quarantine_until = quarantine_until
+            worker.tc_first_claim = _parse_dt(node.get("firstClaim"))
+            worker.tc_worker_pool_id = node.get("workerPoolId")
+
+            # Backfill worker_pool from TC if Puppet hasn't set it yet.
+            # workerPoolId is "releng-hardware/gecko-t-osx-1500-m4" → "gecko-t-osx-1500-m4"
+            if not worker.worker_pool and worker.tc_worker_pool_id:
+                worker.worker_pool = worker.tc_worker_pool_id.split("/")[-1]
+
+            latest_task_node = node.get("latestTask") or {}
+            latest_task = latest_task_node.get("run") or {}
+            new_task_id = latest_task.get("taskId")
+            resolved = task_statuses.get(new_task_id or "") or {}
+
+            prev_task_id = worker.tc_latest_task_id
+            # Only overwrite the stored state when this sync actually resolved one;
+            # a failed or skipped lookup must not silently mark a busy worker idle,
+            # which is what the reprovision interlock reads (api/reprovision.py).
+            if resolved.get("state"):
+                worker.tc_latest_task_state = resolved["state"]
+            elif new_task_id != prev_task_id:
+                worker.tc_latest_task_state = None
+            new_task_state_raw = worker.tc_latest_task_state or ""
+            worker.tc_latest_task_id = new_task_id
+
+            # Record a FailureEvent when we first observe a new failed/exception task.
+            new_state = new_task_state_raw.lower()
+            if new_task_id and new_task_id != prev_task_id and new_state in ("failed", "exception"):
+                task_name: str | None = None
+                if new_state == "failed":
+                    task_name = _fetch_task_name(new_task_id)
+                db.add(FailureEvent(
+                    task_id=new_task_id,
+                    task_name=task_name,
+                    hostname=hostname,
+                    worker_pool=worker.worker_pool,
+                    state=new_state,
+                    reason_resolved=resolved.get("reasonResolved"),
+                    failed_at=datetime.utcnow(),
+                ))
+
+            if not worker.platform:
+                worker.platform = _detect_platform(worker_id, node.get("workerPoolId"))
+            if not worker.generation:
+                worker.generation = _detect_generation(hostname, worker.worker_pool)
+
+            worker.last_synced_tc = datetime.utcnow()
+            _generate_alerts(db, hostname, worker)
+            total += 1
 
         # Second pass: flag known production workers absent from TC entirely.
         #
