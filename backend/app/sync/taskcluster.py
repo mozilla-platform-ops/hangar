@@ -79,8 +79,10 @@ HW_WORKER_POOLS: list[tuple[str, str]] = [
     # Linux hardware
     ("releng-hardware", "gecko-t-linux-talos-1804"),
     ("releng-hardware", "gecko-t-linux-talos-2404"),
+    ("releng-hardware", "gecko-t-linux-talos-2404-relops"),
     ("releng-hardware", "gecko-t-linux-netperf-1804"),
     ("releng-hardware", "gecko-t-linux-netperf-2404"),
+    ("releng-hardware", "gecko-t-linux-netperf-2404-relops"),
     # Windows hardware
     ("releng-hardware", "win11-64-24h2-hw"),
     ("releng-hardware", "win11-64-24h2-hw-alpha"),
