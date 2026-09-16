@@ -110,11 +110,6 @@ router = APIRouter(prefix="/fleet", tags=["fleet"])
 
 DEFAULT_BRANCH = "master"
 
-# Pools that no longer exist in Taskcluster but still linger in MDM/sheet
-# metadata on a stray worker or two (e.g. a mini whose pool label wasn't
-# cleared when the pool was retired). Hidden from all pool views.
-DECOMMISSIONED_POOLS = {"gecko-1-b-osx-arm64-vms-host"}
-
 
 def _is_branch_override(branch: str | None) -> bool:
     """Return True only if the branch is set and differs from the default."""
@@ -157,7 +152,11 @@ def fleet_summary(db: Session = Depends(get_db)) -> dict[str, Any]:
         state = w.effective_state
         by_state[state] = by_state.get(state, 0) + 1
 
-        pool = w.worker_pool or "unknown"
+        # A stale label is not membership, so it must not inflate a real pool; these
+        # hosts are still in the fleet, so they land in "unknown" and by_pool keeps
+        # summing to the fleet total (the Overview platform donut reads this).
+        pool = w.worker_pool if w.counts_toward_pool else None
+        pool = pool or "unknown"
         by_pool[pool] = by_pool.get(pool, 0) + 1
 
         os = w.os_version or "unknown"
@@ -174,9 +173,8 @@ def fleet_summary(db: Session = Depends(get_db)) -> dict[str, Any]:
         if _is_branch_override(w.branch):
             branch_total += 1
             branch_by_branch[w.branch] = branch_by_branch.get(w.branch, 0) + 1  # type: ignore[index]
-            # A retired pool label shouldn't surface as a pool name here.
-            pool_key = "unknown" if pool in DECOMMISSIONED_POOLS else pool
-            branch_by_pool[pool_key] = branch_by_pool.get(pool_key, 0) + 1
+            # `pool` is already "unknown" for a retired or otherwise stale label.
+            branch_by_pool[pool] = branch_by_pool.get(pool, 0) + 1
 
     # Read alert counts directly from the alerts table — single source of truth. Acknowledged
     # alerts are excluded: an acked alert is a known / not-a-real-problem (e.g. an inventoried
@@ -257,12 +255,10 @@ def pool_health(db: Session = Depends(get_db)) -> dict[str, Any]:
     pools: dict[str, dict] = {}
 
     for w in workers:
-        if w.in_excluded_mdm_group:
-            continue  # defective/spare/loaner host; its stale worker_pool label
-            # is not real membership, so it counts toward no pool
+        if not w.counts_toward_pool:
+            continue  # defective/spare/loaner host, or a retired pool lingering on
+            # a stray worker's metadata; either way the label is not real membership
         pool = w.worker_pool or "unknown"
-        if pool in DECOMMISSIONED_POOLS:
-            continue  # retired pool lingering on a stray worker's metadata
         if pool not in pools:
             pools[pool] = {
                 "name": pool,
@@ -574,7 +570,10 @@ def fleet_showcase(db: Session = Depends(get_db)) -> dict[str, Any]:
     # ── Per-pool current state ──
     pools: dict[str, dict] = {}
     for w in db.query(Worker).all():
-        pool = w.worker_pool or "unknown"
+        # "unknown" rather than skipped: scale.workers below must stay the true
+        # fleet size, but a stale label must not reach a real pool's axis rollup.
+        pool = w.worker_pool if w.counts_toward_pool else None
+        pool = pool or "unknown"
         p = pools.setdefault(pool, {"pool": pool, "workers": 0, "production": 0,
                                     "active_24h": 0, "running": 0, "quarantined": 0})
         p["workers"] += 1
@@ -1243,6 +1242,9 @@ def consolidation_analysis(db: Session = Depends(get_db)) -> dict[str, Any]:
         for w in workers:
             s = w.effective_state
             by_state[s] = by_state.get(s, 0) + 1
+            # Deliberately NOT gated on counts_toward_pool: this is the r8 retirement
+            # analysis, whose whole point is to surface defective/spare hosts under
+            # the pool they were pulled from.
             p = w.worker_pool or "unknown"
             by_pool[p] = by_pool.get(p, 0) + 1
             if w.tc_last_active and w.tc_last_active < stale_threshold:

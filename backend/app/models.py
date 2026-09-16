@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, LargeBinary, String, Text
+from sqlalchemy import Boolean, DateTime, Integer, LargeBinary, String, Text, or_
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .database import Base
@@ -16,6 +16,26 @@ from .database import Base
 # groups count toward no worker pool. Names must match SimpleMDM exactly. Edit
 # this set to add/remove excluded groups.
 EXCLUDED_MDM_GROUPS = {"Defective / Spares", "Loaner", "Loaner - No Profiles"}
+
+# Pools that no longer exist in Taskcluster but still linger in MDM/sheet metadata
+# on a stray worker or two (e.g. a mini whose pool label wasn't cleared when the
+# pool was retired). Hidden from all pool views.
+DECOMMISSIONED_POOLS = {"gecko-1-b-osx-arm64-vms-host"}
+
+
+def exclude_non_pool_members(query):
+    """Drop hosts whose worker_pool label is not real membership, in SQL.
+
+    The query-side counterpart of :attr:`Worker.counts_toward_pool` -- same rule,
+    for callers that must filter rather than iterate. Only the MDM-group half is
+    expressed here; a caller filtering on an explicit pool name has already named
+    the pool, so DECOMMISSIONED_POOLS cannot apply.
+    """
+    for group in EXCLUDED_MDM_GROUPS:
+        query = query.filter(
+            or_(Worker.mdm_groups.is_(None), ~Worker.mdm_groups.contains(f'"{group}"'))
+        )
+    return query
 
 
 class Worker(Base):
@@ -92,6 +112,23 @@ class Worker(Base):
         """True if this host is in a non-production SimpleMDM group (e.g.
         Defective/Spares, Loaners) and so belongs to no worker pool."""
         return any(g in EXCLUDED_MDM_GROUPS for g in self.mdm_group_names)
+
+    @property
+    def counts_toward_pool(self) -> bool:
+        """False when this host's ``worker_pool`` label is not real membership.
+
+        ``worker_pool`` is sticky by design: sync/puppet.py clears only
+        ``puppet_role`` when a host leaves inventory.d, and the TC/MDM/sheets syncs
+        only ever *backfill* the label, so a host pulled from a pool keeps that
+        pool's name forever. The macmini-m2 builders dropped from
+        gecko-3-b-osx-arm64 in 2025 are still labelled with it today.
+
+        Every count that claims pool membership must go through this (or
+        :func:`exclude_non_pool_members`), or it reports phantom workers. A host
+        with no label at all still returns True -- callers bucket those as
+        "unknown" rather than dropping them, so fleet-wide totals stay whole.
+        """
+        return not self.in_excluded_mdm_group and (self.worker_pool or "") not in DECOMMISSIONED_POOLS
 
     # Sync bookkeeping
     last_synced_puppet: Mapped[datetime | None] = mapped_column(DateTime)

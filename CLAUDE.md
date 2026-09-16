@@ -122,6 +122,27 @@ CI's `image (docker build)` job installs this set on every PR, so a bad regenera
 
 > Dependabot's `pip` ecosystem may propose edits directly to the generated `requirements.txt`. If one lands that strips or mismatches hashes, the `image` job catches it — treat such a PR as "bump `requirements.in` and regenerate" instead of merging as-is.
 
+## Backend tests
+
+`backend/tests/` (pytest), run by CI's `backend (pytest)` job. Dependencies are
+`backend/requirements-dev.in` → `requirements-dev.txt`, which pulls in the **pinned**
+`requirements.txt` verbatim so tests run against prod's exact versions, then adds pytest.
+Regenerate the same way as the runtime set:
+
+```bash
+uv pip compile requirements-dev.in -o requirements-dev.txt --generate-hashes \
+  --python-version 3.11 --python-platform x86_64-unknown-linux-gnu
+```
+
+Run them from `backend/` (`pytest.ini` puts it on `sys.path`, so tests import `app.*`):
+
+```bash
+uv venv .venv && uv pip install --require-hashes -r requirements-dev.txt && pytest -q
+```
+
+Keep them dependency-light — pure functions and in-memory SQLite, no Postgres and no
+network — so the gate stays fast and can't fail for environmental reasons.
+
 ## Sync system
 
 Background threads run on configurable intervals (env vars `SYNC_INTERVAL_*`); `scheduler.py` coordinates them and individual sync modules pull from external APIs and upsert into Postgres. Manual trigger: `POST /api/sync/run`. Cloud Run runs `min-instances=1` so the scheduler stays alive for continuous syncs.
@@ -137,6 +158,21 @@ The pools monitored live in `backend/app/sync/taskcluster.py`: `HW_WORKER_POOLS`
 The list is **hardcoded**, so a pool that exists in TC but is missing here is invisible to the sync. Cross-check against `/api/queue/v1/provisioners/releng-hardware/worker-types`; listing a pool that does not exist is harmless (TC returns an empty worker list).
 
 Two things to know when a host moves pools: TC leaves its old registration behind, parked with a far-future `quarantineUntil` and a frozen `lastDateActive`, so the host is returned by **both** pools; and a pool can return a **partial listing with no error at all** (observed record totals swing by ~25 per cycle). The sync therefore picks one winning record per host up front (`_record_rank`) and never regresses `tc_last_active` to an older value, because writing the parked record makes a busy worker flap `missing_from_tc` on and off.
+
+### `worker_pool` is sticky — a label is not membership
+
+`sync/puppet.py` clears only `puppet_role` when a host leaves `inventory.d`; the TC, MDM and
+sheets syncs only ever *backfill* `worker_pool`. So a host pulled from a pool keeps that
+pool's name **forever** (the `macmini-m2` builders dropped from `gecko-3-b-osx-arm64` in 2025
+still carry it). Any count that claims pool membership must go through
+`Worker.counts_toward_pool` — or `models.exclude_non_pool_members()` for a query — which
+drops hosts in a non-production SimpleMDM group (`EXCLUDED_MDM_GROUPS`) and retired pools
+(`DECOMMISSIONED_POOLS`). Skipping it reports phantom workers: the pinned-pool card read 9
+for `gecko-3-b-osx-arm64` against a real 6. Pinned by `tests/test_pool_membership.py`.
+
+Hosts with no label at all stay counted, bucketed as `"unknown"`, so fleet-wide totals still
+sum to the fleet size. The one deliberate exception is `consolidation_analysis`, whose job is
+to surface defective/spare hosts under the pool they were pulled from.
 
 ## Reprovision action
 

@@ -1,0 +1,18 @@
+# Test-only dependencies -- NOT installed into the production image.
+#
+# Includes the fully-pinned requirements.txt (not requirements.in) so the test
+# environment gets byte-identical runtime pins -- a fresh resolve would drift to
+# newer versions and CI would stop testing what prod runs. Regenerate this file
+# whenever requirements.txt changes.
+#
+# requirements-dev.txt is GENERATED from this file. Regenerate from backend/ with
+#
+#   uv pip compile requirements-dev.in -o requirements-dev.txt --generate-hashes \
+#     --python-version 3.11 --python-platform x86_64-unknown-linux-gnu
+#
+# Same flags as requirements.txt: CI runs linux/amd64 on python 3.11, so a macOS
+# checkout must not resolve its own platform's wheels.
+
+-r requirements.txt
+
+pytest>=8.4

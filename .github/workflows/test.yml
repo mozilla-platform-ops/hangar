@@ -46,13 +46,39 @@ jobs:
       - uses: actions/checkout@v7
       # Builds the real multi-stage artifact Cloud Build deploys: node builds the
       # SPA, then python installs backend/requirements.txt. Catches broken
-      # backend dependency bumps, which nothing else here would -- there are no
-      # backend tests yet. requirements.txt is fully pinned and installed with
+      # backend dependency bumps in the runtime pin set specifically (the backend
+      # job installs requirements-dev.txt). requirements.txt is fully pinned and installed with
       # --require-hashes, so this also fails on a hand-edited or hash-mismatched
       # entry (see the Dependabot note in CLAUDE.md). Does not push; this only
       # proves the image assembles.
       - name: docker build
         run: docker build --file=backend/Dockerfile --tag=hangar-ci:${{ github.sha }} .
+
+  backend:
+    name: backend (pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      # Match the python the runtime image uses (backend/Dockerfile) so a test
+      # can't pass on a version prod doesn't run.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      # requirements-dev.txt carries the runtime pins verbatim plus pytest, and is
+      # hash-pinned like requirements.txt, so this also fails on a hand-edited entry.
+      - name: install
+        run: pip install --require-hashes -r requirements-dev.txt
+      # The gap this closes: before this job nothing in CI executed backend/ at
+      # all, so a backend regression could only be caught in prod. The pool
+      # membership rule was missed twice for exactly that reason (see
+      # tests/test_pool_membership.py).
+      - name: pytest
+        run: pytest -q
 
   terraform:
     name: terraform (fmt + validate)
