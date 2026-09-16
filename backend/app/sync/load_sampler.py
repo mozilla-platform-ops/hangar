@@ -7,6 +7,7 @@ per hardware pool each tick so the dashboard can render its own short-horizon lo
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 
@@ -18,6 +19,30 @@ from .taskcluster import ALL_WORKER_POOLS
 log = logging.getLogger(__name__)
 
 RETENTION_DAYS = 14
+
+
+def pool_worker_counts(workers: Iterable[Worker]) -> tuple[dict[str, int], dict[str, int]]:
+    """Per-pool (capacity, running) from a worker inventory.
+
+    Split out of run_sync so the membership rule these numbers depend on is
+    testable without a database or a Taskcluster round-trip.
+    """
+    capacity: dict[str, int] = {}
+    running: dict[str, int] = {}
+    for w in workers:
+        pool = w.worker_pool
+        if not pool:
+            continue
+        # A stale worker_pool label is not membership -- see Worker.counts_toward_pool.
+        # Without this the pinned-pool card's running/capacity counts phantom workers
+        # (gecko-3-b-osx-arm64 read 9 against a real 6), disagreeing with /fleet/pools
+        # and the pool-filtered worker table, which both apply this rule.
+        if not w.counts_toward_pool:
+            continue
+        capacity[pool] = capacity.get(pool, 0) + 1
+        if (w.tc_latest_task_state or "").upper() == "RUNNING":
+            running[pool] = running.get(pool, 0) + 1
+    return capacity, running
 
 
 def run_sync(db: Session) -> int:
@@ -34,15 +59,7 @@ def run_sync(db: Session) -> int:
             pending[worker_type] = count
 
     # Running + capacity per pool from the current worker inventory.
-    running: dict[str, int] = {}
-    capacity: dict[str, int] = {}
-    for w in db.query(Worker).all():
-        pool = w.worker_pool
-        if not pool:
-            continue
-        capacity[pool] = capacity.get(pool, 0) + 1
-        if (w.tc_latest_task_state or "").upper() == "RUNNING":
-            running[pool] = running.get(pool, 0) + 1
+    capacity, running = pool_worker_counts(db.query(Worker).all())
 
     ts = datetime.utcnow()
     worker_types = [wt for _, wt in ALL_WORKER_POOLS]
