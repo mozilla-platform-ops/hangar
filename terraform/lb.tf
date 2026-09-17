@@ -46,11 +46,74 @@ resource "google_compute_security_policy" "hangar" {
   # VPN/NAT means many operators can share one egress address and therefore one
   # budget — the reason this gets worse, not better, as the audience grows.
   #
-  # NOTE: Cloud Armor enforces the FIRST matching rule and stops. These rules
-  # match every request, so the OWASP rules at priority 2000+ below are currently
-  # unreachable (verified in LB logs: every request reports enforcedSecurityPolicy
-  # priority 1000). Fixing that means moving them above these — do it as its own
-  # change, with preview = true first to measure false positives.
+  # NOTE: Cloud Armor enforces the FIRST matching rule and stops, and these two
+  # rules between them match every request. That is why the WAF rules now sit
+  # ABOVE them (700-702) rather than below — at 2000+ they were unreachable and
+  # had never evaluated a single request since the policy was created.
+  # ── OWASP preconfigured WAF (PREVIEW — logging only, not yet enforcing) ───────
+  #
+  # These were created at priority 2000-2002, below the rate-limit rules. Cloud
+  # Armor stops at the first matching rule and the throttle rules match every
+  # request, so these three never evaluated anything: LB logs showed every single
+  # request, including a scanner walking /cgi-bin and /docSQL, reporting
+  # enforcedSecurityPolicy priority 1000. They were dead config, not protection.
+  #
+  # Moving them above the throttles is what makes them run. They are deliberately
+  # `preview = true` for now: a preview rule LOGS its match and evaluation
+  # continues to the next rule, so the 429 ceilings below still apply and nothing
+  # is denied. That is the point — preconfigured CRS rules false-positive on
+  # ordinary traffic, and this dashboard has never had them in the request path,
+  # so their real hit rate here is unknown rather than assumed to be zero.
+  #
+  # To measure what they WOULD have blocked (previewSecurityPolicy is only
+  # populated by preview rules):
+  #
+  #   gcloud logging read \
+  #     'resource.type="http_load_balancer" AND jsonPayload.previewSecurityPolicy.outcome="DENY"' \
+  #     --project=relops-dashboard --freshness=7d --limit=200 \
+  #     --format="value(httpRequest.remoteIp,httpRequest.requestUrl,jsonPayload.previewSecurityPolicy.priority)"
+  #
+  # Graduating to enforcement: run for at least a week of normal use, confirm
+  # every DENY is a scanner and not an operator, then drop `preview = true` one
+  # rule at a time — sqli last, it is the most false-positive-prone. If a rule
+  # matches legitimate traffic, tune sensitivity or add a rule exclusion rather
+  # than deleting it outright.
+  rule {
+    action   = "deny(403)"
+    priority = 700
+    preview  = true
+    match {
+      expr {
+        expression = "evaluatePreconfiguredExpr('xss-v33-stable')"
+      }
+    }
+    description = "Block XSS (preview)"
+  }
+
+  rule {
+    action   = "deny(403)"
+    priority = 701
+    preview  = true
+    match {
+      expr {
+        expression = "evaluatePreconfiguredExpr('sqli-v33-stable')"
+      }
+    }
+    description = "Block SQL injection (preview)"
+  }
+
+  rule {
+    action   = "deny(403)"
+    priority = 702
+    preview  = true
+    match {
+      expr {
+        expression = "evaluatePreconfiguredExpr('rfi-v33-stable')"
+      }
+    }
+    description = "Block remote file inclusion (preview)"
+  }
+
   rule {
     action   = "throttle"
     priority = 900
@@ -93,40 +156,6 @@ resource "google_compute_security_policy" "hangar" {
       enforce_on_key = "IP"
     }
     description = "Rate limit the app shell per IP (generous; scanner backstop)"
-  }
-
-  # OWASP Top 10 pre-configured rules
-  rule {
-    action   = "deny(403)"
-    priority = 2000
-    match {
-      expr {
-        expression = "evaluatePreconfiguredExpr('xss-v33-stable')"
-      }
-    }
-    description = "Block XSS"
-  }
-
-  rule {
-    action   = "deny(403)"
-    priority = 2001
-    match {
-      expr {
-        expression = "evaluatePreconfiguredExpr('sqli-v33-stable')"
-      }
-    }
-    description = "Block SQL injection"
-  }
-
-  rule {
-    action   = "deny(403)"
-    priority = 2002
-    match {
-      expr {
-        expression = "evaluatePreconfiguredExpr('rfi-v33-stable')"
-      }
-    }
-    description = "Block remote file inclusion"
   }
 
   # Default: allow
