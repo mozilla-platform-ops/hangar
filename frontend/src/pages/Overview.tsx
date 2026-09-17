@@ -172,9 +172,11 @@ function MonitoredPools({ load }: { load: LoadHistory | null }) {
   // fetch them only when the pinned set changes rather than on every poll.
   const monitoredKey = monitored.join(",");
   useEffect(() => {
-    for (const name of monitoredKey.split(",").filter(Boolean)) {
-      api.fleet.poolSources(name).then(s => setSources(prev => ({ ...prev, [name]: s }))).catch(() => {});
-    }
+    const names = monitoredKey.split(",").filter(Boolean);
+    if (!names.length) return;
+    api.fleet.poolSourcesBatch(names)
+      .then(d => setSources(prev => ({ ...prev, ...d.sources })))
+      .catch(() => {});
   }, [monitoredKey]);
 
   const byName = new Map((load?.pools ?? []).map(p => [p.pool, p] as const));

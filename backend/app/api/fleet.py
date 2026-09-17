@@ -1,6 +1,7 @@
 """Fleet summary and consolidation endpoints."""
 from __future__ import annotations
 
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from typing import Any
@@ -15,6 +16,8 @@ from ..config import settings
 from ..database import SessionLocal, get_db
 from ..models import Alert, FailureEvent, PoolLoadSample, SyncLog, Worker
 from ..sync.taskcluster import ALL_WORKER_POOLS, HW_WORKER_POOLS
+
+log = logging.getLogger(__name__)
 
 # Job-source sampling is served through the SWR cache so page loads never block on
 # live Taskcluster fan-out; a task's project/user is immutable, so it's cached too.
@@ -763,9 +766,11 @@ def android_pools() -> dict[str, Any]:
 _ANDROID_PROVISIONER: dict[str, str] = {wt: prov for prov, wt in ANDROID_WORKER_POOLS}
 
 
-@router.get("/android-pool-sources")
-def android_pool_sources(pool: str) -> dict[str, Any]:
-    """Sample running tasks for an Android pool via the TC workers endpoint (no DB)."""
+def _compute_android_pool_sources(pool: str) -> dict[str, Any]:
+    """Sample running tasks for an Android pool via the TC workers endpoint (no DB).
+
+    Runs from a background thread (SWR refresh), so it must not touch a
+    request-scoped session — it uses none."""
     provisioner = _ANDROID_PROVISIONER.get(pool)
     if not provisioner:
         return {"pool": pool, "sample_size": 0, "by_project": {}, "by_user": {}}
@@ -826,6 +831,18 @@ def android_pool_sources(pool: str) -> dict[str, Any]:
         "by_project": dict(sorted(by_project.items(), key=lambda x: x[1], reverse=True)),
         "by_user": dict(sorted(by_user.items(), key=lambda x: x[1], reverse=True)[:10]),
     }
+
+
+@router.get("/android-pool-sources")
+def android_pool_sources(pool: str) -> dict[str, Any]:
+    """Job-source breakdown for one Android pool.
+
+    Cached: the uncached version made one live Taskcluster call per pool per page
+    load (limit=1000 workers, then one task fetch per running task)."""
+    return cache.swr(
+        f"android-pool-sources:{pool}", _POOL_SOURCES_TTL,
+        lambda: _compute_android_pool_sources(pool),
+    )
 
 
 # ── Android per-device health (creds-free) ───────────────────────────────────
@@ -1078,6 +1095,59 @@ def pool_sources(pool: str) -> dict[str, Any]:
     """Job-source breakdown for a pool, served stale-while-revalidate so the card
     fills instantly instead of waiting on live Taskcluster sampling."""
     return cache.swr(f"pool-sources:{pool}", _POOL_SOURCES_TTL, lambda: _compute_pool_sources(pool))
+
+
+# One request per pool was half the dashboard's entire Cloud Armor budget: a single
+# Pools page load fired 35 /pool-sources + 14 /android-pool-sources, and the limit is
+# per-IP for the whole origin. Both are individually cached, so the cost was purely
+# request COUNT — which is exactly what the rate limiter charges for. These batch
+# variants collapse each loop into one request with identical payloads.
+_MAX_BATCH_POOLS = 120
+
+
+def _parse_pools(pools: str) -> list[str]:
+    """Comma-separated pool names → de-duplicated, order-preserving, bounded list."""
+    seen: dict[str, None] = {}
+    for raw in pools.split(","):
+        name = raw.strip()
+        if name:
+            seen.setdefault(name)
+    return list(seen)[:_MAX_BATCH_POOLS]
+
+
+def _sources_batch(pools: str, key_prefix: str, compute: Any) -> dict[str, Any]:
+    names = _parse_pools(pools)
+    if not names:
+        return {"sources": {}}
+    # Bounded parallelism: a warm batch is pure cache reads, but a cold one would
+    # otherwise sample Taskcluster serially. The per-pool compute functions each
+    # open their own DB session (or none), so they are safe off-thread.
+    out: dict[str, Any] = {}
+    with ThreadPoolExecutor(max_workers=min(8, len(names))) as ex:
+        futures = {
+            ex.submit(cache.swr, f"{key_prefix}:{n}", _POOL_SOURCES_TTL, lambda n=n: compute(n)): n
+            for n in names
+        }
+        for fut in as_completed(futures):
+            name = futures[fut]
+            try:
+                out[name] = fut.result()
+            except Exception:
+                # One bad pool must not fail the batch; the card just stays empty.
+                log.warning("pool-sources batch: %s failed for %s", key_prefix, name, exc_info=True)
+    return {"sources": out}
+
+
+@router.get("/pool-sources-batch")
+def pool_sources_batch(pools: str) -> dict[str, Any]:
+    """Job-source breakdown for many pools in one request. `pools` is comma-separated."""
+    return _sources_batch(pools, "pool-sources", _compute_pool_sources)
+
+
+@router.get("/android-pool-sources-batch")
+def android_pool_sources_batch(pools: str) -> dict[str, Any]:
+    """Android job-source breakdown for many pools in one request."""
+    return _sources_batch(pools, "android-pool-sources", _compute_android_pool_sources)
 
 
 def warm_pool_sources() -> int:
