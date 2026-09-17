@@ -979,22 +979,21 @@ export function Pools() {
   }, 300_000);
 
   useEffect(() => {
-    for (const poolName of pinnedPools) {
-      api.fleet.poolSources(poolName)
-        .then(s => setSources(prev => ({ ...prev, [poolName]: s })))
-        .catch(() => {});
-    }
+    if (!pinnedPools.length) return;
+    api.fleet.poolSourcesBatch(pinnedPools)
+      .then(d => setSources(prev => ({ ...prev, ...d.sources })))
+      .catch(() => {});
   }, [pinnedPools]);
 
   // Keyed on the name set (not array identity) so polling refreshes above don't
   // re-trigger the expensive per-pool task sampling.
   const linuxWindowsNames = pools.filter(p => isLinuxPool(p.name) || isWindowsPool(p.name)).map(p => p.name).sort().join(",");
   useEffect(() => {
-    for (const poolName of linuxWindowsNames.split(",").filter(Boolean)) {
-      api.fleet.poolSources(poolName)
-        .then(s => setSources(prev => ({ ...prev, [poolName]: s })))
-        .catch(() => {});
-    }
+    const names = linuxWindowsNames.split(",").filter(Boolean);
+    if (!names.length) return;
+    api.fleet.poolSourcesBatch(names)
+      .then(d => setSources(prev => ({ ...prev, ...d.sources })))
+      .catch(() => {});
   }, [linuxWindowsNames]);
 
   // Per-device Android health is a heavier server-side fan-out to the public TC queue,
@@ -1010,11 +1009,11 @@ export function Pools() {
 
   const androidNames = androidPoolData.map(p => p.name).sort().join(",");
   useEffect(() => {
-    for (const poolName of androidNames.split(",").filter(Boolean)) {
-      api.fleet.androidPoolSources(poolName)
-        .then(s => setSources(prev => ({ ...prev, [poolName]: s })))
-        .catch(() => {});
-    }
+    const names = androidNames.split(",").filter(Boolean);
+    if (!names.length) return;
+    api.fleet.androidPoolSourcesBatch(names)
+      .then(d => setSources(prev => ({ ...prev, ...d.sources })))
+      .catch(() => {});
   }, [androidNames]);
 
   if (error) return <div className="p-8 text-red-400 text-sm">{error}</div>;

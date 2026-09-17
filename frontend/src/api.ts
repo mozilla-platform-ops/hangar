@@ -2,6 +2,39 @@
 
 const BASE = "/api";
 
+/**
+ * GET requests in flight, keyed by full URL. Several components mount together and
+ * ask for the same endpoint on one page load (Layout + Overview both want
+ * /fleet/summary; Workers + CommandPalette both want /fleet/pools). Cloud Armor
+ * rate-limits per source IP across the whole origin, and corp NAT means a shared
+ * budget, so a duplicate request is never free. Identical concurrent GETs share
+ * one response; nothing is cached past settlement, so this changes no semantics.
+ */
+const inflight = new Map<string, Promise<unknown>>();
+
+/** Retry once per step on the statuses that mean "try again", not "you're wrong". */
+const RETRY_STATUSES = new Set([429, 502, 503, 504]);
+const RETRY_BACKOFF_MS = [400, 1200];
+
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+async function getOnce<T>(url: string): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url);
+    if (res.ok) return res.json() as Promise<T>;
+    if (!RETRY_STATUSES.has(res.status) || attempt >= RETRY_BACKOFF_MS.length) {
+      throw new Error(`${res.status} ${res.statusText} — ${new URL(url).pathname}`);
+    }
+    // Honour Retry-After when the server sends one (seconds or HTTP-date).
+    const hdr = res.headers.get("Retry-After");
+    const hinted = hdr ? (/^\d+$/.test(hdr) ? Number(hdr) * 1000 : Date.parse(hdr) - Date.now()) : NaN;
+    const wait = Number.isFinite(hinted) && hinted > 0
+      ? Math.min(hinted, 5_000)
+      : RETRY_BACKOFF_MS[attempt] * (0.5 + Math.random()); // jitter: don't resynchronise a burst
+    await sleep(wait);
+  }
+}
+
 async function get<T>(path: string, params?: Record<string, string | number | boolean | undefined>): Promise<T> {
   const url = new URL(path, window.location.origin);
   url.pathname = BASE + path;
@@ -10,9 +43,13 @@ async function get<T>(path: string, params?: Record<string, string | number | bo
       if (v !== undefined) url.searchParams.set(k, String(v));
     });
   }
-  const res = await fetch(url.toString());
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText} — ${url.pathname}`);
-  return res.json();
+  const key = url.toString();
+  const existing = inflight.get(key);
+  if (existing) return existing as Promise<T>;
+
+  const p = getOnce<T>(key).finally(() => inflight.delete(key));
+  inflight.set(key, p);
+  return p;
 }
 
 async function post<T>(path: string, body?: unknown): Promise<T> {
@@ -171,6 +208,11 @@ export interface PoolSources {
   sample_size: number;
   by_project: Record<string, number>;
   by_user: Record<string, number>;
+}
+
+/** Many pools' job-source breakdowns in one response, keyed by pool name. */
+export interface PoolSourcesBatch {
+  sources: Record<string, PoolSources>;
 }
 
 export interface CloudPool {
@@ -649,12 +691,16 @@ export const api = {
     pools: () => get<PoolsResponse>("/fleet/pools"),
     pendingCounts: () => get<PendingCountsResponse>("/fleet/pending-counts"),
     poolSources: (pool: string) => get<PoolSources>("/fleet/pool-sources", { pool }),
+    poolSourcesBatch: (pools: string[]) =>
+      get<PoolSourcesBatch>("/fleet/pool-sources-batch", { pools: pools.join(",") }),
     failures: (days = 7, platform?: string) => get<FailureInsights>("/fleet/failures", { days, platform }),
     loadHistory: (hours = 48, includeSeries = false) =>
       get<LoadHistory>("/fleet/load-history", { hours, include_series: includeSeries || undefined }),
     cloudPools: () => get<CloudPoolsResponse>("/fleet/cloud-pools"),
     androidPools: () => get<CloudPoolsResponse>("/fleet/android-pools"),
     androidPoolSources: (pool: string) => get<PoolSources>("/fleet/android-pool-sources", { pool }),
+    androidPoolSourcesBatch: (pools: string[]) =>
+      get<PoolSourcesBatch>("/fleet/android-pool-sources-batch", { pools: pools.join(",") }),
     androidDevices: () => get<AndroidDevicesResponse>("/fleet/android-devices"),
     showcase: () => get<ShowcaseData>("/fleet/showcase"),
   },

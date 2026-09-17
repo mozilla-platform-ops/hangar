@@ -26,7 +26,54 @@ resource "google_compute_region_network_endpoint_group" "hangar" {
 resource "google_compute_security_policy" "hangar" {
   name = "hangar-armor"
 
-  # Rate limit: 100 requests/min per IP
+  # Rate limiting. IAP already restricts this origin to @mozilla.com, so these
+  # limits are DoS hygiene, not access control — sized to never deny a human.
+  #
+  # Two rules, because the app shell and the API have very different shapes and
+  # very different failure modes:
+  #
+  #   - Denying an /api/* call degrades a card inside a loaded page, and the
+  #     client retries it (frontend/src/api.ts).
+  #   - Denying the document or a hashed asset replaces the whole dashboard with
+  #     Cloud Armor's bare "429 Too Many Requests" page. That is what an operator
+  #     actually reported, twice, on 2026-09-17 — the document was denied after a
+  #     burst of API calls had already spent the budget.
+  #
+  # Sizing: one Pools page load was measured at ~100 requests, of which 49 were
+  # two unbatched per-pool loops (now batched — see fleet.pool_sources_batch).
+  # A heavy load is ~50 requests post-fix, so 1200/min is ~24 page loads per
+  # minute per IP. That headroom matters because enforce_on_key = "IP" and corp
+  # VPN/NAT means many operators can share one egress address and therefore one
+  # budget — the reason this gets worse, not better, as the audience grows.
+  #
+  # NOTE: Cloud Armor enforces the FIRST matching rule and stops. These rules
+  # match every request, so the OWASP rules at priority 2000+ below are currently
+  # unreachable (verified in LB logs: every request reports enforcedSecurityPolicy
+  # priority 1000). Fixing that means moving them above these — do it as its own
+  # change, with preview = true first to measure false positives.
+  rule {
+    action   = "throttle"
+    priority = 900
+    match {
+      expr {
+        expression = "request.path.startsWith('/api/')"
+      }
+    }
+    rate_limit_options {
+      conform_action = "allow"
+      exceed_action  = "deny(429)"
+      rate_limit_threshold {
+        count        = 1200
+        interval_sec = 60
+      }
+      enforce_on_key = "IP"
+    }
+    description = "Rate limit API calls per IP"
+  }
+
+  # Everything else: the document, hashed assets, favicon. Cheap and cacheable, so
+  # the only client that reaches this ceiling is a scanner. Deliberately generous —
+  # a human must never be shown a bare 429 instead of the dashboard.
   rule {
     action   = "throttle"
     priority = 1000
@@ -40,12 +87,12 @@ resource "google_compute_security_policy" "hangar" {
       conform_action = "allow"
       exceed_action  = "deny(429)"
       rate_limit_threshold {
-        count        = 100
+        count        = 3000
         interval_sec = 60
       }
       enforce_on_key = "IP"
     }
-    description = "Rate limit per IP"
+    description = "Rate limit the app shell per IP (generous; scanner backstop)"
   }
 
   # OWASP Top 10 pre-configured rules
