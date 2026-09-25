@@ -6,6 +6,7 @@ import logging
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
+from .. import cache
 from ..config import settings
 from ..database import SessionLocal
 
@@ -70,6 +71,13 @@ def _run_pool_sources_warm() -> None:
         log.debug("Warmed job-source cache for %d pool(s)", n)
     except Exception:
         log.exception("Pool-sources warm failed")
+    # The Overview's "right now" card looks up every running task's project; warming it
+    # here means the first visitor after a deploy doesn't wait on that pass.
+    from ..api import right_now
+    try:
+        cache.set(right_now.CACHE_KEY, right_now.compute_right_now())
+    except Exception:
+        log.exception("Right-now warm failed")
 
 
 def run_all_sync() -> None:

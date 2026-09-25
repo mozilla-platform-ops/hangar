@@ -52,7 +52,15 @@
 .hm-cell { transition: transform 0.1s ease, box-shadow 0.1s ease; }
 .hm-cell:hover { transform: scale(1.45); box-shadow: 0 0 0 1.5px rgba(255,255,255,0.85); z-index: 5; }
 
+/* Overview "right now" panel: a machine that just picked up work flares once. */
+@keyframes dot-flip {
+  0%   { transform: scale(2.2); filter: brightness(1.8); }
+  100% { transform: scale(1);   filter: none; }
+}
+.dot-flip { animation: dot-flip 0.9s cubic-bezier(0.25, 0.6, 0.3, 1); }
+
 @media (prefers-reduced-motion: reduce) {
+  .dot-flip { animation: none; }
   .spark-svg { clip-path: none; animation: none; }
   .spark-dot { opacity: 1; animation: none; }
   .card { animation: none; }

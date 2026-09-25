@@ -683,6 +683,32 @@ export interface FailureScreenshotsResponse {
   failures: FailureScreenshotItem[];
 }
 
+// ── Fleet right now (Overview) ─────────────────────────────────────────────────
+
+export type RightNowPlatform = "mac" | "linux" | "windows" | "android";
+export type RightNowProject = "autoland" | "try" | "release" | "central" | "thunderbird";
+
+/** [short hostname, status r|i|o, project index into projects.order or -1, pool] */
+export type RightNowDot = [string, "r" | "i" | "o", number, string | null];
+
+export interface RightNow {
+  generated_at: string;
+  now: {
+    machines: number;
+    running: number;
+    pending: number;
+    pools: number;
+    by_platform: Record<RightNowPlatform, { running: number; idle: number; offline: number; pending: number }>;
+  };
+  projects: {
+    order: RightNowProject[];
+    labels: Record<RightNowProject, string>;
+    running: Record<RightNowProject | "other", number>;
+  };
+  dots: Record<RightNowPlatform, RightNowDot[]>;
+  android_dots: { running: number; total: number };
+}
+
 // ── API calls ──────────────────────────────────────────────────────────────
 
 export const api = {
@@ -750,6 +776,9 @@ export const api = {
   },
   tartHealth: {
     get: () => get<TartHealthResponse>("/tart-health"),
+  },
+  rightNow: {
+    get: () => get<RightNow>("/right-now"),
   },
   weather: {
     current: (lat: number, lon: number, unit: string) =>
