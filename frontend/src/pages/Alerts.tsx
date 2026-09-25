@@ -5,6 +5,7 @@ import { api } from "../api";
 import type { Alert } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
 import { Badge } from "../components/Badge";
+import { Kit } from "../components/Kit";
 import { isSigningWorker } from "../lib/alerts";
 import { usePoll } from "../lib/useLive";
 
@@ -206,9 +207,9 @@ export function Alerts() {
           </div>
         ) : visibleAlerts.length === 0 ? (
           <div className="p-16 text-center">
-            <CheckCircle2 size={36} className="text-emerald-500/60 mx-auto mb-3" />
+            <Kit pose="checkmark" size={112} className="mx-auto mb-3" />
             <div className="text-base font-medium text-gray-300">All clear</div>
-            <div className="text-sm text-gray-600 mt-1">No active alerts</div>
+            <div className="text-sm text-gray-600 mt-1">No active alerts. Kit checked.</div>
           </div>
         ) : (
           <table className="w-full text-sm">

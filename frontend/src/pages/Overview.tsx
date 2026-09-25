@@ -10,6 +10,8 @@ import { usePoll } from "../lib/useLive";
 import { notifyEnabled, notifyPermission, setNotifyOptIn, requestNotifyPermission, fireTryDoneNotification, fireTestNotification, type NotifyPermission } from "../lib/notify";
 import { AnimatedNumber } from "../components/AnimatedNumber";
 import { MonitoredPoolCard } from "../components/MonitoredPoolCard";
+import { Kit } from "../components/Kit";
+import { KIT_POSES, kitMood, pickIdlePose, type FleetReading, type KitPose } from "../lib/kit";
 import { FleetRightNow } from "../components/FleetRightNow";
 
 const YARDSTICK_BASE = "https://yardstick.mozilla.org/d/ieg6Sho5/workers?orgId=1&from=now-2d&to=now&timezone=browser&refresh=5m";
@@ -288,6 +290,37 @@ function MonitoredPools({ load }: { load: LoadHistory | null }) {
 }
 
 // ── Firefox release schedule (product-details + whattrainisitnow) ────────────
+/** Kit beside the greeting, posed by what the fleet is doing and saying it in one line.
+ *  On an ordinary day the pose rotates on each refresh; a real signal overrides it.
+ *  Fetches the release schedule itself; it mounts in the same render as
+ *  ReleaseScheduleCard, so api.ts's in-flight dedupe makes that one request, not two. */
+function OverviewKit({ reading, children }: { reading: Omit<FleetReading, "shipsToday" | "idlePose">; children: ReactNode }) {
+  const [shipsToday, setShipsToday] = useState<string | null>(null);
+  // Chosen once per page load, so Kit changes on refresh but holds still while polling.
+  const [idlePose] = useState(pickIdlePose);
+  useEffect(() => {
+    api.releases.schedule().then(s => {
+      const d = new Date();
+      const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      setShipsToday(s.next_release?.date === today ? s.next_release.version : null);
+    }).catch(() => {});
+  }, []);
+  const mood = kitMood({ ...reading, shipsToday, idlePose });
+  // ?kit=<pose> previews a mood (every pose is otherwise hard to see on a normal day).
+  const forced = new URLSearchParams(window.location.search).get("kit");
+  if (forced && forced in KIT_POSES) mood.pose = forced as KitPose;
+
+  return (
+    <div className="flex items-end gap-4">
+      <Kit pose={mood.pose} size={76} className="-mb-1" />
+      <div className="space-y-1">
+        {children}
+        <p key={mood.says} className="kit-says text-sm text-gray-400">{mood.says}</p>
+      </div>
+    </div>
+  );
+}
+
 function ReleaseScheduleCard() {
   const [sched, setSched] = useState<ReleaseSchedule | null>(null);
   const [failed, setFailed] = useState(false);
@@ -1142,15 +1175,21 @@ export function Overview() {
 
   return (
     <div className="p-8 space-y-6">
-      {/* Greeting */}
+      {/* Greeting, with Kit reading the fleet */}
       <div className="flex items-end justify-between">
-        <div className="space-y-1">
+        <OverviewKit reading={{
+          pending: curPending,
+          running: curRunning,
+          history: totalsSeries,
+          macAttention: attention,
+          macTotal,
+        }}>
           <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-gray-600">{dateStr}</div>
           <div className="flex items-baseline gap-3">
             <h1 className="text-3xl font-light text-white tracking-tight">{greeting}</h1>
             <WeatherChip />
           </div>
-        </div>
+        </OverviewKit>
         <HeaderWorkChips pushes={work.pushes} thUrl={work.thUrl} bugs={work.bugs} listUrl={work.listUrl}
           pinned={pinned} onTogglePin={togglePin} notify={work.notify} />
       </div>
