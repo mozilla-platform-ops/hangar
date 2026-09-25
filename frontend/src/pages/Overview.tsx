@@ -21,7 +21,6 @@ const yardstickAll = `${YARDSTICK_BASE}&var-provisioner=$__all&var-workerType=$_
 // health ring / sparkline accents and leaves emerald free for "healthy"/production.
 // Android gets its own iconic robot-green — it sits outside the gradient (its devices are
 // Taskcluster-only, not in the worker DB) and the label disambiguates it from health greens.
-const PLATFORM_COLORS = { macOS: "#FF9400", Linux: "#FF1AD9", Windows: "#9059FF", Android: "#3DDC84" } as const;
 
 function timeAgo(iso: string | null, now = Date.now()) {
   if (!iso) return "never";
@@ -93,27 +92,6 @@ function Sparkline({ points, className = "w-full h-16" }: { points: number[]; cl
 }
 
 /** Fleet-health ring with a gradient arc; children render in the center. */
-function HealthRing({ pct, children }: { pct: number; children: React.ReactNode }) {
-  const r = 54, c = 2 * Math.PI * r, dash = (Math.max(0, Math.min(100, pct)) / 100) * c;
-  return (
-    <div className="relative w-32 h-32 flex-shrink-0">
-      <svg viewBox="0 0 128 128" className="w-full h-full -rotate-90">
-        <defs>
-          <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#FF9400" />
-            <stop offset="50%" stopColor="#FF1AD9" />
-            <stop offset="100%" stopColor="#9059FF" />
-          </linearGradient>
-        </defs>
-        <circle cx="64" cy="64" r={r} fill="none" stroke="#1f2937" strokeWidth="8" />
-        <circle cx="64" cy="64" r={r} fill="none" stroke="url(#ringGrad)" strokeWidth="8" strokeLinecap="round"
-          strokeDasharray={`${dash} ${c}`} style={{ transition: "stroke-dasharray 0.6s ease" }} />
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">{children}</div>
-    </div>
-  );
-}
-
 // ── Monitored pools (user-pinned; follows the IAP-authenticated user across devices) ──
 const MONITOR_KEY = "hangar.monitoredPools"; // legacy per-browser store, migrated once into the backend
 const MONITOR_MAX = 8;
@@ -1105,19 +1083,12 @@ export function Overview() {
   const [data, setData] = useState<FleetSummary | null>(null);
   const [load, setLoad] = useState<LoadHistory | null>(null);
   const [scale, setScale] = useState<ShowcaseData["scale"] | null>(null);
-  // Android device pools are Taskcluster-only (no worker DB rows), so pull their live
-  // device total separately to fold into the platform breakdown below.
-  const [androidTotal, setAndroidTotal] = useState<number | null>(null);
   const [error, setError] = useState("");
-
-  const loadAndroid = () =>
-    api.fleet.androidPools().then(d => setAndroidTotal(d.pools.reduce((s, p) => s + p.total, 0)));
 
   useEffect(() => {
     api.fleet.summary().then(setData).catch(e => setError(e.message));
     api.fleet.loadHistory(48).then(setLoad).catch(() => {});
     api.fleet.showcase().then(d => setScale(d.scale)).catch(() => {});
-    loadAndroid().catch(() => {});
   }, []);
 
   // Keep the dashboard live: silently refresh everything while the tab is visible.
@@ -1125,7 +1096,6 @@ export function Overview() {
     api.fleet.summary().then(setData).catch(() => {});
     api.fleet.loadHistory(48).then(setLoad).catch(() => {});
     api.fleet.showcase().then(d => setScale(d.scale)).catch(() => {});
-    loadAndroid().catch(() => {});
   }, 60_000);
 
   if (error) return <div className="p-8 text-red-400 text-sm">{error}</div>;
@@ -1136,26 +1106,9 @@ export function Overview() {
     </div>
   );
 
-  const platforms = (() => {
-    let mac = 0, linux = 0, windows = 0;
-    Object.entries(data.by_pool).forEach(([name, count]) => {
-      if (name.includes("osx")) mac += count;
-      else if (name.includes("linux")) linux += count;
-      else if (name.includes("win") || name.includes("nuc")) windows += count;
-    });
-    return [
-      { name: "macOS" as const,   value: mac,                color: PLATFORM_COLORS.macOS },
-      { name: "Linux" as const,   value: linux,              color: PLATFORM_COLORS.Linux },
-      { name: "Windows" as const, value: windows,            color: PLATFORM_COLORS.Windows },
-      { name: "Android" as const, value: androidTotal ?? 0,  color: PLATFORM_COLORS.Android },
-    ].filter(d => d.value > 0);
-  })();
-  const platformTotal = platforms.reduce((s, p) => s + p.value, 0) || 1;
-
-  // Health ring is scoped to macOS hardware — the fleet RelOps actually owns — to cut noise.
+  // macOS hardware is the fleet RelOps actually owns; Kit reads it.
   const attention = data.attention_mac.quarantined + data.attention_mac.missing_from_tc;
-  const macTotal = platforms.find(p => p.name === "macOS")?.value ?? 0;
-  const healthPct = macTotal > 0 ? Math.round((1 - attention / macTotal) * 100) : 100;
+  const macTotal = Object.entries(data.by_pool).reduce((sum, [name, count]) => sum + (name.includes("osx") ? count : 0), 0);
 
   // Greeting (client-local time)
   const now = new Date();
@@ -1272,7 +1225,8 @@ export function Overview() {
         </div>
       </div>
 
-      {/* The fleet right now — every machine, lit by whose work it's running */}
+      {/* The fleet right now — every machine, lit by whose work it's running, with
+          fleet size (this card is the one source for fleet counts) */}
       <FleetRightNow />
 
       {/* Monitored pools — user-pinned */}
@@ -1281,43 +1235,6 @@ export function Overview() {
       {/* Try Pushes / Needinfos — shown here only when pinned from the header chips */}
       {pinned.try && <TryPushCard pushes={work.pushes ?? []} thUrl={work.thUrl} onUnpin={() => togglePin("try")} />}
       {pinned.needinfo && <NeedinfoCard bugs={work.bugs ?? []} listUrl={work.listUrl} onUnpin={() => togglePin("needinfo")} />}
-
-      {/* Total workers breakdown */}
-      <div className="card p-6">
-        <div className="flex flex-col md:flex-row items-center gap-8">
-          <HealthRing pct={healthPct}>
-            <span className="text-2xl font-bold text-white tabular-nums leading-none">{healthPct}%</span>
-            <span className="text-[10px] uppercase tracking-wider text-gray-500 mt-1">healthy</span>
-          </HealthRing>
-
-          <div className="flex-1 w-full space-y-5">
-            <div className="flex flex-wrap items-end gap-x-10 gap-y-4">
-              <div>
-                <div className="text-4xl font-bold text-white tabular-nums leading-none"><AnimatedNumber value={data.total_workers + (androidTotal ?? 0)} /></div>
-                <div className="text-[11px] text-gray-500 uppercase tracking-wider mt-1.5">Total workers</div>
-              </div>
-            </div>
-
-            <div className="pt-4 border-t border-gray-800/60">
-              <div className="flex w-full h-2.5 rounded-full overflow-hidden gap-px">
-                {platforms.map(p => (
-                  <div key={p.name} style={{ width: `${(p.value / platformTotal) * 100}%`, backgroundColor: p.color }} title={`${p.name}: ${p.value}`} />
-                ))}
-              </div>
-              <div className="flex flex-wrap gap-x-6 gap-y-1.5 mt-3">
-                {platforms.map(p => (
-                  <div key={p.name} className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: p.color }} />
-                    <span className="text-xs text-gray-300">{p.name}</span>
-                    <span className="text-xs font-mono text-gray-400 tabular-nums">{p.value.toLocaleString()}</span>
-                    <span className="text-[10px] text-gray-600 tabular-nums">{Math.round((p.value / platformTotal) * 100)}%</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
 
     </div>
   );

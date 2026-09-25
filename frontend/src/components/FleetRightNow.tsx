@@ -48,10 +48,11 @@ function Constellation({ data, flips }: { data: RightNowData; flips: Set<string>
   }).filter(c => c.dots.length > 0);
 
   const n = data.now;
-  const pct = n.machines ? Math.round((n.running / n.machines) * 100) : 0;
   const running = data.projects.running;
   const totalRunning = Object.values(running).reduce((s, v) => s + v, 0) || 1;
-  const topProject = order.reduce((a, b) => (running[b] > running[a] ? b : a), order[0]);
+  const share = (k: RightNowProject) => (running[k] / totalRunning) * 100;
+  const ranked = [...order].sort((a, b) => running[b] - running[a]);
+  const [topProject, runnerUp] = ranked;
 
   return (
     <div className="card p-6 relative overflow-hidden">
@@ -61,14 +62,24 @@ function Constellation({ data, flips }: { data: RightNowData; flips: Set<string>
           <div className="flex items-center gap-2 text-[11px] text-gray-500 uppercase tracking-wider">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Right now
           </div>
+          {/* The Fleet Load card above owns the running/pending counts; this panel's
+              headline says the one thing only it knows: whose work the fleet is doing. */}
           <p className="text-2xl md:text-3xl font-light text-white leading-snug mt-2 max-w-3xl">
-            <span className="font-semibold bg-clip-text text-transparent" style={{ backgroundImage: FF_GRADIENT }}>
-              <AnimatedNumber value={n.running} format={v => Math.round(v).toLocaleString()} />
-            </span>{" "}
-            of {n.machines.toLocaleString()} machines are building and testing Firefox
-            <span className="text-gray-500"> ({pct}%)</span>, with{" "}
-            <span className="font-semibold text-white"><AnimatedNumber value={n.pending} format={v => Math.round(v).toLocaleString()} /></span>{" "}
-            tasks waiting in line.
+            {running[topProject] > 0 ? (
+              <>
+                <span className="font-medium">{data.projects.labels[topProject]}</span> is the fleet's biggest customer, with{" "}
+                <span className="font-semibold bg-clip-text text-transparent" style={{ backgroundImage: FF_GRADIENT }}>
+                  <AnimatedNumber value={share(topProject)} format={v => `${Math.round(v)}%`} />
+                </span>{" "}
+                of running work
+                {runnerUp && running[runnerUp] > 0 && (
+                  <span className="text-gray-500">, ahead of {data.projects.labels[runnerUp]} at {Math.round(share(runnerUp))}%</span>
+                )}
+                .
+              </>
+            ) : (
+              <span className="text-gray-400">No Firefox work running right now.</span>
+            )}
           </p>
 
           <div className="mt-6 flex flex-wrap gap-x-8 gap-y-6">
@@ -118,12 +129,12 @@ function Constellation({ data, flips }: { data: RightNowData; flips: Set<string>
 
         {/* whose work it is */}
         <div className="xl:w-72 flex-shrink-0">
+          <div className="pb-5 mb-5 border-b border-gray-800/60">
+            <div className="text-3xl font-bold text-white tabular-nums leading-none"><AnimatedNumber value={n.machines} format={v => Math.round(v).toLocaleString()} /></div>
+            <div className="text-[11px] text-gray-500 uppercase tracking-wider mt-1.5">machines</div>
+          </div>
           <div className="text-[11px] text-gray-500 uppercase tracking-wider">Whose work</div>
-          <p className="text-sm text-gray-300 mt-2 leading-relaxed">
-            <span className="text-white font-medium">{data.projects.labels[topProject]}</span> is the biggest customer right now, with{" "}
-            {Math.round((running[topProject] / totalRunning) * 100)}% of running tasks.
-          </p>
-          <div className="mt-4 space-y-2.5">
+          <div className="mt-3 space-y-2.5">
             {[...order, "other" as const].map(k => {
               const v = running[k];
               const color = k === "other" ? OTHER_WORK : PROJECT_COLOR[k];
