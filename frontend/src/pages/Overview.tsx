@@ -10,6 +10,7 @@ import { usePoll } from "../lib/useLive";
 import { notifyEnabled, notifyPermission, setNotifyOptIn, requestNotifyPermission, fireTryDoneNotification, fireTestNotification, type NotifyPermission } from "../lib/notify";
 import { AnimatedNumber } from "../components/AnimatedNumber";
 import { MonitoredPoolCard } from "../components/MonitoredPoolCard";
+import { FleetRightNow } from "../components/FleetRightNow";
 
 const YARDSTICK_BASE = "https://yardstick.mozilla.org/d/ieg6Sho5/workers?orgId=1&from=now-2d&to=now&timezone=browser&refresh=5m";
 const yardstickAll = `${YARDSTICK_BASE}&var-provisioner=$__all&var-workerType=$__all`;
@@ -1231,6 +1232,9 @@ export function Overview() {
           </div>
         </div>
       </div>
+
+      {/* The fleet right now — every machine, lit by whose work it's running */}
+      <FleetRightNow />
 
       {/* Monitored pools — user-pinned */}
       <MonitoredPools load={load} />
