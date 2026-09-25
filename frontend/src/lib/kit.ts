@@ -60,10 +60,14 @@ function median(xs: number[]): number {
 }
 
 const n = (v: number) => Math.round(v).toLocaleString();
+/** Percent difference between a and b, relative to `base` (defaults to b). */
+const pct = (a: number, b: number, base = b) => Math.round(((a - b) / base) * 100);
 
 /** How Kit reads the fleet right now. Fleet-wide pending is never small (a couple of
  *  pools are always backed up), so every judgement is against this fleet's own last
- *  48 hours rather than a fixed number. Checked in priority order: the first match wins. */
+ *  48 hours rather than a fixed number. Checked in priority order: the first match wins.
+ *  The Fleet Load card already shows the running/pending counts, so Kit never repeats
+ *  them; it says how today compares instead. */
 export function kitMood(r: FleetReading): KitMood {
   if (r.shipsToday) return { pose: "proud", says: `Firefox ${r.shipsToday} ships today.` };
   if (r.pending == null || r.running == null) return { pose: r.idlePose, says: "Checking on the fleet…" };
@@ -73,16 +77,16 @@ export function kitMood(r: FleetReading): KitMood {
   const usualRunning = median(r.history.map(h => h.running));
 
   if (enoughHistory && r.pending >= 500 && r.pending >= usualPending * 1.5) {
-    return { pose: "alert", says: `The queue's long: ${n(r.pending)} waiting, ${(r.pending / usualPending).toFixed(1)}× the usual.` };
+    return { pose: "alert", says: `The queue's ${(r.pending / usualPending).toFixed(1)}× its usual length.` };
   }
   if (r.macAttention >= 10 && r.macTotal > 0 && r.macAttention / r.macTotal >= 0.05) {
     return { pose: "inquisitive", says: `${n(r.macAttention)} Macs need a look.` };
   }
   if (enoughHistory && usualRunning > 0 && r.running >= usualRunning * 1.1) {
-    return { pose: "juggling", says: `Juggling ${n(r.running)} tasks, busier than usual.` };
+    return { pose: "juggling", says: `Busier than usual: ${pct(r.running, usualRunning)}% above the last two days.` };
   }
   if (enoughHistory && usualRunning > 0 && r.running <= usualRunning * 0.6) {
-    return { pose: "meditating", says: `Quiet hours. ${n(r.running)} tasks running.` };
+    return { pose: "meditating", says: `Quiet hours: ${pct(usualRunning, r.running, usualRunning)}% below the usual.` };
   }
-  return { pose: r.idlePose, says: `Keeping watch: ${n(r.running)} running, ${n(r.pending)} waiting.` };
+  return { pose: r.idlePose, says: enoughHistory ? "All steady. Nothing unusual in the fleet." : "Keeping watch while the history fills in." };
 }
