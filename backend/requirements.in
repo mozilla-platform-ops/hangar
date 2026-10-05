@@ -14,16 +14,16 @@
 # pins are the ones that will actually be installed. Without them, a macOS
 # checkout resolves platform-specific wheels (psycopg2-binary, uvloop) wrong.
 
-fastapi>=0.141.1
-uvicorn[standard]>=0.52.0
-sqlalchemy>=2.0
-psycopg2-binary>=2.9
+fastapi>=0.142.2
+uvicorn[standard]>=0.54.0
+sqlalchemy>=2.1.2
+psycopg2-binary>=2.9.13
 apscheduler>=3.11.3
 requests>=2.31
 pyyaml>=6.0
-google-auth>=2.56.3
-google-auth-httplib2>=0.4.1
-google-api-python-client>=2.198.0
-python-dotenv>=1.0
+google-auth>=2.59.1
+google-auth-httplib2>=0.4.4
+google-api-python-client>=2.201.0
+python-dotenv>=1.2.4
 pydantic-settings>=2.15.0
-python-json-logger>=2.0
+python-json-logger>=4.2.0
