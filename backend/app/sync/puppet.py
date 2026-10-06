@@ -106,10 +106,17 @@ def run_sync(db: Session) -> int:
         # stops generating missing_from_tc alerts. Only puppet_role is cleared (it's puppet-owned;
         # worker_pool is set by several syncs). Resolve its now-spurious missing_from_tc alert too.
         # Guarded on a clean, non-empty parse so a broken/partial inventory can't mass-clear.
+        # Windows hosts are skipped: their puppet_role comes from worker-images pools.yml
+        # (sync/windows_inventory.py), not inventory.d, so clearing it here undid that sync hourly.
         cleared = 0
         if clean and entries:
             seen = {e["hostname"] for e in entries}
-            stale = db.query(Worker).filter(Worker.puppet_role != None, Worker.hostname.notin_(seen)).all()  # noqa: E711
+            stale = (
+                db.query(Worker)
+                .filter(Worker.puppet_role != None, Worker.hostname.notin_(seen))  # noqa: E711
+                .filter((Worker.platform == None) | (Worker.platform != "windows"))  # noqa: E711
+                .all()
+            )
             for w in stale:
                 w.puppet_role = None
                 for a in (
