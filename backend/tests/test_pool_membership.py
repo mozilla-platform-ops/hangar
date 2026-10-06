@@ -41,6 +41,7 @@ def worker(hostname: str, *, pool: str | None = POOL, groups: str | None = None,
     ('["Defective / Spares"]', POOL, False),               # pulled from service
     ('["Loaner"]', POOL, False),
     ('["Loaner - No Profiles"]', POOL, False),
+    ('["Loaner - Nosleep Profile Only"]', POOL, False),   # the only loaner group that exists now
     ('["Mac Production", "Defective / Spares"]', POOL, False),  # any excluded group counts
     (None, "gecko-1-b-osx-arm64-vms-host", False),         # retired pool
     (None, None, True),                                    # unlabelled: callers bucket as unknown

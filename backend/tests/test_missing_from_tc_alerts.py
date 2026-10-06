@@ -77,8 +77,9 @@ def test_absent_linux_without_puppet_role_still_alerts(db: Session) -> None:
 
 
 def test_absent_mac_in_loaner_group_resolves(db: Session) -> None:
-    h = "macmini-m4-60.test.releng.mdc1.mozilla.com"
-    add(db, h, mdm_groups='["Loaner"]')
+    """m4-81, the reprovision runner: still in inventory.d, but in the loaner MDM group."""
+    h = "macmini-m4-81.test.releng.mdc1.mozilla.com"
+    add(db, h, mdm_groups='["Loaner - Nosleep Profile Only", "Enable SSH"]')
     db.add(Alert(alert_type="missing_from_tc", hostname=h, detail="old"))
     _check_absent_workers(db, set())
     assert active(db, h) == []

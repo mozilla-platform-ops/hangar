@@ -15,7 +15,9 @@ from .database import Base
 # inflate the pool total and show up in the pool's fleet table. Members of these
 # groups count toward no worker pool. Names must match SimpleMDM exactly. Edit
 # this set to add/remove excluded groups.
-EXCLUDED_MDM_GROUPS = {"Defective / Spares", "Loaner", "Loaner - No Profiles"}
+# As of 2026-10 SimpleMDM only has "Loaner - Nosleep Profile Only"; the other two loaner
+# names are kept in case they're recreated.
+EXCLUDED_MDM_GROUPS = {"Defective / Spares", "Loaner", "Loaner - No Profiles", "Loaner - Nosleep Profile Only"}
 
 # Pools that no longer exist in Taskcluster but still linger in MDM/sheet metadata
 # on a stray worker or two (e.g. a mini whose pool label wasn't cleared when the
