@@ -59,6 +59,7 @@ HW_WORKER_POOLS: list[tuple[str, str]] = [
     ("releng-hardware", "gecko-t-osx-1500-m4-ipv6"),
     ("releng-hardware", "gecko-t-osx-2600-m4"),
     ("releng-hardware", "gecko-t-osx-2600-m4-staging"),
+    ("releng-hardware", "gecko-t-osx-2700-m4"),
     # macOS VM pools
     ("releng-hardware", "gecko-1-b-osx-arm64-vms"),
     ("releng-hardware", "gecko-3-b-osx-arm64-vms"),
@@ -66,6 +67,7 @@ HW_WORKER_POOLS: list[tuple[str, str]] = [
     ("releng-hardware", "gecko-1-b-osx-1015"),
     ("releng-hardware", "gecko-3-b-osx-1015"),
     ("releng-hardware", "gecko-1-b-osx-1015-staging"),
+    ("releng-hardware", "gecko-1-b-osx-1500-staging"),
     ("releng-hardware", "gecko-1-b-osx-arm64"),
     ("releng-hardware", "gecko-3-b-osx-arm64"),
     ("releng-hardware", "enterprise-1-b-osx-arm64"),
@@ -78,8 +80,10 @@ HW_WORKER_POOLS: list[tuple[str, str]] = [
     ("releng-hardware", "nss-3-b-osx-1015"),
     # Linux hardware
     ("releng-hardware", "gecko-t-linux-talos-1804"),
+    ("releng-hardware", "gecko-t-linux-talos-1804-relops-aje"),
     ("releng-hardware", "gecko-t-linux-talos-2404"),
     ("releng-hardware", "gecko-t-linux-talos-2404-relops"),
+    ("releng-hardware", "gecko-t-linux-talos-2404-relops-aje"),
     ("releng-hardware", "gecko-t-linux-netperf-1804"),
     ("releng-hardware", "gecko-t-linux-netperf-2404"),
     ("releng-hardware", "gecko-t-linux-netperf-2404-relops"),
