@@ -334,9 +334,14 @@ def _generate_alerts(db: Session, hostname: str, worker: Worker) -> None:
         if a:
             a.resolved_at = now
 
-    # Missing-from-TC alert: production/staging workers with no recent TC activity
+    # Missing-from-TC alert: production/staging workers with no recent TC activity.
+    # A host in a retired pool or a loaner/defective MDM group isn't expected to work tasks.
     is_active_state = worker.effective_state not in ("loaner", "defective", "spare", "unknown")
-    if is_active_state and worker.tc_last_active:
+    if not (is_active_state and worker.counts_toward_pool):
+        a = _active_alert("missing_from_tc")
+        if a:
+            a.resolved_at = now
+    elif worker.tc_last_active:
         hours_inactive = (now - worker.tc_last_active).total_seconds() / 3600
         if hours_inactive > threshold_hours:
             if not _active_alert("missing_from_tc"):
@@ -395,8 +400,13 @@ def _check_absent_workers(db: Session, seen_hostnames: set[str]) -> None:
                 .first()
             )
 
-        # Skip states that are intentionally offline
-        if worker.effective_state in ("loaner", "defective", "spare"):
+        # Every mac worker is in ronin's inventory.d, so a macmini with no puppet_role has been
+        # pulled from Puppet. Its tc_worker_pool_id is never cleared and would otherwise keep it
+        # alerting forever. Linux/Windows hosts aren't in inventory.d, so this only applies to macs.
+        left_puppet = hostname.startswith("macmini-") and not worker.puppet_role
+
+        # Skip states that are intentionally offline, retired pools, and hosts out of Puppet
+        if worker.effective_state in ("loaner", "defective", "spare") or not worker.counts_toward_pool or left_puppet:
             # Resolve any existing missing_from_tc alert if state changed
             a = _active_alert("missing_from_tc")
             if a:
