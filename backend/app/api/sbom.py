@@ -58,6 +58,7 @@ _COLLECTION_STALE = timedelta(hours=3)
 _ORPHAN_RETENTION = timedelta(days=90)
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_FINGERPRINT_PROPERTY = "relops:fingerprint"
 
 
 def component_fingerprint(components: list[dict[str, Any]]) -> str:
@@ -71,6 +72,11 @@ def component_fingerprint(components: list[dict[str, Any]]) -> str:
     """
     identities = []
     for c in components:
+        # macos_sbom >= 2.2.0 tags components that record how a host was built rather
+        # than what it runs (old munki receipts, bundled Apple apps, the generator
+        # itself). They stay in the document but not in the identity.
+        if any(p.get("name") == _FINGERPRINT_PROPERTY for p in c.get("properties", []) or []):
+            continue
         digest = ""
         for h in c.get("hashes", []) or []:
             if h.get("alg") == "SHA-256":
