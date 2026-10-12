@@ -128,7 +128,7 @@ def test_rollup_flags_the_host_off_its_roles_modal_state(db: Session) -> None:
     assert out["hosts"][0]["hostname"].startswith("macmini-m4-4.")
     assert out["hosts"][0]["state"] == "drifted"
     assert out["totals"] == {"hosts": 4, "reporting": 4, "distinct_states": 2, "documents": 2, "drifted": 1,
-                             "roles": 1, "roles_drifted": 1}
+                             "updating": 0, "roles": 1, "roles_drifted": 1}
     assert out["hosts"][0]["drift"] == {
         "added": 1, "removed": 0, "changed": 1,
         "highlights": ["~ pyyaml 6.0.2 → 6.0.3", "+ com.example.stray 1"],
@@ -264,3 +264,21 @@ def test_fingerprint_skips_components_tagged_out_of_identity() -> None:
          "properties": [{"name": "relops:fingerprint", "value": "excluded: provisioning history (munki)"}]},
     ]
     assert sbom.component_fingerprint(tagged) == SHA
+
+
+def test_hosts_on_an_older_generator_are_updating_not_drifted(db: Session) -> None:
+    # Mid-rollout of a generator that changes what counts toward the hash: the old
+    # hashes differ, but that says nothing about the software.
+    push(db, [
+        {"hostname": "macmini-m4-1", "fingerprint": fingerprint(SHA, generator_version="2.2.0")},
+        {"hostname": "macmini-m4-2", "fingerprint": fingerprint(SHA, generator_version="2.2.0")},
+        {"hostname": "macmini-m4-3", "fingerprint": fingerprint("a" * 64, generator_version="2.1.0")},
+        {"hostname": "macmini-m4-4", "fingerprint": fingerprint("b" * 64, generator_version="2.0.0")},
+    ])
+    out = sbom.sbom_rollup(user="u", db=db)
+    role = out["roles"][0]
+    assert role["modal_sha256"] == SHA
+    assert (role["drifted"], role["updating"]) == (0, 2)
+    assert role["generator_version"] == "2.2.0"
+    assert [s["sbom_sha256"] for s in role["states"]] == [SHA]
+    assert out["totals"]["distinct_states"] == 1

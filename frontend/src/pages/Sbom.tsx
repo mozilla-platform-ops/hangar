@@ -43,6 +43,7 @@ type State = SbomHost["state"];
 
 const STATE_LABEL: Record<State, string> = {
   ok: "matches", drifted: "drifted", stale: "stale", unreachable: "unreachable", unknown: "not reporting",
+  updating: "updating",
 };
 const STATE_HINT: Record<State, string> = {
   ok: "matches its role's usual software state",
@@ -50,19 +51,21 @@ const STATE_HINT: Record<State, string> = {
   stale: "no fresh fingerprint in 48h — puppet may not be converging",
   unreachable: "the agent hasn't read this host in 3h",
   unknown: "has never reported a fingerprint",
+  updating: "still on an older SBOM generator than the rest of its role, so not compared yet",
 };
 const STATE_TEXT: Record<State, string> = {
   ok: "text-gray-500", drifted: "text-orange-300", stale: "text-yellow-300/90",
-  unreachable: "text-gray-500", unknown: "text-gray-500",
+  unreachable: "text-gray-500", unknown: "text-gray-500", updating: "text-gray-500",
 };
 // Cells sort calm-first, so a strip reads as a bar with any trouble gathered at its end.
-const STATE_ORDER: Record<State, number> = { ok: 0, stale: 2, drifted: 3, unreachable: 4, unknown: 5 };
+const STATE_ORDER: Record<State, number> = { ok: 0, updating: 1.5, stale: 2, drifted: 3, unreachable: 4, unknown: 5 };
 
 /** Cell colour. In a split role the second state gets its own hue rather than "drifted":
  *  nobody is wrong yet, the role is just mid-change. */
 function cellClass(h: SbomHost, role: SbomRole): string {
   if (h.state === "drifted") return "bg-orange-400 shadow-[0_0_6px_rgba(251,146,60,0.7)] min-w-[4px]";
   if (h.state === "stale") return "bg-yellow-500/55";
+  if (h.state === "updating") return "bg-brand-500/15";
   if (h.state === "unreachable" || h.state === "unknown") return "ring-1 ring-inset ring-gray-600/80";
   if (role.split && h.sbom_sha256 !== role.states[0]?.sbom_sha256) return "bg-purple-400/70";
   return "bg-brand-500/40";
@@ -102,10 +105,10 @@ function HostStrip({ role, hosts }: { role: SbomRole; hosts: SbomHost[] }) {
     const cls = cellClass(h, role);
     const last = segments[segments.length - 1];
     if (last && last.cls === cls) last.hosts.push(h);
-    else segments.push({ cls, hosts: [h], trouble: h.state !== "ok" });
+    else segments.push({ cls, hosts: [h], trouble: h.state !== "ok" && h.state !== "updating" });
   }
   return (
-    <div className="flex items-stretch gap-[3px] h-4 w-full min-w-0" role="img" aria-label={label}>
+    <div className="flex items-stretch gap-[3px] h-4 w-full min-w-0 overflow-hidden" role="img" aria-label={label}>
       {segments.map((seg, i) => {
         const names = seg.hosts.map(h => shortHost(h.hostname));
         const title = seg.trouble
@@ -114,7 +117,7 @@ function HostStrip({ role, hosts }: { role: SbomRole; hosts: SbomHost[] }) {
         return (
           <span key={i} title={title}
             className={`rounded-[3px] ${seg.cls}`}
-            style={{ flexGrow: seg.hosts.length, flexBasis: 0, minWidth: seg.trouble ? seg.hosts.length * 5 : 6 }} />
+            style={{ flexGrow: seg.hosts.length, flexBasis: 0, minWidth: seg.trouble ? Math.min(seg.hosts.length * 5, 40) : 6 }} />
         );
       })}
     </div>
@@ -136,6 +139,7 @@ function RoleVerdict({ role }: { role: SbomRole }) {
         <span className="text-gray-600">no data</span>
       )}
       {role.unhealthy > 0 && <div className="text-[11px] text-gray-600 mt-0.5">{role.unhealthy} not current</div>}
+      {role.updating > 0 && <div className="text-[11px] text-gray-600 mt-0.5">{role.updating} updating</div>}
     </div>
   );
 }
@@ -206,7 +210,9 @@ function AttentionHost({ hosts, modal, now }: { hosts: SbomHost[]; modal: string
       <HostNames hosts={hosts} />
       <div className={`text-xs ${STATE_TEXT[h.state]}`} title={STATE_HINT[h.state]}>{STATE_LABEL[h.state]}</div>
       <div className="min-w-0">
-        {h.state === "drifted" && modal && h.sbom_sha256 ? (
+        {h.state === "drifted" && modal && h.sbom_sha256 && new Set(hosts.map(x => x.sbom_sha256)).size > 1 ? (
+          <div className="text-[11px] text-gray-600">differ from the role — documents still being collected</div>
+        ) : h.state === "drifted" && modal && h.sbom_sha256 ? (
           full ? <FullDiff base={modal} head={h.sbom_sha256} /> : (
             <>
               {d ? d.highlights.map(l => <DiffLine key={l} text={l} />)
@@ -220,22 +226,30 @@ function AttentionHost({ hosts, modal, now }: { hosts: SbomHost[]; modal: string
         ) : h.agent_error ? (
           <div className="text-[11px] text-gray-500 truncate" title={h.agent_error}>{h.agent_error}</div>
         ) : (
-          <div className="text-[11px] text-gray-500">last generated {ago(h.generated_at, now)}</div>
+          <div className="text-[11px] text-gray-500">
+            last generated {ago(hosts.map(x => x.generated_at).filter(Boolean).sort()[0] ?? null, now)}
+            {hosts.length > 1 && " (oldest)"}
+          </div>
         )}
       </div>
     </div>
   );
 }
 
-/** Drifted hosts on the same state collapse into one group; everything else stays per host,
- *  since a stale or silent host is its own story. Largest group first. */
+/** Hosts that share a state and a reason collapse into one row. Largest group first. */
 function groupAttention(hosts: SbomHost[]): SbomHost[][] {
   const groups = new Map<string, SbomHost[]>();
   for (const h of hosts) {
-    const key = h.state === "drifted" && h.sbom_sha256 ? `d:${h.sbom_sha256}` : `h:${h.hostname}`;
+    // Drifted hosts whose documents haven't arrived can't say why yet; until they can,
+    // they're one finding ("these differ, details pending"), not one row each.
+    // Same for every other state: hosts with the same state and the same reason are
+    // one row (39 hosts saying "no fingerprint" is one fact, not 39).
+    const key = h.state === "drifted" && !h.drift ? "pending"
+      : h.state === "drifted" && h.sbom_sha256 ? `d:${h.sbom_sha256}`
+      : `s:${h.state}:${h.agent_error ?? ""}`;
     groups.set(key, [...(groups.get(key) ?? []), h]);
   }
-  const order: Record<State, number> = { drifted: 0, stale: 1, unreachable: 2, unknown: 3, ok: 4 };
+  const order: Record<State, number> = { drifted: 0, stale: 1, unreachable: 2, unknown: 3, updating: 4, ok: 5 };
   return [...groups.values()].sort((a, b) =>
     order[a[0].state] - order[b[0].state] || b.length - a.length || byHost(a[0], b[0]));
 }
@@ -245,15 +259,19 @@ function RoleCard({ role, hosts, now, onInspect }: {
 }) {
   const [open, setOpen] = useState(role.drifted > 0);
   const [showOk, setShowOk] = useState(false);
-  const attention = hosts.filter(h => h.state !== "ok").sort(byHost);
+  // One-host states are already listed above as drifted hosts; as chips they're a wall.
+  const [showAllStates, setShowAllStates] = useState(false);
+  const oneOffs = role.states.filter(s => s.hosts === 1 && s.sbom_sha256 !== role.modal_sha256).length;
+  const attention = hosts.filter(h => h.state !== "ok" && h.state !== "updating").sort(byHost);
   const matching = hosts.filter(h => h.state === "ok").sort(byHost);
+  const updating = hosts.filter(h => h.state === "updating");
   const os = useMemo(() => [...new Set(hosts.map(h => h.macos_version).filter(Boolean))].join(", "), [hosts]);
 
   return (
     <div className={`border-b border-gray-800/60 last:border-b-0 ${role.drifted ? "bg-orange-500/[0.025]" : ""}`}>
       <div role="button" tabIndex={0} onClick={() => setOpen(o => !o)}
         onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen(o => !o); } }}
-        className="w-full cursor-pointer grid grid-cols-[minmax(280px,380px)_minmax(0,1fr)_120px_32px] gap-6 items-center px-5 py-2.5 text-left hover:bg-white/[0.015] transition-colors">
+        className="w-full cursor-pointer grid grid-cols-[minmax(240px,340px)_minmax(0,1fr)_120px_32px] gap-6 items-center px-5 py-2.5 text-left hover:bg-white/[0.015] transition-colors">
         <div className="flex items-center gap-2 min-w-0">
           <ChevronRight size={13} className={`text-gray-600 flex-shrink-0 transition-transform duration-150 ${open ? "rotate-90" : ""}`} />
           <div className="min-w-0 flex items-baseline gap-2">
@@ -282,6 +300,12 @@ function RoleCard({ role, hosts, now, onInspect }: {
             </div>
           )}
 
+          {updating.length > 0 && (
+            <div className="text-[11px] text-gray-600" title={updating.map(h => shortHost(h.hostname)).join(", ")}>
+              {plural(updating.length, "host")} updating to SBOM generator {role.generator_version} — compared once they regenerate
+            </div>
+          )}
+
           {matching.length > 0 && (
             <div>
               <button onClick={() => setShowOk(v => !v)} className="text-[11px] text-gray-600 hover:text-gray-300">
@@ -304,7 +328,7 @@ function RoleCard({ role, hosts, now, onInspect }: {
 
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-[10px] uppercase tracking-wider text-gray-600 mr-1">States</span>
-            {role.states.map(s => {
+            {(showAllStates ? role.states : role.states.filter(s => s.hosts > 1 || s.sbom_sha256 === role.modal_sha256)).map(s => {
               const baseline = s.sbom_sha256 === role.modal_sha256;
               return (
                 <span key={s.sbom_sha256}
@@ -325,6 +349,11 @@ function RoleCard({ role, hosts, now, onInspect }: {
                 </span>
               );
             })}
+            {oneOffs > 0 && (
+              <button onClick={() => setShowAllStates(v => !v)} className="text-[11px] text-gray-600 hover:text-gray-300 ml-1">
+                {showAllStates ? "hide one-host states" : `+${oneOffs} one-host state${oneOffs === 1 ? "" : "s"}`}
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -354,17 +383,19 @@ function verdict(data: SbomResponse): { pose: KitPose; headline: React.ReactNode
     };
   }
   if (t.drifted > 0) {
-    const others = t.reporting - t.drifted;
+    const others = t.reporting - t.drifted - t.updating;
     return {
       pose: "inquisitive",
       headline: <><span className="text-orange-300">{plural(t.drifted, "host")}</span> {t.drifted === 1 ? "doesn't" : "don't"} match {t.drifted === 1 ? "its role" : "their role"}</>,
-      detail: `${t.roles_drifted} of ${roles} affected. The other ${others} hosts match theirs.`,
+      detail: `${t.roles_drifted} of ${roles} affected. The other ${others} hosts match theirs.`
+        + (t.updating ? ` ${t.updating} more are still updating and not compared yet.` : ""),
     };
   }
   return {
     pose: "checkmark",
     headline: "Every host matches its role",
-    detail: `${t.reporting} hosts in ${plural(t.distinct_states, "software state")} across ${roles}.`,
+    detail: `${t.reporting - t.updating} hosts in ${plural(t.distinct_states, "software state")} across ${roles}.`
+      + (t.updating ? ` ${t.updating} more are still updating.` : ""),
   };
 }
 
@@ -442,14 +473,15 @@ export function Sbom() {
           </div>
 
           <div className="card overflow-hidden">
-            <div className="grid grid-cols-[minmax(280px,380px)_minmax(0,1fr)_120px_32px] gap-6 px-5 py-2.5 border-b border-gray-800/60 text-[10px] uppercase tracking-wider text-gray-600">
+            <div className="grid grid-cols-[minmax(240px,340px)_minmax(0,1fr)_120px_32px] gap-6 px-5 py-2.5 border-b border-gray-800/60 text-[10px] uppercase tracking-wider text-gray-600">
               <span className="pl-[21px]">Role</span>
               <span className="flex items-center gap-3">
                 Hosts
-                <span className="normal-case tracking-normal flex items-center gap-3 text-gray-600">
+                <span className="normal-case tracking-normal hidden 2xl:flex items-center gap-3 text-gray-600 whitespace-nowrap">
                   <Legend cls="bg-brand-500/40" label="matches" />
                   <Legend cls="bg-orange-400" label="drifted" />
                   <Legend cls="bg-yellow-500/55" label="stale" />
+                  <Legend cls="bg-brand-500/15" label="updating" />
                   <Legend cls="ring-1 ring-inset ring-gray-600/80" label="not reporting" />
                 </span>
               </span>
@@ -477,6 +509,14 @@ export function Sbom() {
                 </section>
               );
             })}
+          </div>
+
+          <div className="2xl:hidden flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-gray-600 -mt-3">
+            <Legend cls="bg-brand-500/40" label="matches" />
+            <Legend cls="bg-orange-400" label="drifted" />
+            <Legend cls="bg-yellow-500/55" label="stale" />
+            <Legend cls="bg-brand-500/15" label="updating" />
+            <Legend cls="ring-1 ring-inset ring-gray-600/80" label="not reporting" />
           </div>
 
           {data.uncovered.length > 0 && (
