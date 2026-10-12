@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Monitor, AlertTriangle, Activity, RefreshCw, Smartphone, Terminal, Apple, Menu, X, Laptop, Grid3x3, MonitorSmartphone } from "lucide-react";
+import { LayoutDashboard, Monitor, AlertTriangle, Activity, RefreshCw, Smartphone, Terminal, Apple, Menu, X, Laptop, Grid3x3, MonitorSmartphone, PackageSearch } from "lucide-react";
 import { clsx } from "clsx";
 import { Suspense, useState, useEffect, useId } from "react";
 import { api } from "../api";
@@ -50,6 +50,7 @@ const POOL_SECTIONS = [
   { section: "linux",   label: "Linux",    icon: Terminal,   children: [] },
   { section: "mac",     label: "macOS",    icon: Apple,      children: [
     { to: "/tart-vms", label: "Tart VMs", icon: MonitorSmartphone },
+    { to: "/sbom", label: "SBOM", icon: PackageSearch },
   ] },
   { section: "windows", label: "Windows",  icon: Laptop,     children: [] },
 ];

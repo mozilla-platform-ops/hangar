@@ -21,6 +21,7 @@ from .api.prs import router as prs_router
 from .api.quarantine import router as quarantine_router
 from .api.releases import router as releases_router
 from .api.reprovision import router as reprovision_router
+from .api.sbom import router as sbom_router
 from .api.screen import router as screen_router
 from .api.treeherder import router as treeherder_router
 from .api.tart_health import router as tart_health_router
@@ -117,6 +118,7 @@ app.include_router(bugzilla_router, prefix="/api")
 app.include_router(weather_router, prefix="/api")
 app.include_router(vm_pipeline_router, prefix="/api")
 app.include_router(tart_health_router, prefix="/api")
+app.include_router(sbom_router, prefix="/api")
 app.include_router(right_now_router, prefix="/api")
 
 

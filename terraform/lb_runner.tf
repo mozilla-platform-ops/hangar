@@ -70,6 +70,14 @@ resource "google_compute_url_map" "hangar_runner" {
       paths   = ["/api/tart-health/agent", "/api/tart-health/agent/*"]
       service = google_compute_backend_service.hangar_runner.id
     }
+
+    # macOS fleet SBOM: the on-network collector reads its target list and pushes
+    # fingerprints + CycloneDX documents here (require_runner). Same rule as above —
+    # the agent subtree only; `GET /api/sbom` and the document downloads stay on IAP.
+    path_rule {
+      paths   = ["/api/sbom/agent", "/api/sbom/agent/*"]
+      service = google_compute_backend_service.hangar_runner.id
+    }
   }
 }
 
