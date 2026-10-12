@@ -255,3 +255,12 @@ def test_config_summary_reads_like_a_spec_sheet() -> None:
     assert [p["name"] for p in c["apple_packages"]] == ["com.apple.pkg.MobileAssets"]
     assert c["python"][0]["label"] == "Python 3.11"
     assert c["homebrew"] == []
+
+
+def test_fingerprint_skips_components_tagged_out_of_identity() -> None:
+    # Same tagging rule as macos_sbom 2.2.0: present in the document, absent from the hash.
+    tagged = copy.deepcopy(COMPONENTS) + [
+        {"type": "application", "name": "com.github.munki.pkg.p_role_1500", "version": "1.0",
+         "properties": [{"name": "relops:fingerprint", "value": "excluded: provisioning history (munki)"}]},
+    ]
+    assert sbom.component_fingerprint(tagged) == SHA
