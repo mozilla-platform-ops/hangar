@@ -266,6 +266,33 @@ def _host_view(r: WorkerSbom, modal: str | None, now: datetime) -> dict[str, Any
     }
 
 
+def _uncovered_reason(pool: str) -> str:
+    if "signing" in pool:
+        return "signers are excluded from macos_sbom"
+    if pool.endswith("-vms"):
+        return "VM guests aren't reachable by the agent"
+    return "not in puppet inventory"
+
+
+def _uncovered(db: Session, covered: set[str]) -> list[dict[str, Any]]:
+    """Macs Hangar knows about that can't have an SBOM here, grouped by pool, so the
+    page states its own blind spots instead of letting a short list read as complete."""
+    counts: Counter[str] = Counter()
+    for w in db.scalars(select(Worker).where(Worker.platform == "mac")):
+        if worker_fqdn(w.hostname) in covered or _is_mac_target(w):
+            continue
+        pool = w.worker_pool or "(no pool)"
+        # One synced label is a script's stderr ("grep: ... No such file ...unknown");
+        # don't print that as if it were a pool.
+        if not re.fullmatch(r"[\w.()-]+", pool):
+            pool = "(unrecognised pool label)"
+        counts[pool] += 1
+    return [
+        {"pool": pool, "hosts": n, "reason": _uncovered_reason(pool)}
+        for pool, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    ]
+
+
 @router.get("")
 def sbom_rollup(user: str = Depends(require_access), db: Session = Depends(get_db)) -> dict[str, Any]:
     """Fleet SBOM by role: distinct states, the modal one, and who has drifted off it."""
@@ -334,6 +361,7 @@ def sbom_rollup(user: str = Depends(require_access), db: Session = Depends(get_d
             "roles": len(roles),
             "roles_drifted": sum(1 for r in roles if r["drifted"]),
         },
+        "uncovered": _uncovered(db, {r.hostname for r in rows}),
         "last_collected_at": last.isoformat() if last else None,
         "agent_stale": last is None or now - last > _COLLECTION_STALE,
     }

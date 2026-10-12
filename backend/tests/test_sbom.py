@@ -209,3 +209,18 @@ def test_never_reported_host_is_grouped_under_its_inventory_role(db: Session) ->
     assert [r["puppet_role"] for r in out["roles"]] == [ROLE]
     assert out["roles"][0]["unhealthy"] == 1
     assert {x["hostname"]: x["state"] for x in out["hosts"]}[h] == "unknown"
+
+
+def test_rollup_names_the_macs_it_cannot_cover(db: Session) -> None:
+    db.add_all([
+        Worker(hostname="mac-070945", platform="mac", worker_pool="gecko-t-osx-1500-m-vms"),
+        Worker(hostname="mac-070946", platform="mac", worker_pool="gecko-t-osx-1500-m-vms"),
+        Worker(hostname="gecko-signing-mac14m2-01", platform="mac", worker_pool="gecko-signing-mac14m2"),
+        # Targeted, so covered even before it reports.
+        Worker(hostname="macmini-m4-1.test.releng.mdc1.mozilla.com", platform="mac", puppet_role=ROLE),
+    ])
+    db.commit()
+    assert sbom.sbom_rollup(user="u", db=db)["uncovered"] == [
+        {"pool": "gecko-t-osx-1500-m-vms", "hosts": 2, "reason": "VM guests aren't reachable by the agent"},
+        {"pool": "gecko-signing-mac14m2", "hosts": 1, "reason": "signers are excluded from macos_sbom"},
+    ]

@@ -203,14 +203,14 @@ function RoleCard({ role, hosts, now }: { role: SbomRole; hosts: SbomHost[]; now
   return (
     <div className={`border-b border-gray-800/60 last:border-b-0 ${role.drifted ? "bg-orange-500/[0.025]" : ""}`}>
       <button onClick={() => setOpen(o => !o)}
-        className="w-full grid grid-cols-[minmax(200px,280px)_minmax(0,1fr)_120px] gap-6 items-center px-5 py-3.5 text-left hover:bg-white/[0.015] transition-colors">
+        className="w-full grid grid-cols-[minmax(280px,380px)_minmax(0,1fr)_120px] gap-6 items-center px-5 py-2.5 text-left hover:bg-white/[0.015] transition-colors">
         <div className="flex items-center gap-2 min-w-0">
           <ChevronRight size={13} className={`text-gray-600 flex-shrink-0 transition-transform duration-150 ${open ? "rotate-90" : ""}`} />
-          <div className="min-w-0">
-            <div className="font-mono text-[13px] text-gray-100 truncate">{role.puppet_role}</div>
-            <div className="text-[11px] text-gray-600 mt-0.5">
-              {plural(role.hosts, "host")}{os && <> · macOS {os}</>}
-            </div>
+          <div className="min-w-0 flex items-baseline gap-2">
+            <span className="font-mono text-[13px] text-gray-100 truncate">{role.puppet_role}</span>
+            <span className="text-[11px] text-gray-600 whitespace-nowrap">
+              {role.hosts}{os && <> · {os}</>}
+            </span>
           </div>
         </div>
         <HostStrip role={role} hosts={hosts} />
@@ -273,6 +273,16 @@ function RoleCard({ role, hosts, now }: { role: SbomRole; hosts: SbomHost[]; now
       )}
     </div>
   );
+}
+
+// Role families, in display order. Names follow ronin_puppet's role conventions.
+const FAMILIES: { label: string; test: (role: string) => boolean }[] = [
+  { label: "Testers", test: r => /_t_osx_/.test(r) },
+  { label: "Tart VM hosts", test: r => r === "tart_worker" || /_vms_host$/.test(r) },
+  { label: "Builders", test: r => /_b_osx/.test(r) || /^(mozillavpn|applicationservices|nss|enterprise)_/.test(r) },
+];
+function family(role: string): string {
+  return FAMILIES.find(f => f.test(role))?.label ?? "Other";
 }
 
 /** The answer, in one sentence, with Kit's pose matching it. */
@@ -370,7 +380,7 @@ export function Sbom() {
           </div>
 
           <div className="card overflow-hidden">
-            <div className="grid grid-cols-[minmax(200px,280px)_minmax(0,1fr)_120px] gap-6 px-5 py-2.5 border-b border-gray-800/60 text-[10px] uppercase tracking-wider text-gray-600">
+            <div className="grid grid-cols-[minmax(280px,380px)_minmax(0,1fr)_120px] gap-6 px-5 py-2.5 border-b border-gray-800/60 text-[10px] uppercase tracking-wider text-gray-600">
               <span className="pl-[21px]">Role</span>
               <span className="flex items-center gap-3">
                 Hosts
@@ -383,10 +393,49 @@ export function Sbom() {
               </span>
               <span className="text-right">State</span>
             </div>
-            {data.roles.map(r => (
-              <RoleCard key={r.puppet_role} role={r} hosts={hostsByRole.get(r.puppet_role) ?? []} now={now} />
-            ))}
+            {[...FAMILIES.map(f => f.label), "Other"].map(label => {
+              const roles = data.roles.filter(r => family(r.puppet_role) === label);
+              if (!roles.length) return null;
+              const hostCount = roles.reduce((n, r) => n + r.hosts, 0);
+              const drifted = roles.reduce((n, r) => n + r.drifted, 0);
+              return (
+                <section key={label}>
+                  <div className="flex items-baseline gap-2 px-5 pt-4 pb-1.5 text-[10px] uppercase tracking-wider text-gray-500 border-b border-gray-800/40">
+                    {label}
+                    <span className="normal-case tracking-normal text-gray-600">
+                      {plural(roles.length, "role")} · {plural(hostCount, "host")}
+                      {drifted > 0 && <span className="text-orange-300/80"> · {drifted} drifted</span>}
+                    </span>
+                  </div>
+                  {roles.map(r => (
+                    <RoleCard key={r.puppet_role} role={r} hosts={hostsByRole.get(r.puppet_role) ?? []} now={now} />
+                  ))}
+                </section>
+              );
+            })}
           </div>
+
+          {data.uncovered.length > 0 && (
+            <div className="text-[11px] text-gray-600 max-w-4xl space-y-0.5">
+              <div className="text-gray-500">Not covered</div>
+              {Object.entries(
+                data.uncovered.reduce<Record<string, { pool: string; hosts: number }[]>>((acc, u) => {
+                  (acc[u.reason] ??= []).push(u);
+                  return acc;
+                }, {}),
+              ).map(([reason, pools]) => {
+                const n = pools.reduce((t, p) => t + p.hosts, 0);
+                const names = pools.map(p => `${p.pool} (${p.hosts})`).join(", ");
+                return (
+                  <div key={reason} title={names}>
+                    <span className="text-gray-400 tabular-nums">{n}</span> {n === 1 ? "host" : "hosts"} in{" "}
+                    {pools.length === 1 ? <span className="font-mono text-gray-500">{pools[0].pool}</span> : plural(pools.length, "pool")}
+                    <span className="text-gray-600"> — {reason}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           <p className="text-[11px] text-gray-600 flex items-start gap-1.5 max-w-3xl">
             <Package size={12} className="mt-0.5 flex-shrink-0" />

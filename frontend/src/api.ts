@@ -468,6 +468,8 @@ export interface SbomResponse {
     hosts: number; reporting: number; distinct_states: number; documents: number; drifted: number;
     roles: number; roles_drifted: number;
   };
+  /** Macs Hangar knows about that have no SBOM path, by pool. */
+  uncovered: { pool: string; hosts: number; reason: string }[];
   last_collected_at: string | null;
   agent_stale: boolean;
 }
