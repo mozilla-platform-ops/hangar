@@ -165,13 +165,45 @@ function FullDiff({ base, head }: { base: string; head: string }) {
   );
 }
 
-function AttentionHost({ h, modal, now }: { h: SbomHost; modal: string | null; now: number }) {
+/** `macmini-r8-165, -166, -167, -171` -> `macmini-r8-165–167, 171`. Falls back to the
+ *  plain list when the names don't share a numbered prefix. */
+function compressHosts(names: string[]): string {
+  const parsed = names.map(n => n.match(/^(.*?)(\d+)$/));
+  const prefix = parsed[0]?.[1];
+  if (!prefix || parsed.some(m => !m || m[1] !== prefix)) return names.join(", ");
+  const nums = [...new Set(parsed.map(m => Number(m![2])))].sort((a, b) => a - b);
+  const runs: string[] = [];
+  for (let i = 0; i < nums.length; i++) {
+    let j = i;
+    while (j + 1 < nums.length && nums[j + 1] === nums[j] + 1) j++;
+    runs.push(j > i ? `${nums[i]}–${nums[j]}` : `${nums[i]}`);
+    i = j;
+  }
+  return prefix + runs.join(", ");
+}
+
+/** Hosts that share one software state are one finding, not N rows of the same text. */
+function HostNames({ hosts }: { hosts: SbomHost[] }) {
+  const names = hosts.map(x => shortHost(x.hostname));
+  if (names.length === 1) return <div className="font-mono text-xs text-gray-200 pt-px">{names[0]}</div>;
+  return (
+    <div className="pt-px min-w-0">
+      <div className="text-xs text-gray-200">{names.length} hosts</div>
+      <div className="font-mono text-[11px] text-gray-500 leading-relaxed mt-0.5 break-words" title={names.join(", ")}>
+        {compressHosts(names)}
+      </div>
+    </div>
+  );
+}
+
+function AttentionHost({ hosts, modal, now }: { hosts: SbomHost[]; modal: string | null; now: number }) {
+  const h = hosts[0];
   const [full, setFull] = useState(false);
   const d = h.drift;
   const more = d ? d.added + d.removed + d.changed - d.highlights.length : 0;
   return (
-    <div className="grid grid-cols-[150px_110px_1fr] gap-x-4 py-2 items-start">
-      <div className="font-mono text-xs text-gray-200 pt-px">{shortHost(h.hostname)}</div>
+    <div className="grid grid-cols-[200px_110px_1fr] gap-x-4 py-2 items-start">
+      <HostNames hosts={hosts} />
       <div className={`text-xs ${STATE_TEXT[h.state]}`} title={STATE_HINT[h.state]}>{STATE_LABEL[h.state]}</div>
       <div className="min-w-0">
         {h.state === "drifted" && modal && h.sbom_sha256 ? (
@@ -193,6 +225,19 @@ function AttentionHost({ h, modal, now }: { h: SbomHost; modal: string | null; n
       </div>
     </div>
   );
+}
+
+/** Drifted hosts on the same state collapse into one group; everything else stays per host,
+ *  since a stale or silent host is its own story. Largest group first. */
+function groupAttention(hosts: SbomHost[]): SbomHost[][] {
+  const groups = new Map<string, SbomHost[]>();
+  for (const h of hosts) {
+    const key = h.state === "drifted" && h.sbom_sha256 ? `d:${h.sbom_sha256}` : `h:${h.hostname}`;
+    groups.set(key, [...(groups.get(key) ?? []), h]);
+  }
+  const order: Record<State, number> = { drifted: 0, stale: 1, unreachable: 2, unknown: 3, ok: 4 };
+  return [...groups.values()].sort((a, b) =>
+    order[a[0].state] - order[b[0].state] || b.length - a.length || byHost(a[0], b[0]));
 }
 
 function RoleCard({ role, hosts, now, onInspect }: {
@@ -231,7 +276,9 @@ function RoleCard({ role, hosts, now, onInspect }: {
         <div className="pl-[46px] pr-5 pb-4 space-y-4">
           {attention.length > 0 && (
             <div className="divide-y divide-gray-800/40">
-              {attention.map(h => <AttentionHost key={h.hostname} h={h} modal={role.modal_sha256} now={now} />)}
+              {groupAttention(attention).map(g => (
+                <AttentionHost key={g[0].hostname} hosts={g} modal={role.modal_sha256} now={now} />
+              ))}
             </div>
           )}
 
