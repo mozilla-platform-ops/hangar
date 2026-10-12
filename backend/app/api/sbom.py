@@ -296,6 +296,8 @@ def sbom_rollup(user: str = Depends(require_access), db: Session = Depends(get_d
         split = len(ranked) > 1 and ranked[0][1] == ranked[1][1]
         modal = None if split or not ranked else ranked[0][0]
         views = [{**_host_view(r, modal, now), "puppet_role": role} for r in members]
+        for v in views:
+            v["drift"] = drift_summary(db, modal, v["sbom_sha256"]) if v["state"] == "drifted" else None
         hosts.extend(views)
         roles.append({
             "puppet_role": role,
@@ -329,6 +331,8 @@ def sbom_rollup(user: str = Depends(require_access), db: Session = Depends(get_d
             "distinct_states": len({r.sbom_sha256 for r in rows if r.sbom_sha256}),
             "documents": len(held),
             "drifted": sum(1 for h in hosts if h["state"] == "drifted"),
+            "roles": len(roles),
+            "roles_drifted": sum(1 for r in roles if r["drifted"]),
         },
         "last_collected_at": last.isoformat() if last else None,
         "agent_stale": last is None or now - last > _COLLECTION_STALE,
@@ -367,23 +371,14 @@ def _version(c: dict[str, Any]) -> str:
     return ""
 
 
-@router.get("/diff")
-def sbom_diff(
-    base: str = Query(..., description="sha256 of the reference state, usually the role's modal one"),
-    head: str = Query(..., description="sha256 of the state to compare"),
-    user: str = Depends(require_access),
-    db: Session = Depends(get_db),
-) -> dict[str, Any]:
-    """What a drifted host has that its role's usual state doesn't, and vice versa."""
-    a = {_identity(c): c for c in _get_doc(db, base).get("components", [])}
-    b = {_identity(c): c for c in _get_doc(db, head).get("components", [])}
+def _diff(a_doc: dict[str, Any], b_doc: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    a = {_identity(c): c for c in a_doc.get("components", [])}
+    b = {_identity(c): c for c in b_doc.get("components", [])}
 
     def row(k: tuple[str, str], **v: Any) -> dict[str, Any]:
         return {"type": k[0], "name": k[1], **v}
 
     return {
-        "base": base,
-        "head": head,
         "added": [row(k, version=_version(b[k])) for k in sorted(b.keys() - a.keys())],
         "removed": [row(k, version=_version(a[k])) for k in sorted(a.keys() - b.keys())],
         "changed": [
@@ -392,3 +387,52 @@ def sbom_diff(
             if _version(a[k]) != _version(b[k])
         ],
     }
+
+
+# A document's content is fixed by its hash, so a diff between two hashes never
+# changes and can be kept for the life of the process. Bounded anyway.
+_SUMMARY_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
+_SUMMARY_CACHE_MAX = 512
+
+
+def _short_name(name: str) -> str:
+    """`/usr/local/bin/generic-worker` -> `generic-worker`, `com.apple.pkg.X` stays."""
+    return name.rsplit("/", 1)[-1]
+
+
+def drift_summary(db: Session, base: str, head: str) -> dict[str, Any] | None:
+    """Counts plus the first few changes, phrased for a table row. None if either
+    document hasn't been collected yet -- say nothing rather than guess."""
+    key = (base, head)
+    if key in _SUMMARY_CACHE:
+        return _SUMMARY_CACHE[key]
+    a, b = db.get(SbomDocument, base), db.get(SbomDocument, head)
+    if a is None or b is None:
+        return None
+    d = _diff(json.loads(a.document), json.loads(b.document))
+    lines = (
+        [f"~ {_short_name(c['name'])} {c['base']} → {c['head']}" for c in d["changed"]]
+        + [f"+ {_short_name(c['name'])} {c['version']}".rstrip() for c in d["added"]]
+        + [f"− {_short_name(c['name'])} {c['version']}".rstrip() for c in d["removed"]]
+    )
+    out = {
+        "added": len(d["added"]),
+        "removed": len(d["removed"]),
+        "changed": len(d["changed"]),
+        "highlights": lines[:3],
+    }
+    if len(_SUMMARY_CACHE) >= _SUMMARY_CACHE_MAX:
+        _SUMMARY_CACHE.clear()
+    _SUMMARY_CACHE[key] = out
+    return out
+
+
+@router.get("/diff")
+def sbom_diff(
+    base: str = Query(..., description="sha256 of the reference state, usually the role's modal one"),
+    head: str = Query(..., description="sha256 of the state to compare"),
+    user: str = Depends(require_access),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """What a drifted host has that its role's usual state doesn't, and vice versa."""
+    return {"base": base, "head": head, **_diff(_get_doc(db, base), _get_doc(db, head))}

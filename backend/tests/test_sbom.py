@@ -127,7 +127,13 @@ def test_rollup_flags_the_host_off_its_roles_modal_state(db: Session) -> None:
     assert role["drifted"] == 1
     assert out["hosts"][0]["hostname"].startswith("macmini-m4-4.")
     assert out["hosts"][0]["state"] == "drifted"
-    assert out["totals"] == {"hosts": 4, "reporting": 4, "distinct_states": 2, "documents": 2, "drifted": 1}
+    assert out["totals"] == {"hosts": 4, "reporting": 4, "distinct_states": 2, "documents": 2, "drifted": 1,
+                             "roles": 1, "roles_drifted": 1}
+    assert out["hosts"][0]["drift"] == {
+        "added": 1, "removed": 0, "changed": 1,
+        "highlights": ["~ pyyaml 6.0.2 → 6.0.3", "+ com.example.stray 1"],
+    }
+    assert out["hosts"][1]["drift"] is None
 
 
 def test_tied_role_is_split_and_flags_nobody(db: Session) -> None:

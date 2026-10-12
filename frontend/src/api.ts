@@ -449,6 +449,8 @@ export interface SbomHost {
   collected_at: string | null;
   agent_error: string | null;
   state: "ok" | "drifted" | "stale" | "unreachable" | "unknown";
+  /** What differs from the role's usual state; only on drifted hosts with both documents held. */
+  drift: { added: number; removed: number; changed: number; highlights: string[] } | null;
 }
 export interface SbomRole {
   puppet_role: string;
@@ -462,7 +464,10 @@ export interface SbomRole {
 export interface SbomResponse {
   roles: SbomRole[];
   hosts: SbomHost[];
-  totals: { hosts: number; reporting: number; distinct_states: number; documents: number; drifted: number };
+  totals: {
+    hosts: number; reporting: number; distinct_states: number; documents: number; drifted: number;
+    roles: number; roles_drifted: number;
+  };
   last_collected_at: string | null;
   agent_stale: boolean;
 }
