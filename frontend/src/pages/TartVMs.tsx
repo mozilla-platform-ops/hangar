@@ -312,7 +312,7 @@ export function TartVMs() {
                     <th className="py-2 pr-4 font-medium">Slot</th>
                     <th className="py-2 pr-4 font-medium">Worker</th>
                     <th className="py-2 pr-4 font-medium">Status</th>
-                    <th className="py-2 pr-4 font-medium" title="how long the host's `tart run` process has been up">Run up</th>
+                    <th className="py-2 pr-4 font-medium" title="how long this VM has been up. Each task gets a fresh clone, so this is roughly the age of the current task, or how long it has sat idle since its last one">VM age</th>
                     <th className="py-2 pr-4 font-medium">Taskcluster</th>
                     <th className="py-2 pr-4 font-medium">Creds</th>
                     <th className="py-2 pr-4 font-medium" title="free disk inside the guest, when it was probed">Guest</th>
