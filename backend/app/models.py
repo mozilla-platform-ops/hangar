@@ -373,6 +373,17 @@ class TartSlotHealth(Base):
     checkout_sha: Mapped[str | None] = mapped_column(String(40))
     refspec_pinned: Mapped[bool | None] = mapped_column(Boolean)
 
+    # Whether the host holds the guest probe key (/etc/tart/guest_probe_key). It is
+    # placed out of band, so most hosts don't have it, and without it the guest is
+    # never probed. That is a coverage gap, not a slot fault, and has to be told apart
+    # from "key present, guest didn't answer".
+    probe_key_present: Mapped[bool | None] = mapped_column(Boolean)
+    # When this slot was first seen with the VM not running / the guest not answering,
+    # carried across pushes. Every task now ends in a halt and a fresh clone, so one
+    # sweep can land in that window on a healthy slot; only a second sweep is a fault.
+    vm_down_since: Mapped[datetime | None] = mapped_column(DateTime)
+    guest_unreachable_since: Mapped[datetime | None] = mapped_column(DateTime)
+
     # Agent-computed rollup so the API and UI agree on severity, plus why.
     status: Mapped[str | None] = mapped_column(String(16))           # ok / warn / crit / unknown
     problems: Mapped[str | None] = mapped_column(Text)               # JSON list of strings

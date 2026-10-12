@@ -65,6 +65,13 @@ DISK_WARN_GIB = 30
 # reliably, so the ratio is gone rather than retuned.
 EXIT69_CRIT_AGE_S = 900  # 15m, matching worker-runner.sh's own "problem repeated" test
 
+# Every task now ends with the guest halting and the host deleting and re-cloning the
+# VM (ronin_puppet tart.revert_after_task, live 2026-09-15). For that window a healthy
+# slot's VM is stopped or missing and its guest is still booting, and a sweep can land
+# in it. So a stopped VM or a silent guest is only a fault once a SECOND sweep sees it.
+# The agent sweeps every 600s; half that is safely past one push and short of two.
+DOWN_CONFIRM_S = 300
+
 CLOCK_SKEW_CRIT_S = 300  # a cloned VM inheriting the image RTC is out by weeks, not minutes
 
 # Cert expiry is judged against the cert's OWN lifetime, not a fixed number of days.
@@ -102,6 +109,7 @@ class SlotPush(BaseModel):
     vault_present: bool | None = None
     checkout_sha: str | None = None
     refspec_pinned: bool | None = None
+    probe_key_present: bool | None = None
     agent_error: str | None = None
 
 
@@ -109,12 +117,20 @@ class HealthPush(BaseModel):
     slots: list[SlotPush] = Field(default_factory=list)
 
 
-def evaluate(s: SlotPush) -> tuple[str, list[str]]:
+def evaluate(
+    s: SlotPush,
+    vm_down_for_s: float | None = None,
+    guest_unreachable_for_s: float | None = None,
+) -> tuple[str, list[str]]:
     """Derive status + human-readable problems.
 
     Server-side on purpose: the agent stays a dumb collector, so thresholds can be
     tuned here without redeploying an on-network component, and the API and UI can
     never disagree about severity.
+
+    `vm_down_for_s` / `guest_unreachable_for_s` are how long the condition has held
+    across pushes (None on first sighting). A problem can be listed without raising
+    severity, as a note for the operator.
     """
     problems: list[str] = []
     crit = False
@@ -124,8 +140,11 @@ def evaluate(s: SlotPush) -> tuple[str, list[str]]:
         return "unknown", [f"collection failed: {s.agent_error}"]
 
     if s.vm_state and s.vm_state != "running":
-        crit = True
-        problems.append(f"VM {s.vm_state}")
+        if vm_down_for_s is not None and vm_down_for_s >= DOWN_CONFIRM_S:
+            crit = True
+            problems.append(f"VM {s.vm_state} for {int(vm_down_for_s // 60)}m")
+        else:
+            problems.append(f"VM {s.vm_state}, likely being re-cloned between tasks")
 
     # The crash loop. Checked before reachability, because a looping guest is often
     # briefly SSH-able and would otherwise look merely flaky.
@@ -198,9 +217,14 @@ def evaluate(s: SlotPush) -> tuple[str, list[str]]:
         warn = True
         problems.append("puppet clone is pinned to a single branch — this host cannot follow master")
 
-    if s.guest_reachable is False and not problems:
-        warn = True
-        problems.append("guest not reachable over ssh")
+    # Without the probe key on the host the guest is never asked, so "unreachable" says
+    # nothing about the slot. That is reported as coverage (see guest_check), not health.
+    if s.guest_reachable is False and s.probe_key_present and not problems:
+        if guest_unreachable_for_s is not None and guest_unreachable_for_s >= DOWN_CONFIRM_S:
+            warn = True
+            problems.append(f"guest not answering the probe for {int(guest_unreachable_for_s // 60)}m")
+        else:
+            problems.append("guest not answering yet, likely booting a fresh clone")
 
     if crit:
         return "crit", problems
@@ -220,6 +244,39 @@ def _identity_mismatch(self: SlotPush) -> bool:
 SlotPush.identity_mismatch = property(_identity_mismatch)  # type: ignore[attr-defined]
 
 
+def _since(prev: datetime | None, holds: bool, now: datetime) -> datetime | None:
+    """Start of a condition that persists across pushes; None once it clears."""
+    if not holds:
+        return None
+    return prev or now
+
+
+def _held_for(since: datetime | None, now: datetime) -> float | None:
+    """Seconds a condition has held, or None if this push is the first to see it."""
+    if since is None or since >= now:
+        return None
+    return (now - since).total_seconds()
+
+
+def guest_check(r: TartSlotHealth) -> str:
+    """Whether the in-guest checks (disk, clock, identity, exit 69) actually ran.
+
+    checked      the guest answered the probe
+    no_key       the host has no probe key, so the guest was never asked
+    unreachable  the key is there and the guest didn't answer
+    not_checked  anything else (collection failed, VM down, agent too old to say)
+    """
+    if r.agent_error:
+        return "not_checked"
+    if r.guest_reachable:
+        return "checked"
+    if r.probe_key_present is False:
+        return "no_key"
+    if r.probe_key_present and r.guest_reachable is False:
+        return "unreachable"
+    return "not_checked"
+
+
 @router.post("/agent/push")
 def agent_push(
     payload: HealthPush,
@@ -230,17 +287,26 @@ def agent_push(
     now = datetime.utcnow()
     written = 0
     for s in payload.slots:
-        status, problems = evaluate(s)
         row = db.get(TartSlotHealth, (s.hostname, s.slot))
         if row is None:
             row = TartSlotHealth(hostname=s.hostname, slot=s.slot)
             db.add(row)
+        # A failed collection says nothing either way, so it leaves the clocks alone.
+        if not s.agent_error:
+            row.vm_down_since = _since(row.vm_down_since, bool(s.vm_state and s.vm_state != "running"), now)
+            row.guest_unreachable_since = _since(row.guest_unreachable_since, s.guest_reachable is False, now)
+        status, problems = evaluate(
+            s,
+            vm_down_for_s=_held_for(row.vm_down_since, now),
+            guest_unreachable_for_s=_held_for(row.guest_unreachable_since, now),
+        )
         for field in (
             "vm_name", "worker_id", "configured_worker_id", "vm_state", "guest_reachable",
             "guest_uptime_s", "tart_run_uptime_s", "guest_disk_free_gib", "clock_skew_s",
             "worker_exit_69_age_s",
             "registered", "quarantined", "last_task_state", "cert_expiry", "cert_not_before", "cert_owner_ok",
-            "inject_vault", "vault_present", "checkout_sha", "refspec_pinned", "agent_error",
+            "inject_vault", "vault_present", "checkout_sha", "refspec_pinned", "probe_key_present",
+            "agent_error",
         ):
             setattr(row, field, getattr(s, field))
         row.identity_ok = not s.identity_mismatch
@@ -257,7 +323,9 @@ def tart_health(user: str = Depends(require_access), db: Session = Depends(get_d
     """Fleet-wide tart slot health, worst first."""
     rows = list(db.scalars(select(TartSlotHealth)))
     now = datetime.utcnow()
-    order = {"crit": 0, "unknown": 1, "warn": 2, "ok": 3}
+    # Uncollected slots sort last: they are summarised per host in `summary`, and
+    # listing them above real faults buried the one host that was actually down.
+    order = {"crit": 0, "warn": 1, "ok": 2, "unknown": 3}
 
     slots: list[dict[str, Any]] = []
     for r in rows:
@@ -293,6 +361,10 @@ def tart_health(user: str = Depends(require_access), db: Session = Depends(get_d
             "vault_present": r.vault_present,
             "checkout_sha": r.checkout_sha,
             "refspec_pinned": r.refspec_pinned,
+            "probe_key_present": r.probe_key_present,
+            "guest_check": guest_check(r),
+            "vm_down_since": r.vm_down_since.isoformat() if r.vm_down_since else None,
+            "agent_error": r.agent_error,
             "status": status,
             "problems": problems,
             "collected_at": r.collected_at.isoformat() if r.collected_at else None,
@@ -301,9 +373,28 @@ def tart_health(user: str = Depends(require_access), db: Session = Depends(get_d
 
     slots.sort(key=lambda s: (order.get(s["status"], 9), s["hostname"], s["slot"]))
     counts = {k: sum(1 for s in slots if s["status"] == k) for k in ("ok", "warn", "crit", "unknown")}
+
+    # Host-level failures are one problem per host, not two per slot.
+    uncollected: dict[str, str] = {}
+    for s in slots:
+        if s["stale"] or s["agent_error"]:
+            uncollected.setdefault(s["hostname"], s["problems"][0] if s["problems"] else "not collected")
+    collected = [s for s in slots if s["hostname"] not in uncollected]
+    summary = {
+        # Taking tasks as far as anyone outside the guest can tell. A VM caught mid
+        # re-clone still counts; once that outlasts DOWN_CONFIRM_S the slot is crit.
+        "serving": sum(
+            1 for s in collected
+            if s["registered"] and not s["quarantined"] and s["status"] != "crit"
+        ),
+        "guest_checked": sum(1 for s in collected if s["guest_check"] == "checked"),
+        "no_probe_key_hosts": sorted({s["hostname"] for s in collected if s["guest_check"] == "no_key"}),
+        "uncollected_hosts": [{"hostname": h, "reason": why} for h, why in sorted(uncollected.items())],
+    }
     return {
         "slots": slots,
         "counts": counts,
+        "summary": summary,
         "total": len(slots),
         # Worst status present, so a caller (or a cron) can act on one field.
         "worst": next((k for k in ("crit", "unknown", "warn", "ok") if counts.get(k)), "ok"),
