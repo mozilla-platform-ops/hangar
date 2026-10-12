@@ -448,7 +448,7 @@ export interface SbomHost {
   generated_at: string | null;
   collected_at: string | null;
   agent_error: string | null;
-  state: "ok" | "drifted" | "stale" | "unreachable" | "unknown";
+  state: "ok" | "drifted" | "stale" | "unreachable" | "unknown" | "updating";
   /** What differs from the role's usual state; only on drifted hosts with both documents held. */
   drift: { added: number; removed: number; changed: number; highlights: string[] } | null;
 }
@@ -459,13 +459,16 @@ export interface SbomRole {
   modal_sha256: string | null;
   split: boolean;
   drifted: number;
+  /** Hosts still hashed by an older macos_sbom than the rest of the role. */
+  updating: number;
   unhealthy: number;
+  generator_version: string | null;
 }
 export interface SbomResponse {
   roles: SbomRole[];
   hosts: SbomHost[];
   totals: {
-    hosts: number; reporting: number; distinct_states: number; documents: number; drifted: number;
+    hosts: number; reporting: number; distinct_states: number; documents: number; drifted: number; updating: number;
     roles: number; roles_drifted: number;
   };
   /** Macs Hangar knows about that have no SBOM path, by pool. */

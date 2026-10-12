@@ -240,7 +240,15 @@ def agent_push(
 # --- viewer side --------------------------------------------------------------
 
 
-def _host_view(r: WorkerSbom, modal: str | None, now: datetime) -> dict[str, Any]:
+def _gen_key(version: str | None) -> tuple[int, ...]:
+    """`2.2.0` -> (2, 2, 0). Unknown sorts oldest."""
+    try:
+        return tuple(int(x) for x in (version or "").split("."))
+    except ValueError:
+        return (0,)
+
+
+def _host_view(r: WorkerSbom, modal: str | None, now: datetime, outdated: bool = False) -> dict[str, Any]:
     fp_stale = r.generated_at is None or now - r.generated_at > _FINGERPRINT_STALE
     read_stale = r.collected_at is None or now - r.collected_at > _COLLECTION_STALE
     drifted = bool(modal and r.sbom_sha256 and r.sbom_sha256 != modal)
@@ -248,6 +256,11 @@ def _host_view(r: WorkerSbom, modal: str | None, now: datetime) -> dict[str, Any
         state = "unknown"
     elif read_stale:
         state = "unreachable"
+    elif outdated:
+        # Hashed by an older macos_sbom than the rest of its role. A generator change
+        # can change what counts toward the hash, so comparing across versions would
+        # report every host mid-rollout as drifted. It isn't; it's updating.
+        state = "updating"
     elif drifted:
         state = "drifted"
     elif fp_stale:
@@ -322,13 +335,20 @@ def sbom_rollup(user: str = Depends(require_access), db: Session = Depends(get_d
     roles: list[dict[str, Any]] = []
     hosts: list[dict[str, Any]] = []
     for role, members in by_role.items():
-        counts = Counter(r.sbom_sha256 for r in members if r.sbom_sha256)
+        # Only hosts hashed by the role's newest generator are compared with each other.
+        reported = [r for r in members if r.sbom_sha256]
+        current = max((_gen_key(r.generator_version) for r in reported), default=(0,))
+        is_outdated = {r.hostname: _gen_key(r.generator_version) < current for r in reported}
+        counts = Counter(r.sbom_sha256 for r in reported if not is_outdated[r.hostname])
         ranked = counts.most_common()
         # A tie for most common is a role mid-rollout, not one host drifting: call it
         # split and flag nobody, rather than pick a "correct" state at random.
         split = len(ranked) > 1 and ranked[0][1] == ranked[1][1]
         modal = None if split or not ranked else ranked[0][0]
-        views = [{**_host_view(r, modal, now), "puppet_role": role} for r in members]
+        views = [
+            {**_host_view(r, modal, now, is_outdated.get(r.hostname, False)), "puppet_role": role}
+            for r in members
+        ]
         for v in views:
             v["drift"] = drift_summary(db, modal, v["sbom_sha256"]) if v["state"] == "drifted" else None
         hosts.extend(views)
@@ -348,11 +368,13 @@ def sbom_rollup(user: str = Depends(require_access), db: Session = Depends(get_d
             "modal_sha256": modal,
             "split": split,
             "drifted": sum(1 for v in views if v["state"] == "drifted"),
+            "updating": sum(1 for v in views if v["state"] == "updating"),
             "unhealthy": sum(1 for v in views if v["state"] in ("unreachable", "stale", "unknown")),
+            "generator_version": ".".join(map(str, current)) if reported else None,
         })
 
     roles.sort(key=lambda r: (-r["drifted"], -r["unhealthy"], r["puppet_role"]))
-    order = {"drifted": 0, "unreachable": 1, "stale": 2, "unknown": 3, "ok": 4}
+    order = {"drifted": 0, "unreachable": 1, "stale": 2, "updating": 3, "unknown": 4, "ok": 5}
     hosts.sort(key=lambda h: (order[h["state"]], h["puppet_role"] or "", h["hostname"]))
     last = max((r.attempted_at for r in rows if r.attempted_at), default=None)
     return {
@@ -361,7 +383,8 @@ def sbom_rollup(user: str = Depends(require_access), db: Session = Depends(get_d
         "totals": {
             "hosts": len(rows),
             "reporting": sum(1 for h in hosts if h["state"] != "unknown"),
-            "distinct_states": len({r.sbom_sha256 for r in rows if r.sbom_sha256}),
+            "distinct_states": len({h["sbom_sha256"] for h in hosts if h["sbom_sha256"] and h["state"] != "updating"}),
+            "updating": sum(1 for h in hosts if h["state"] == "updating"),
             "documents": len(held),
             "drifted": sum(1 for h in hosts if h["state"] == "drifted"),
             "roles": len(roles),
