@@ -154,6 +154,11 @@ function HostRow({ h, modal, now }: { h: SbomHost; modal: string | null; now: nu
 
 function RoleRows({ role, hosts, now }: { role: SbomRole; hosts: SbomHost[]; now: number }) {
   const [open, setOpen] = useState(role.drifted > 0);
+  // Lead with the hosts that need a look; a converged role of 170 is one line, not 170.
+  const [showOk, setShowOk] = useState(false);
+  const attention = hosts.filter(h => h.state !== "ok");
+  const ok = hosts.filter(h => h.state === "ok");
+  const shown = showOk || attention.length === 0 ? hosts : attention;
   return (
     <>
       <tr className={`cursor-pointer hover:bg-gray-900/40 ${role.drifted ? "border-l-2 border-l-orange-700/60" : "border-l-2 border-l-transparent"}`}
@@ -179,9 +184,15 @@ function RoleRows({ role, hosts, now }: { role: SbomRole; hosts: SbomHost[]; now
           <td colSpan={5} className="p-0">
             <table className="w-full text-left">
               <tbody className="divide-y divide-gray-800/30">
-                {hosts.map(h => <HostRow key={h.hostname} h={h} modal={role.modal_sha256} now={now} />)}
+                {shown.map(h => <HostRow key={h.hostname} h={h} modal={role.modal_sha256} now={now} />)}
               </tbody>
             </table>
+            {attention.length > 0 && ok.length > 0 && (
+              <button onClick={() => setShowOk(v => !v)}
+                className="ml-8 my-1.5 text-[11px] text-gray-600 hover:text-gray-300">
+                {showOk ? "hide" : "show"} {ok.length} matching host{ok.length === 1 ? "" : "s"}
+              </button>
+            )}
           </td>
         </tr>
       )}
