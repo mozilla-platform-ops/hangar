@@ -473,6 +473,21 @@ export interface SbomResponse {
   last_collected_at: string | null;
   agent_stale: boolean;
 }
+export interface SbomItem { name: string; version: string | null; detail?: string | null; signed?: boolean }
+/** One software state reshaped for people: identity facts first, then grouped contents. */
+export interface SbomConfig {
+  sha256: string;
+  component_count: number;
+  generated_at: string | null;
+  os: { name: string; version: string | null; build: string | null; arch: string | null; sip: string | null };
+  glance: { label: string; value: string | null; detail: string | null }[];
+  binaries: SbomItem[];
+  devtools: SbomItem[];
+  python: { label: string; path: string; packages: SbomItem[] }[];
+  packages: SbomItem[];
+  apple_packages: SbomItem[];
+  homebrew: SbomItem[];
+}
 export interface SbomDiff {
   base: string;
   head: string;
@@ -840,6 +855,7 @@ export const api = {
   sbom: {
     get: () => get<SbomResponse>("/sbom"),
     diff: (base: string, head: string) => get<SbomDiff>("/sbom/diff", { base, head }),
+    config: (sha: string) => get<SbomConfig>(`/sbom/documents/${sha}/config`),
     documentUrl: (sha: string) => `${BASE}/sbom/documents/${sha}`,
   },
   rightNow: {

@@ -385,6 +385,142 @@ def sbom_document(sha: str, user: str = Depends(require_access), db: Session = D
     )
 
 
+# --- configuration summary -----------------------------------------------------
+#
+# A CycloneDX document is built for scanners: 600+ flat components. People want to
+# know "what is this machine": its OS, toolchain, the worker binaries and who signed
+# them, the Python it carries. This reshapes one document into that, for the
+# configuration sheet. Content is fixed by the hash, so each summary is computed once.
+
+_CONFIG_CACHE: dict[str, dict[str, Any]] = {}
+_WORKER_BINARIES = ("generic-worker", "start-worker", "worker-runner", "livelog", "taskcluster")
+_VERSION_IN = re.compile(r"\d+(?:\.\d+)+(?:[-+.\w]*)?")
+
+
+def _props(c: dict[str, Any]) -> dict[str, str]:
+    return {p.get("name", ""): p.get("value", "") for p in c.get("properties", []) or []}
+
+
+def _clean_version(v: str | None) -> str | None:
+    """`taskcluster version 67.1.0` -> `67.1.0`; leaves a plain version alone."""
+    if not v:
+        return None
+    m = _VERSION_IN.search(v)
+    return m.group(0) if m else v
+
+
+def _signer(authority: str | None) -> str | None:
+    """`Developer ID Application: Mozilla Corporation (43AQ936H96)` -> `Mozilla Corporation`."""
+    if not authority:
+        return None
+    m = re.match(r"^(?:Developer ID Application|Apple Development|Apple Distribution):\s*(.+?)(?:\s*\([A-Z0-9]{10}\))?$", authority)
+    return m.group(1) if m else authority
+
+
+def _interpreter_label(path: str) -> str:
+    m = re.search(r"python(\d+\.\d+)", path)
+    return f"Python {m.group(1)}" if m else "Python 3"
+
+
+def config_summary(sha: str, doc: dict[str, Any]) -> dict[str, Any]:
+    if sha in _CONFIG_CACHE:
+        return _CONFIG_CACHE[sha]
+    comps = doc.get("components", [])
+    os_c = next((c for c in comps if c.get("type") == "operating-system"), {})
+    os_p = _props(os_c)
+
+    binaries, devtools, receipts, apple, brew = [], [], [], [], []
+    python: dict[str, list[dict[str, Any]]] = {}
+    for c in comps:
+        t, name, p = c.get("type"), c.get("name", ""), _props(c)
+        if t == "file":
+            signer = _signer(p.get("macos:codesign_authority"))
+            binaries.append({
+                "name": name.rsplit("/", 1)[-1],
+                "version": _clean_version(c.get("version")),
+                "detail": f"Signed · {signer}" if signer else ("→ " + p["file:target"] if p.get("file:target") else "Unsigned"),
+                "signed": bool(signer),
+            })
+        elif t == "library":
+            interp = p.get("python:interpreter", "")
+            python.setdefault(interp, []).append({"name": name, "version": c.get("version")})
+        elif t == "application" and p.get("xcode:path"):
+            devtools.append({
+                "name": name.removesuffix(".app"),
+                "version": c.get("version"),
+                "detail": ("Selected · " if p.get("xcode:selected") == "true" else "") + f"build {p.get('xcode:build', '?')}",
+            })
+        elif t == "application" and name.startswith("com.apple.pkg.CLTools"):
+            devtools.append({"name": "Command Line Tools", "version": c.get("version"), "detail": name.removeprefix("com.apple.pkg.")})
+        elif t == "application" and p.get("brew:kind"):
+            brew.append({"name": name, "version": c.get("version"), "detail": p["brew:kind"]})
+        elif t == "application":
+            item = {"name": name, "version": c.get("version"), "detail": p.get("macos:install_date", "")[:10] or None}
+            (apple if name.startswith("com.apple.") else receipts).append(item)
+
+    # Several receipts per CLT install; show the tool once.
+    seen: set[tuple[str, str | None]] = set()
+    devtools = [d for d in devtools if not ((d["name"], d["version"]) in seen or seen.add((d["name"], d["version"])))]
+    # Taskcluster's own binaries are why these machines exist; they lead.
+    binaries.sort(key=lambda b: (not b["name"].startswith(_WORKER_BINARIES), b["name"].lower()))
+    receipts.sort(key=lambda r: r["name"].lower())
+
+    interpreters = [
+        {
+            "label": _interpreter_label(path),
+            "path": path,
+            "packages": sorted(pkgs, key=lambda x: x["name"].lower()),
+        }
+        for path, pkgs in sorted(python.items(), key=lambda kv: -len(kv[1]))
+    ]
+
+    # The handful of facts that identify a machine, in reading order. Only what's present.
+    glance = [{"label": "macOS", "value": os_c.get("version") or "—", "detail": os_p.get("macos:build")}]
+    xcode = next((d for d in devtools if d["name"] != "Command Line Tools" and d["detail"].startswith("Selected")), None) \
+        or next((d for d in devtools if d["name"] != "Command Line Tools"), None)
+    if xcode:
+        glance.append({"label": "Xcode", "value": xcode["version"], "detail": xcode["detail"].replace("Selected · ", "")})
+    elif devtools:
+        glance.append({"label": "Command Line Tools", "value": devtools[0]["version"], "detail": None})
+    if interpreters:
+        versions = sorted({i["label"].removeprefix("Python ") for i in interpreters})
+        glance.append({
+            "label": "Python",
+            "value": versions[-1],
+            "detail": f"{len(interpreters)} interpreters" if len(interpreters) > 1 else f"{len(interpreters[0]['packages'])} packages",
+        })
+    gw = next((b for b in binaries if b["name"].startswith("generic-worker")), None)
+    if gw:
+        glance.append({"label": "generic-worker", "value": gw["version"] or "present", "detail": gw["detail"].removeprefix("Signed · ")})
+
+    out = {
+        "sha256": sha,
+        "component_count": len(comps),
+        "generated_at": (doc.get("metadata") or {}).get("timestamp"),
+        "os": {"name": os_c.get("name", "macOS"), "version": os_c.get("version"), "build": os_p.get("macos:build"),
+               "arch": os_p.get("macos:arch"), "sip": os_p.get("macos:sip")},
+        "glance": glance,
+        "binaries": binaries,
+        "devtools": devtools,
+        "python": interpreters,
+        "packages": receipts,
+        "apple_packages": apple,
+        "homebrew": brew,
+    }
+    if len(_CONFIG_CACHE) >= 64:
+        _CONFIG_CACHE.clear()
+    _CONFIG_CACHE[sha] = out
+    return out
+
+
+@router.get("/documents/{sha}/config")
+def sbom_config(sha: str, user: str = Depends(require_access), db: Session = Depends(get_db)) -> dict[str, Any]:
+    """One software state, reshaped from a flat component list into what a person reads."""
+    if sha in _CONFIG_CACHE:
+        return _CONFIG_CACHE[sha]
+    return config_summary(sha, _get_doc(db, sha))
+
+
 def _identity(c: dict[str, Any]) -> tuple[str, str]:
     return (c.get("type", ""), c.get("name", ""))
 

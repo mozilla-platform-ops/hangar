@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronRight, LoaderCircle, Download, GitCompare, Package } from "lucide-react";
+import { ChevronRight, LoaderCircle, Download, GitCompare, Package, SlidersHorizontal } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
+import { SbomConfigSheet } from "../components/SbomConfigSheet";
 import { api } from "../api";
 import type { SbomDiff, SbomHost, SbomResponse, SbomRole } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
@@ -193,7 +195,9 @@ function AttentionHost({ h, modal, now }: { h: SbomHost; modal: string | null; n
   );
 }
 
-function RoleCard({ role, hosts, now }: { role: SbomRole; hosts: SbomHost[]; now: number }) {
+function RoleCard({ role, hosts, now, onInspect }: {
+  role: SbomRole; hosts: SbomHost[]; now: number; onInspect: () => void;
+}) {
   const [open, setOpen] = useState(role.drifted > 0);
   const [showOk, setShowOk] = useState(false);
   const attention = hosts.filter(h => h.state !== "ok").sort(byHost);
@@ -202,8 +206,9 @@ function RoleCard({ role, hosts, now }: { role: SbomRole; hosts: SbomHost[]; now
 
   return (
     <div className={`border-b border-gray-800/60 last:border-b-0 ${role.drifted ? "bg-orange-500/[0.025]" : ""}`}>
-      <button onClick={() => setOpen(o => !o)}
-        className="w-full grid grid-cols-[minmax(280px,380px)_minmax(0,1fr)_120px] gap-6 items-center px-5 py-2.5 text-left hover:bg-white/[0.015] transition-colors">
+      <div role="button" tabIndex={0} onClick={() => setOpen(o => !o)}
+        onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen(o => !o); } }}
+        className="w-full cursor-pointer grid grid-cols-[minmax(280px,380px)_minmax(0,1fr)_120px_32px] gap-6 items-center px-5 py-2.5 text-left hover:bg-white/[0.015] transition-colors">
         <div className="flex items-center gap-2 min-w-0">
           <ChevronRight size={13} className={`text-gray-600 flex-shrink-0 transition-transform duration-150 ${open ? "rotate-90" : ""}`} />
           <div className="min-w-0 flex items-baseline gap-2">
@@ -215,7 +220,12 @@ function RoleCard({ role, hosts, now }: { role: SbomRole; hosts: SbomHost[]; now
         </div>
         <HostStrip role={role} hosts={hosts} />
         <RoleVerdict role={role} />
-      </button>
+        <button onClick={e => { e.stopPropagation(); onInspect(); }} disabled={!role.states.some(s => s.document)}
+          title="Configuration — what's installed" aria-label={`${role.puppet_role} configuration`}
+          className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-600 hover:text-white hover:bg-white/[0.06] transition-colors disabled:opacity-30 disabled:hover:bg-transparent">
+          <SlidersHorizontal size={14} />
+        </button>
+      </div>
 
       {open && (
         <div className="pl-[46px] pr-5 pb-4 space-y-4">
@@ -332,6 +342,11 @@ export function Sbom() {
   const t = data?.totals;
   const v = data && t && t.hosts > 0 ? verdict(data) : null;
 
+  // The open configuration lives in the URL, so it can be linked and survives a reload.
+  const [params, setParams] = useSearchParams();
+  const configRole = data?.roles.find(r => r.puppet_role === params.get("config")) ?? null;
+  const closeConfig = () => setParams(p => { p.delete("config"); return p; });
+
   return (
     <div className="p-8 space-y-6 max-w-6xl">
       <div className="flex items-center gap-3">
@@ -380,7 +395,7 @@ export function Sbom() {
           </div>
 
           <div className="card overflow-hidden">
-            <div className="grid grid-cols-[minmax(280px,380px)_minmax(0,1fr)_120px] gap-6 px-5 py-2.5 border-b border-gray-800/60 text-[10px] uppercase tracking-wider text-gray-600">
+            <div className="grid grid-cols-[minmax(280px,380px)_minmax(0,1fr)_120px_32px] gap-6 px-5 py-2.5 border-b border-gray-800/60 text-[10px] uppercase tracking-wider text-gray-600">
               <span className="pl-[21px]">Role</span>
               <span className="flex items-center gap-3">
                 Hosts
@@ -392,6 +407,7 @@ export function Sbom() {
                 </span>
               </span>
               <span className="text-right">State</span>
+              <span />
             </div>
             {[...FAMILIES.map(f => f.label), "Other"].map(label => {
               const roles = data.roles.filter(r => family(r.puppet_role) === label);
@@ -408,7 +424,8 @@ export function Sbom() {
                     </span>
                   </div>
                   {roles.map(r => (
-                    <RoleCard key={r.puppet_role} role={r} hosts={hostsByRole.get(r.puppet_role) ?? []} now={now} />
+                    <RoleCard key={r.puppet_role} role={r} hosts={hostsByRole.get(r.puppet_role) ?? []} now={now}
+                      onInspect={() => setParams(p => { p.set("config", r.puppet_role); return p; })} />
                   ))}
                 </section>
               );
@@ -436,6 +453,8 @@ export function Sbom() {
               })}
             </div>
           )}
+
+          {configRole && <SbomConfigSheet key={configRole.puppet_role} role={configRole} onClose={closeConfig} />}
 
           <p className="text-[11px] text-gray-600 flex items-start gap-1.5 max-w-3xl">
             <Package size={12} className="mt-0.5 flex-shrink-0" />

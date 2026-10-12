@@ -224,3 +224,34 @@ def test_rollup_names_the_macs_it_cannot_cover(db: Session) -> None:
         {"pool": "gecko-t-osx-1500-m-vms", "hosts": 2, "reason": "VM guests aren't reachable by the agent"},
         {"pool": "gecko-signing-mac14m2", "hosts": 1, "reason": "signers are excluded from macos_sbom"},
     ]
+
+
+def test_config_summary_reads_like_a_spec_sheet() -> None:
+    comps = [
+        {"type": "operating-system", "name": "macOS", "version": "15.7.1",
+         "properties": [{"name": "macos:build", "value": "24G231"}]},
+        {"type": "application", "name": "Xcode.app", "version": "16.4",
+         "properties": [{"name": "xcode:path", "value": "/Applications/Xcode.app"},
+                        {"name": "xcode:build", "value": "16F6"}, {"name": "xcode:selected", "value": "true"}]},
+        {"type": "application", "name": "com.apple.pkg.CLTools_Executables", "version": "16.4"},
+        {"type": "application", "name": "com.apple.pkg.MobileAssets", "version": "1"},
+        {"type": "application", "name": "com.puppetlabs.puppet-agent", "version": "8.10.0"},
+        {"type": "file", "name": "/usr/local/bin/generic-worker", "version": "generic-worker 83.4.1",
+         "properties": [{"name": "macos:codesign_authority",
+                         "value": "Developer ID Application: Mozilla Corporation (43AQ936H96)"}]},
+        {"type": "file", "name": "/usr/local/bin/livelog"},
+        {"type": "library", "name": "PyYAML", "version": "6.0.2",
+         "properties": [{"name": "python:interpreter", "value": "/usr/local/bin/python3.11"}]},
+    ]
+    c = sbom.config_summary("x" * 64, {"components": comps})
+    assert [(g["label"], g["value"]) for g in c["glance"]] == [
+        ("macOS", "15.7.1"), ("Xcode", "16.4"), ("Python", "3.11"), ("generic-worker", "83.4.1"),
+    ]
+    assert c["binaries"][0] == {"name": "generic-worker", "version": "83.4.1",
+                                "detail": "Signed · Mozilla Corporation", "signed": True}
+    assert c["binaries"][1]["detail"] == "Unsigned"
+    assert [d["name"] for d in c["devtools"]] == ["Xcode", "Command Line Tools"]
+    assert [p["name"] for p in c["packages"]] == ["com.puppetlabs.puppet-agent"]
+    assert [p["name"] for p in c["apple_packages"]] == ["com.apple.pkg.MobileAssets"]
+    assert c["python"][0]["label"] == "Python 3.11"
+    assert c["homebrew"] == []
