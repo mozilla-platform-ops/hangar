@@ -399,3 +399,48 @@ class TartSlotHealth(Base):
             return v if isinstance(v, list) else []
         except (ValueError, TypeError):
             return []
+
+
+class SbomDocument(Base):
+    """One distinct macOS software state, as a CycloneDX 1.6 document.
+
+    Keyed on the fingerprint ronin_puppet's macos_sbom computes over component
+    identity only (type/name/version/purl/sha256 -- no timestamps), so every host
+    built from the same role shares one row. The fleet holds a handful of these,
+    not one per host. The stored document is whichever host's copy arrived first;
+    its host-specific metadata (hostname, install dates) is incidental to the hash.
+    """
+
+    __tablename__ = "sbom_documents"
+
+    sha256: Mapped[str] = mapped_column(String(64), primary_key=True)
+    document: Mapped[str] = mapped_column(Text)                 # CycloneDX JSON
+    component_count: Mapped[int | None] = mapped_column(Integer)
+    source_hostname: Mapped[str | None] = mapped_column(String(255))
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class WorkerSbom(Base):
+    """A host's latest SBOM fingerprint, pushed by the on-network agent.
+
+    Latest-only. A failed read records `agent_error` and `attempted_at` but keeps
+    the last good fingerprint, so a host that drops off ssh does not lose its state.
+    """
+
+    __tablename__ = "worker_sbom"
+
+    hostname: Mapped[str] = mapped_column(String(255), primary_key=True)
+    sbom_sha256: Mapped[str | None] = mapped_column(String(64), index=True)
+    puppet_role: Mapped[str | None] = mapped_column(String(255))
+    macos_version: Mapped[str | None] = mapped_column(String(32))
+    macos_build: Mapped[str | None] = mapped_column(String(32))
+    arch: Mapped[str | None] = mapped_column(String(16))
+    hw_model: Mapped[str | None] = mapped_column(String(64))
+    is_vm: Mapped[bool | None] = mapped_column(Boolean)
+    sip: Mapped[str | None] = mapped_column(String(64))
+    component_count: Mapped[int | None] = mapped_column(Integer)
+    generator_version: Mapped[str | None] = mapped_column(String(32))
+    generated_at: Mapped[datetime | None] = mapped_column(DateTime)   # when the host last ran the generator
+    collected_at: Mapped[datetime | None] = mapped_column(DateTime)   # last successful agent read
+    attempted_at: Mapped[datetime | None] = mapped_column(DateTime)   # last agent attempt, good or bad
+    agent_error: Mapped[str | None] = mapped_column(Text)

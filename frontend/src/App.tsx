@@ -14,6 +14,7 @@ const Alerts = lazy(() => import("./pages/Alerts").then(m => ({ default: m.Alert
 const FailureInsights = lazy(() => import("./pages/FailureInsights").then(m => ({ default: m.FailureInsights })));
 const Pools = lazy(() => import("./pages/Pools").then(m => ({ default: m.Pools })));
 const TartVMs = lazy(() => import("./pages/TartVMs").then(m => ({ default: m.TartVMs })));
+const Sbom = lazy(() => import("./pages/Sbom").then(m => ({ default: m.Sbom })));
 
 /** Redirect a legacy path onto /fleet while PRESERVING the incoming query string
  * (so /workers?worker_pool=… keeps its filter instead of landing on the full table). */
@@ -42,6 +43,7 @@ export default function App() {
           <Route path="insights" element={<FailureInsights />} />
           <Route path="pools" element={<Pools />} />
           <Route path="tart-vms" element={<TartVMs />} />
+          <Route path="sbom" element={<Sbom />} />
         </Route>
       </Routes>
     </BrowserRouter>

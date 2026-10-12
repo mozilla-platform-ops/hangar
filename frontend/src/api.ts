@@ -433,6 +433,69 @@ export interface VMPipeline {
   generated_at: string;
 }
 
+/** macOS SBOM: one host's latest fingerprint, graded against its role. */
+export interface SbomHost {
+  hostname: string;
+  puppet_role: string | null;
+  sbom_sha256: string | null;
+  macos_version: string | null;
+  macos_build: string | null;
+  arch: string | null;
+  hw_model: string | null;
+  is_vm: boolean | null;
+  sip: string | null;
+  component_count: number | null;
+  generated_at: string | null;
+  collected_at: string | null;
+  agent_error: string | null;
+  state: "ok" | "drifted" | "stale" | "unreachable" | "unknown";
+  /** What differs from the role's usual state; only on drifted hosts with both documents held. */
+  drift: { added: number; removed: number; changed: number; highlights: string[] } | null;
+}
+export interface SbomRole {
+  puppet_role: string;
+  hosts: number;
+  states: { sbom_sha256: string; hosts: number; component_count: number | null; document: boolean; first_seen_at: string | null }[];
+  modal_sha256: string | null;
+  split: boolean;
+  drifted: number;
+  unhealthy: number;
+}
+export interface SbomResponse {
+  roles: SbomRole[];
+  hosts: SbomHost[];
+  totals: {
+    hosts: number; reporting: number; distinct_states: number; documents: number; drifted: number;
+    roles: number; roles_drifted: number;
+  };
+  /** Macs Hangar knows about that have no SBOM path, by pool. */
+  uncovered: { pool: string; hosts: number; reason: string }[];
+  last_collected_at: string | null;
+  agent_stale: boolean;
+}
+export interface SbomItem { name: string; version: string | null; detail?: string | null; signed?: boolean }
+/** One software state reshaped for people: identity facts first, then grouped contents. */
+export interface SbomConfig {
+  sha256: string;
+  component_count: number;
+  generated_at: string | null;
+  os: { name: string; version: string | null; build: string | null; arch: string | null; sip: string | null };
+  glance: { label: string; value: string | null; detail: string | null }[];
+  binaries: SbomItem[];
+  devtools: SbomItem[];
+  python: { label: string; path: string; packages: SbomItem[] }[];
+  packages: SbomItem[];
+  apple_packages: SbomItem[];
+  homebrew: SbomItem[];
+}
+export interface SbomDiff {
+  base: string;
+  head: string;
+  added: { type: string; name: string; version: string }[];
+  removed: { type: string; name: string; version: string }[];
+  changed: { type: string; name: string; base: string; head: string }[];
+}
+
 /** One tart VM slot, as collected by the on-network agent and graded by the backend. */
 export interface TartSlot {
   hostname: string;
@@ -788,6 +851,12 @@ export const api = {
   },
   tartHealth: {
     get: () => get<TartHealthResponse>("/tart-health"),
+  },
+  sbom: {
+    get: () => get<SbomResponse>("/sbom"),
+    diff: (base: string, head: string) => get<SbomDiff>("/sbom/diff", { base, head }),
+    config: (sha: string) => get<SbomConfig>(`/sbom/documents/${sha}/config`),
+    documentUrl: (sha: string) => `${BASE}/sbom/documents/${sha}`,
   },
   rightNow: {
     get: () => get<RightNow>("/right-now"),
