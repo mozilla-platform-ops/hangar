@@ -101,7 +101,9 @@ function SlotRow({ slot, now }: { slot: TartSlot; now: number }) {
         <td className="py-2 pr-4 text-xs whitespace-nowrap">
           {/* Credential-free = the host injects the worker vault at launch instead of
               the image baking it in. Per slot, because it is the rollout frontier. */}
-          {slot.inject_vault ? (
+          {slot.inject_vault === null ? (
+            <span className="text-gray-600">—</span>
+          ) : slot.inject_vault ? (
             <span className="inline-flex items-center gap-1 text-brand-300"
               title="worker vault injected by the host over mTLS at launch">
               <KeyRound size={11} /> injected
@@ -111,7 +113,7 @@ function SlotRow({ slot, now }: { slot: TartSlot; now: number }) {
           )}
         </td>
         <td className="py-2 pr-4 text-xs text-gray-600 whitespace-nowrap">
-          {slot.guest_disk_free_gib !== null ? `${slot.guest_disk_free_gib} GiB` : "—"}
+          <GuestCell slot={slot} />
         </td>
         <td className="py-2 pr-2 text-xs text-gray-600 max-w-[280px] truncate">
           {slot.problems.length > 0
@@ -150,6 +152,21 @@ function SlotRow({ slot, now }: { slot: TartSlot; now: number }) {
   );
 }
 
+/** Free disk when the guest was probed; otherwise why it wasn't, so a blank is never
+ *  mistaken for a healthy guest. */
+function GuestCell({ slot }: { slot: TartSlot }) {
+  switch (slot.guest_check) {
+    case "checked":
+      return <>{slot.guest_disk_free_gib !== null ? `${slot.guest_disk_free_gib} GiB` : "checked"}</>;
+    case "no_key":
+      return <span title="no /etc/tart/guest_probe_key on this host, so the guest is never probed">no probe key</span>;
+    case "unreachable":
+      return <span className="text-yellow-500/80" title="probe key present, guest didn't answer">no answer</span>;
+    default:
+      return <>—</>;
+  }
+}
+
 /** One key/value in the expanded row; renders an em dash rather than hiding a null. */
 function Detail({ k, v }: { k: string; v: string | null }) {
   return (
@@ -173,7 +190,6 @@ export function TartVMs() {
   usePoll(load, 60_000);
 
   const hosts = useMemo(() => new Set(data?.slots.map(s => s.hostname) ?? []).size, [data]);
-  const injected = useMemo(() => data?.slots.filter(s => s.inject_vault).length ?? 0, [data]);
   const lastCollected = useMemo(() => {
     const stamps = (data?.slots ?? []).map(s => s.collected_at).filter((s): s is string => !!s);
     return stamps.length ? stamps.sort().slice(-1)[0] : null;
@@ -206,10 +222,12 @@ export function TartVMs() {
           <div className="flex items-center gap-1.5 flex-wrap justify-end">
             {data.counts.crit > 0 && <Badge label={`${data.counts.crit} crit`} variant="red" dot pulse />}
             {data.counts.warn > 0 && <Badge label={`${data.counts.warn} warn`} variant="yellow" dot />}
-            {data.counts.unknown > 0 && <Badge label={`${data.counts.unknown} unknown`} variant="gray" dot />}
-            <Badge label={`${data.counts.ok}/${data.total} ok`}
-              variant={data.counts.ok === data.total ? "green" : "gray"}
-              dot={data.counts.ok === data.total} />
+            {data.summary.uncollected_hosts.length > 0 && (
+              <Badge label={`${data.summary.uncollected_hosts.length} hosts not collected`} variant="gray" dot />
+            )}
+            <Badge label={`${data.summary.serving}/${data.total} serving`}
+              variant={data.summary.serving === data.total ? "green" : "gray"}
+              dot={data.summary.serving === data.total} />
           </div>
         )}
       </div>
@@ -237,12 +255,29 @@ export function TartVMs() {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <Tile icon={<Server size={11} />} label="Slots" value={`${data.total}`}
               hint={`${hosts} hosts × 2 VMs`} />
-            <Tile icon={<ShieldCheck size={11} />} label="Healthy" value={`${data.counts.ok}/${data.total}`} />
-            <Tile icon={<KeyRound size={11} />} label="Credential-free" value={`${injected}/${data.total}`}
-              hint="slots whose worker vault is injected by the host at launch rather than baked into the image" />
+            <Tile icon={<ShieldCheck size={11} />} label="Serving tasks" value={`${data.summary.serving}/${data.total}`}
+              hint="registered in Taskcluster, not quarantined, and not down across two sweeps" />
+            <Tile icon={<HardDrive size={11} />} label="Guest-checked" value={`${data.summary.guest_checked}/${data.total}`}
+              hint="slots whose guest answered the probe, so disk, clock, identity and exit-69 checks ran" />
             <Tile icon={<Clock size={11} />} label="Last collected" value={ago(lastCollected, now)}
               hint="slots go to 'unknown' after 30 minutes without a push" />
           </div>
+
+          {data.summary.uncollected_hosts.length > 0 && (
+            <div className="card p-4 text-sm text-gray-400 space-y-1">
+              <div className="flex items-center gap-2">
+                <AlertCircle size={15} className="text-gray-500 flex-shrink-0" />
+                The agent couldn't collect {data.summary.uncollected_hosts.length} host
+                {data.summary.uncollected_hosts.length === 1 ? "" : "s"}, so their slots are unknown,
+                not necessarily down.
+              </div>
+              <ul className="text-xs text-gray-500 font-mono pl-6 space-y-0.5">
+                {data.summary.uncollected_hosts.map(h => (
+                  <li key={h.hostname}>{shortHost(h.hostname)} <span className="text-gray-600">{h.reason}</span></li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {problems.length === 0 && (
             <div className="card p-4 text-sm text-gray-400 flex items-center gap-2">
@@ -280,7 +315,7 @@ export function TartVMs() {
                     <th className="py-2 pr-4 font-medium" title="how long the host's `tart run` process has been up">Run up</th>
                     <th className="py-2 pr-4 font-medium">Taskcluster</th>
                     <th className="py-2 pr-4 font-medium">Creds</th>
-                    <th className="py-2 pr-4 font-medium">Guest free</th>
+                    <th className="py-2 pr-4 font-medium" title="free disk inside the guest, when it was probed">Guest</th>
                     <th className="py-2 pr-2 font-medium">Detail</th>
                   </tr>
                 </thead>
@@ -295,10 +330,17 @@ export function TartVMs() {
               own coverage is how the July outage stayed invisible. */}
           <p className="text-[11px] text-gray-600 flex items-start gap-1.5 max-w-3xl">
             <HardDrive size={12} className="mt-0.5 flex-shrink-0" />
-            Guest-level checks — disk headroom, clock skew, worker identity — are only
-            populated when the agent runs with guest probes enabled. Without them these
-            columns stay blank and a VM crash-looping inside a healthy host will still
-            read as <span className="font-mono">ok</span>.
+            <span>
+              Guest-level checks (disk headroom, clock skew, worker identity, exit-69 crash
+              loops) only run on hosts holding the probe key at{" "}
+              <span className="font-mono">/etc/tart/guest_probe_key</span>. Elsewhere a VM
+              crash-looping inside a healthy host will still read
+              as <span className="font-mono">ok</span>
+              {data.summary.no_probe_key_hosts.length > 0 && (
+                <> ({data.summary.no_probe_key_hosts.length} hosts without the key:{" "}
+                  <span className="font-mono">{data.summary.no_probe_key_hosts.map(shortHost).join(", ")}</span>)</>
+              )}.
+            </span>
           </p>
         </>
       )}

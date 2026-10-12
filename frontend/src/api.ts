@@ -458,6 +458,12 @@ export interface TartSlot {
   vault_present: boolean | null;
   checkout_sha: string | null;
   refspec_pinned: boolean | null;
+  probe_key_present: boolean | null;
+  /** Whether the in-guest checks ran: the guest answered, the host has no probe key,
+   *  the key is there but the guest didn't answer, or it couldn't be told. */
+  guest_check: "checked" | "no_key" | "unreachable" | "not_checked";
+  vm_down_since: string | null;
+  agent_error: string | null;
   status: "ok" | "warn" | "crit" | "unknown";
   problems: string[];
   collected_at: string | null;
@@ -466,6 +472,12 @@ export interface TartSlot {
 export interface TartHealthResponse {
   slots: TartSlot[];
   counts: { ok: number; warn: number; crit: number; unknown: number };
+  summary: {
+    serving: number;
+    guest_checked: number;
+    no_probe_key_hosts: string[];
+    uncollected_hosts: { hostname: string; reason: string }[];
+  };
   total: number;
   worst: "ok" | "warn" | "crit" | "unknown";
 }
