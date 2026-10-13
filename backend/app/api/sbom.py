@@ -231,6 +231,8 @@ def agent_push(
         row.sip = _sip(fp.get("sip"))
         row.component_count = fp.get("component_count") if isinstance(fp.get("component_count"), int) else None
         row.generator_version = _clip(fp.get("generator_version"), 32)
+        row.puppet_branch = _clip(fp.get("puppet_branch"), 255)
+        row.puppet_sha = _clip(fp.get("puppet_sha"), 64)
         row.generated_at = _parse_ts(fp.get("generated_at"))
         row.collected_at = now
         accepted += 1
@@ -332,9 +334,110 @@ def _uncovered(db: Session, covered: set[str]) -> list[dict[str, Any]]:
     ]
 
 
+# --- findings ---------------------------------------------------------------
+#
+# Comparing whole hashes marks most of a role as drifted on this fleet: hosts carry
+# small independent leftovers (an old script here, an older pip package there), and
+# every combination is its own hash. So drift is reported per component instead.
+# Within a cohort (same role, same puppet branch, same generator), take what most
+# hosts have for each component; each exception is a finding with its hosts. A host
+# with two leftovers shows under two findings rather than becoming a state of its own,
+# and findings that hit exactly the same hosts merge, so a leftover Python 2.7 install
+# reads as one thing, not twelve.
+
+_IDMAP_CACHE: dict[str, dict[tuple[str, str], str]] = {}
+
+
+def _idmap(db: Session, sha: str) -> dict[tuple[str, str], str] | None:
+    """(type, name) -> version identity for one state; None if the document isn't held.
+    Components tagged out of the fingerprint are left out here too."""
+    if sha in _IDMAP_CACHE:
+        return _IDMAP_CACHE[sha]
+    row = db.get(SbomDocument, sha)
+    if row is None:
+        return None
+    out = {}
+    for c in json.loads(row.document).get("components", []):
+        if any(p.get("name") == _FINGERPRINT_PROPERTY for p in c.get("properties", []) or []):
+            continue
+        out[_identity(c)] = _version(c)
+    if len(_IDMAP_CACHE) >= 256:
+        _IDMAP_CACHE.clear()
+    _IDMAP_CACHE[sha] = out
+    return out
+
+
+def _item_label(kind: str, name: str, value: str | None, baseline: str | None) -> str:
+    short = _short_name(name)
+    if kind == "added":
+        return f"+ {short} {value or ''}".rstrip() if not (value or "").startswith("sha256:") else f"+ {short}"
+    if kind == "removed":
+        return f"− {short}"
+    if (value or "").startswith("sha256:") and (baseline or "").startswith("sha256:"):
+        return f"~ {short} (different build)"
+    return f"~ {short} {baseline} → {value}"
+
+
+def _findings(db: Session, hosts_by_sha: dict[str, list[str]]) -> tuple[list[dict[str, Any]], set[str]]:
+    """Finding groups for one cohort, plus the shas whose documents aren't held yet."""
+    maps = {sha: _idmap(db, sha) for sha in hosts_by_sha}
+    known = {sha: m for sha, m in maps.items() if m is not None}
+    pending = set(maps) - set(known)
+    if not known:
+        return [], pending
+
+    keys = set().union(*known.values())
+    groups: dict[frozenset[str], list[dict[str, Any]]] = {}
+    for key in keys:
+        weight: Counter[str | None] = Counter()
+        for sha, m in known.items():
+            weight[m.get(key)] += len(hosts_by_sha[sha])
+        ranked_values = weight.most_common()
+        if len(ranked_values) > 1 and ranked_values[0][1] == ranked_values[1][1]:
+            # No majority (typically a two-host role that disagrees). Don't pick a
+            # "correct" host at random: report the disagreement against everyone in it.
+            tied = [v for v, n in ranked_values if n == ranked_values[0][1]]
+            hosts = frozenset(h for sha, m in known.items() for h in hosts_by_sha[sha])
+            if any((v or "").startswith("sha256:") for v in tied):
+                shown = f"{len(weight)} variants"  # hashes say nothing to a reader
+            else:
+                shown = " vs ".join(v or "absent" for v in tied)
+            groups.setdefault(hosts, []).append({
+                "kind": "split", "type": key[0], "name": key[1], "value": None, "baseline": None,
+                "label": f"≠ {_short_name(key[1])}: {shown}" if ":" not in shown and "variants" not in shown
+                         else f"≠ {_short_name(key[1])} ({shown})",
+            })
+            continue
+        baseline = ranked_values[0][0]
+        # Values that read the same merge into one item: a stray file that is a
+        # different build on different hosts is still one "+ virtualenv".
+        by_label: dict[str, tuple[dict[str, Any], set[str]]] = {}
+        for value, _n in weight.items():
+            if value == baseline:
+                continue
+            kind = "added" if baseline is None else "removed" if value is None else "changed"
+            label = _item_label(kind, key[1], value, baseline)
+            item, hosts_set = by_label.setdefault(label, ({
+                "kind": kind, "type": key[0], "name": key[1], "value": value, "baseline": baseline, "label": label,
+            }, set()))
+            hosts_set.update(h for sha, m in known.items() if m.get(key) == value for h in hosts_by_sha[sha])
+        for item, hosts_set in by_label.values():
+            groups.setdefault(frozenset(hosts_set), []).append(item)
+
+    order = {"split": 0, "changed": 1, "added": 2, "removed": 3}
+    out = []
+    for hosts, items in groups.items():
+        items.sort(key=lambda i: (order[i["kind"]], i["name"].lower()))
+        out.append({"hosts": sorted(hosts), "items": items})
+    out.sort(key=lambda g: (-len(g["hosts"]), g["items"][0]["name"].lower()))
+    for i, g in enumerate(out):
+        g["id"] = i
+    return out, pending
+
+
 @router.get("")
 def sbom_rollup(user: str = Depends(require_access), db: Session = Depends(get_db)) -> dict[str, Any]:
-    """Fleet SBOM by role: distinct states, the modal one, and who has drifted off it."""
+    """Fleet SBOM by role and puppet branch: what most hosts run, and what differs."""
     rows = list(db.scalars(select(WorkerSbom)))
     held = {
         sha: (count, first_seen)
@@ -347,33 +450,56 @@ def sbom_rollup(user: str = Depends(require_access), db: Session = Depends(get_d
     # A host that has never produced a fingerprint has no role of its own yet; group
     # it under the role puppet's inventory assigns, so it shows up where it's missing.
     inventory_role = dict(db.execute(select(Worker.hostname, Worker.puppet_role)).all())
-    by_role: dict[str, list[WorkerSbom]] = {}
+    cohorts: dict[tuple[str, str], list[WorkerSbom]] = {}
     for r in rows:
         role = r.puppet_role or inventory_role.get(r.hostname) or "(unknown role)"
-        by_role.setdefault(role, []).append(r)
+        cohorts.setdefault((role, r.puppet_branch or "master"), []).append(r)
 
     roles: list[dict[str, Any]] = []
     hosts: list[dict[str, Any]] = []
-    for role, members in by_role.items():
-        # Only hosts hashed by the role's newest generator are compared with each other.
+    for (role, branch), members in cohorts.items():
+        # Only hosts hashed by the cohort's newest generator are compared with each other.
         reported = [r for r in members if r.sbom_sha256]
         current = max((_gen_key(r.generator_version) for r in reported), default=(0,))
         is_outdated = {r.hostname: _gen_key(r.generator_version) < current for r in reported}
-        counts = Counter(r.sbom_sha256 for r in reported if not is_outdated[r.hostname])
-        ranked = counts.most_common()
-        # A tie for most common is a role mid-rollout, not one host drifting: call it
-        # split and flag nobody, rather than pick a "correct" state at random.
-        split = len(ranked) > 1 and ranked[0][1] == ranked[1][1]
-        modal = None if split or not ranked else ranked[0][0]
-        views = [
-            {**_host_view(r, modal, now, is_outdated.get(r.hostname, False)), "puppet_role": role}
-            for r in members
+        comparable = [
+            r for r in reported
+            if not is_outdated[r.hostname] and r.collected_at and now - r.collected_at <= _COLLECTION_STALE
         ]
-        for v in views:
-            v["drift"] = drift_summary(db, modal, v["sbom_sha256"]) if v["state"] == "drifted" else None
+        hosts_by_sha: dict[str, list[str]] = {}
+        for r in comparable:
+            hosts_by_sha.setdefault(r.sbom_sha256, []).append(r.hostname)
+        groups, pending = _findings(db, hosts_by_sha)
+        in_group: dict[str, list[int]] = {}
+        for g in groups:
+            for h in g["hosts"]:
+                in_group.setdefault(h, []).append(g["id"])
+        ranked = Counter({sha: len(h) for sha, h in hosts_by_sha.items()}).most_common()
+        modal = ranked[0][0] if ranked else None
+
+        key = role if branch == "master" else f"{role}@{branch}"
+        views = []
+        for r in members:
+            v = {**_host_view(r, None, now, is_outdated.get(r.hostname, False)), "puppet_role": role, "cohort": key}
+            if v["state"] in ("ok", "stale") and r.sbom_sha256 in pending and r.sbom_sha256 != modal:
+                v["state"] = "pending"
+            elif v["state"] == "ok" and r.hostname in in_group:
+                v["state"] = "drifted"
+            ids = in_group.get(r.hostname, [])
+            items = [i for gid in ids for i in groups[gid]["items"]]
+            v["findings"] = ids
+            v["drift"] = {
+                "added": sum(i["kind"] == "added" for i in items),
+                "removed": sum(i["kind"] == "removed" for i in items),
+                "changed": sum(i["kind"] == "changed" for i in items),
+                "highlights": [i["label"] for i in items[:3]],
+            } if items else None
+            views.append(v)
         hosts.extend(views)
         roles.append({
+            "key": key,
             "puppet_role": role,
+            "puppet_branch": None if branch == "master" else branch,
             "hosts": len(members),
             "states": [
                 {
@@ -386,15 +512,17 @@ def sbom_rollup(user: str = Depends(require_access), db: Session = Depends(get_d
                 for sha, n in ranked
             ],
             "modal_sha256": modal,
-            "split": split,
+            "split": False,
+            "findings": groups,
             "drifted": sum(1 for v in views if v["state"] == "drifted"),
+            "pending": sum(1 for v in views if v["state"] == "pending"),
             "updating": sum(1 for v in views if v["state"] == "updating"),
             "unhealthy": sum(1 for v in views if v["state"] in ("unreachable", "stale", "unknown")),
             "generator_version": ".".join(map(str, current)) if reported else None,
         })
 
-    roles.sort(key=lambda r: (-r["drifted"], -r["unhealthy"], r["puppet_role"]))
-    order = {"drifted": 0, "unreachable": 1, "stale": 2, "updating": 3, "unknown": 4, "ok": 5}
+    roles.sort(key=lambda r: (-len(r["findings"]), -r["unhealthy"], r["puppet_role"], r["puppet_branch"] or ""))
+    order = {"drifted": 0, "pending": 1, "unreachable": 2, "stale": 3, "updating": 4, "unknown": 5, "ok": 6}
     hosts.sort(key=lambda h: (order[h["state"]], h["puppet_role"] or "", h["hostname"]))
     last = max((r.attempted_at for r in rows if r.attempted_at), default=None)
     return {
@@ -405,10 +533,12 @@ def sbom_rollup(user: str = Depends(require_access), db: Session = Depends(get_d
             "reporting": sum(1 for h in hosts if h["state"] != "unknown"),
             "distinct_states": len({h["sbom_sha256"] for h in hosts if h["sbom_sha256"] and h["state"] != "updating"}),
             "updating": sum(1 for h in hosts if h["state"] == "updating"),
+            "pending": sum(1 for h in hosts if h["state"] == "pending"),
             "documents": len(held),
             "drifted": sum(1 for h in hosts if h["state"] == "drifted"),
+            "findings": sum(len(r["findings"]) for r in roles),
             "roles": len(roles),
-            "roles_drifted": sum(1 for r in roles if r["drifted"]),
+            "roles_drifted": sum(1 for r in roles if r["findings"]),
         },
         "uncovered": _uncovered(db, {r.hostname for r in rows}),
         "last_collected_at": last.isoformat() if last else None,
