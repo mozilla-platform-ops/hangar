@@ -93,6 +93,26 @@ def component_fingerprint(components: list[dict[str, Any]]) -> str:
     return hashlib.sha256("\n".join(identities).encode("utf-8")).hexdigest()
 
 
+def _clip(v: Any, n: int) -> str | None:
+    """A fingerprint string, trimmed to its column.
+
+    Postgres rejects an over-long VARCHAR, and the whole push shares one transaction,
+    so one host's odd value used to fail every host's update. Seen 2026-10-13: r8s in
+    SIP "Custom Configuration" report a 371-character multi-line csrutil status.
+    """
+    if not isinstance(v, str) or not v.strip():
+        return None
+    return v.strip()[:n]
+
+
+def _sip(v: Any) -> str | None:
+    """First line of the csrutil status: `unknown (Custom Configuration)` rather than
+    the per-protection breakdown that follows it on hosts in a custom configuration."""
+    if not isinstance(v, str):
+        return None
+    return _clip(v.strip().splitlines()[0].rstrip(".") if v.strip() else "", 64)
+
+
 def _parse_ts(v: Any) -> datetime | None:
     """`2026-08-13T15:20:36Z` -> naive UTC, matching every other Hangar timestamp."""
     if not isinstance(v, str):
@@ -202,15 +222,15 @@ def agent_push(
             continue
         row.agent_error = None
         row.sbom_sha256 = sha
-        row.puppet_role = fp.get("puppet_role") or None
-        row.macos_version = fp.get("macos_version") or None
-        row.macos_build = fp.get("macos_build") or None
-        row.arch = fp.get("arch") or None
-        row.hw_model = fp.get("hw_model") or None
+        row.puppet_role = _clip(fp.get("puppet_role"), 255)
+        row.macos_version = _clip(fp.get("macos_version"), 32)
+        row.macos_build = _clip(fp.get("macos_build"), 32)
+        row.arch = _clip(fp.get("arch"), 16)
+        row.hw_model = _clip(fp.get("hw_model"), 64)
         row.is_vm = fp.get("is_vm") if isinstance(fp.get("is_vm"), bool) else None
-        row.sip = fp.get("sip") or None
+        row.sip = _sip(fp.get("sip"))
         row.component_count = fp.get("component_count") if isinstance(fp.get("component_count"), int) else None
-        row.generator_version = fp.get("generator_version") or None
+        row.generator_version = _clip(fp.get("generator_version"), 32)
         row.generated_at = _parse_ts(fp.get("generated_at"))
         row.collected_at = now
         accepted += 1
