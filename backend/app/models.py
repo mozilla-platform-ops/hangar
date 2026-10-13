@@ -440,6 +440,10 @@ class WorkerSbom(Base):
     sip: Mapped[str | None] = mapped_column(String(64))
     component_count: Mapped[int | None] = mapped_column(Integer)
     generator_version: Mapped[str | None] = mapped_column(String(32))
+    # The puppet branch the host converges from (macos_sbom >= 2.3.0). Hosts are only
+    # compared with others on the same role AND branch: a staged rollout is not drift.
+    puppet_branch: Mapped[str | None] = mapped_column(String(255))
+    puppet_sha: Mapped[str | None] = mapped_column(String(64))
     generated_at: Mapped[datetime | None] = mapped_column(DateTime)   # when the host last ran the generator
     collected_at: Mapped[datetime | None] = mapped_column(DateTime)   # last successful agent read
     attempted_at: Mapped[datetime | None] = mapped_column(DateTime)   # last agent attempt, good or bad

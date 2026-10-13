@@ -448,12 +448,31 @@ export interface SbomHost {
   generated_at: string | null;
   collected_at: string | null;
   agent_error: string | null;
-  state: "ok" | "drifted" | "stale" | "unreachable" | "unknown" | "updating";
+  state: "ok" | "drifted" | "stale" | "unreachable" | "unknown" | "updating" | "pending";
+  /** Role + branch group this host is compared within (`role` or `role@branch`). */
+  cohort: string;
+  /** Ids of the role's findings this host appears in. */
+  findings: number[];
   /** What differs from the role's usual state; only on drifted hosts with both documents held. */
   drift: { added: number; removed: number; changed: number; highlights: string[] } | null;
 }
+export interface SbomFindingItem {
+  kind: "added" | "removed" | "changed" | "split";
+  type: string;
+  name: string;
+  value: string | null;
+  baseline: string | null;
+  label: string;
+}
+/** One difference from what most of the cohort runs; items that hit the same hosts merge. */
+export interface SbomFinding { id: number; hosts: string[]; items: SbomFindingItem[] }
 export interface SbomRole {
+  /** `role`, or `role@branch` for hosts pinned to a puppet branch override. */
+  key: string;
   puppet_role: string;
+  puppet_branch: string | null;
+  findings: SbomFinding[];
+  pending: number;
   hosts: number;
   states: { sbom_sha256: string; hosts: number; component_count: number | null; document: boolean; first_seen_at: string | null }[];
   modal_sha256: string | null;
@@ -469,6 +488,7 @@ export interface SbomResponse {
   hosts: SbomHost[];
   totals: {
     hosts: number; reporting: number; distinct_states: number; documents: number; drifted: number; updating: number;
+    pending: number; findings: number;
     roles: number; roles_drifted: number;
   };
   /** Macs Hangar knows about that have no SBOM path, by pool. */

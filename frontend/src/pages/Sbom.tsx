@@ -3,7 +3,7 @@ import { ChevronRight, LoaderCircle, Download, GitCompare, Package, SlidersHoriz
 import { useSearchParams } from "react-router-dom";
 import { SbomConfigSheet } from "../components/SbomConfigSheet";
 import { api } from "../api";
-import type { SbomDiff, SbomHost, SbomResponse, SbomRole } from "../api";
+import type { SbomDiff, SbomFinding, SbomHost, SbomResponse, SbomRole } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
 import { Kit } from "../components/Kit";
 import type { KitPose } from "../lib/kit";
@@ -44,6 +44,7 @@ type State = SbomHost["state"];
 const STATE_LABEL: Record<State, string> = {
   ok: "matches", drifted: "drifted", stale: "stale", unreachable: "unreachable", unknown: "not reporting",
   updating: "updating",
+  pending: "differs",
 };
 const STATE_HINT: Record<State, string> = {
   ok: "matches its role's usual software state",
@@ -52,13 +53,15 @@ const STATE_HINT: Record<State, string> = {
   unreachable: "the agent hasn't read this host in 3h",
   unknown: "has never reported a fingerprint",
   updating: "still on an older SBOM generator than the rest of its role, so not compared yet",
+  pending: "differs from its role; details arrive with its document on the agent's next sweep",
 };
 const STATE_TEXT: Record<State, string> = {
   ok: "text-gray-500", drifted: "text-orange-300", stale: "text-yellow-300/90",
   unreachable: "text-gray-500", unknown: "text-gray-500", updating: "text-gray-500",
+  pending: "text-orange-300/70",
 };
 // Cells sort calm-first, so a strip reads as a bar with any trouble gathered at its end.
-const STATE_ORDER: Record<State, number> = { ok: 0, updating: 1.5, stale: 2, drifted: 3, unreachable: 4, unknown: 5 };
+const STATE_ORDER: Record<State, number> = { ok: 0, updating: 1.5, stale: 2, drifted: 3, pending: 3.5, unreachable: 4, unknown: 5 };
 
 /** Cell colour. In a split role the second state gets its own hue rather than "drifted":
  *  nobody is wrong yet, the role is just mid-change. */
@@ -66,6 +69,7 @@ function cellClass(h: SbomHost, role: SbomRole): string {
   if (h.state === "drifted") return "bg-orange-400 shadow-[0_0_6px_rgba(251,146,60,0.7)] min-w-[4px]";
   if (h.state === "stale") return "bg-yellow-500/55";
   if (h.state === "updating") return "bg-brand-500/15";
+  if (h.state === "pending") return "bg-orange-400/35";
   if (h.state === "unreachable" || h.state === "unknown") return "ring-1 ring-inset ring-gray-600/80";
   if (role.split && h.sbom_sha256 !== role.states[0]?.sbom_sha256) return "bg-purple-400/70";
   return "bg-brand-500/40";
@@ -125,14 +129,13 @@ function HostStrip({ role, hosts }: { role: SbomRole; hosts: SbomHost[] }) {
 }
 
 function RoleVerdict({ role }: { role: SbomRole }) {
+  const n = role.findings.length;
   return (
     <div className="text-xs text-right whitespace-nowrap">
-      {role.split ? (
-        <span className="text-purple-300" title="no single most-common state — likely mid-rollout">
-          split {role.states.map(s => s.hosts).join(" / ")}
-        </span>
-      ) : role.drifted ? (
-        <span className="text-orange-300">{plural(role.drifted, "drifted host")}</span>
+      {n ? (
+        <span className="text-orange-300">{plural(n, "difference")}</span>
+      ) : role.pending ? (
+        <span className="text-orange-300/70">details pending</span>
       ) : role.states.length ? (
         <span className="text-emerald-400/90">converged</span>
       ) : (
@@ -144,9 +147,45 @@ function RoleVerdict({ role }: { role: SbomRole }) {
   );
 }
 
+const FINDING_PREVIEW = 4;
+const FINDINGS_SHOWN = 6;
+
+/** One difference from the cohort's majority, with the hosts that carry it. */
+function FindingRow({ finding, total }: { finding: SbomFinding; total: number }) {
+  const [all, setAll] = useState(false);
+  const [allHosts, setAllHosts] = useState(false);
+  const names = finding.hosts.map(shortHost);
+  const items = all ? finding.items : finding.items.slice(0, FINDING_PREVIEW);
+  const hostLine = compressHosts(names);
+  return (
+    <div className="grid grid-cols-[200px_1fr] gap-x-4 py-2.5 items-start">
+      <div className="min-w-0">
+        <div className="text-xs text-gray-200">
+          {plural(names.length, "host")}
+          <span className="text-gray-600"> of {total}</span>
+        </div>
+        <button onClick={() => setAllHosts(v => !v)} title={names.join(", ")}
+          style={allHosts ? undefined : { display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}
+          className="block text-left font-mono text-[11px] text-gray-500 hover:text-gray-400 leading-relaxed mt-0.5 break-words">
+          {hostLine}
+        </button>
+      </div>
+      <div className="min-w-0">
+        {items.map(i => <DiffLine key={`${i.kind}${i.name}`} text={i.label} />)}
+        {finding.items.length > FINDING_PREVIEW && (
+          <button onClick={() => setAll(v => !v)} className="mt-1 text-[11px] text-gray-600 hover:text-gray-300">
+            {all ? "show fewer" : `+${finding.items.length - FINDING_PREVIEW} more components`}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** A diff line, coloured by its leading glyph (~ changed, + added, − removed). */
 function DiffLine({ text }: { text: string }) {
-  const tone = text.startsWith("~") ? "text-yellow-200/80" : text.startsWith("+") ? "text-emerald-300/85" : "text-red-300/85";
+  const tone = text.startsWith("~") ? "text-yellow-200/80" : text.startsWith("+") ? "text-emerald-300/85"
+    : text.startsWith("≠") ? "text-purple-300/85" : "text-red-300/85";
   return <div className={`font-mono text-[11px] truncate ${tone}`}>{text}</div>;
 }
 
@@ -223,8 +262,12 @@ function AttentionHost({ hosts, modal, now }: { hosts: SbomHost[]; modal: string
               </button>
             </>
           )
+        ) : h.state === "pending" ? (
+          <div className="text-[11px] text-gray-500">differ{hosts.length === 1 ? "s" : ""} from the role — details arrive with the document on the agent's next sweep</div>
         ) : h.agent_error ? (
-          <div className="text-[11px] text-gray-500 truncate" title={h.agent_error}>{h.agent_error}</div>
+          <div className="text-[11px] text-gray-500 truncate" title={h.agent_error}>
+            {hosts.length > 1 ? reasonOf(h).split(" <host>").join("") : h.agent_error}
+          </div>
         ) : (
           <div className="text-[11px] text-gray-500">
             last generated {ago(hosts.map(x => x.generated_at).filter(Boolean).sort()[0] ?? null, now)}
@@ -234,6 +277,13 @@ function AttentionHost({ hosts, modal, now }: { hosts: SbomHost[]; modal: string
       </div>
     </div>
   );
+}
+
+/** An agent error with the host's own name taken out, so the same failure on two hosts
+ *  reads as the same reason ("ssh: connect to host <host> port 22: Operation timed out"). */
+function reasonOf(h: SbomHost): string {
+  const e = h.agent_error ?? "";
+  return e.split(h.hostname).join("<host>").split(shortHost(h.hostname)).join("<host>");
 }
 
 /** Hosts that share a state and a reason collapse into one row. Largest group first. */
@@ -246,10 +296,10 @@ function groupAttention(hosts: SbomHost[]): SbomHost[][] {
     // one row (39 hosts saying "no fingerprint" is one fact, not 39).
     const key = h.state === "drifted" && !h.drift ? "pending"
       : h.state === "drifted" && h.sbom_sha256 ? `d:${h.sbom_sha256}`
-      : `s:${h.state}:${h.agent_error ?? ""}`;
+      : `s:${h.state}:${reasonOf(h)}`;
     groups.set(key, [...(groups.get(key) ?? []), h]);
   }
-  const order: Record<State, number> = { drifted: 0, stale: 1, unreachable: 2, unknown: 3, updating: 4, ok: 5 };
+  const order: Record<State, number> = { drifted: 0, pending: 0.5, stale: 1, unreachable: 2, unknown: 3, updating: 4, ok: 5 };
   return [...groups.values()].sort((a, b) =>
     order[a[0].state] - order[b[0].state] || b.length - a.length || byHost(a[0], b[0]));
 }
@@ -257,25 +307,34 @@ function groupAttention(hosts: SbomHost[]): SbomHost[][] {
 function RoleCard({ role, hosts, now, onInspect }: {
   role: SbomRole; hosts: SbomHost[]; now: number; onInspect: () => void;
 }) {
-  const [open, setOpen] = useState(role.drifted > 0);
+  const [open, setOpen] = useState(role.findings.length > 0);
+  // Largest first, so the first few are what most of the role is about.
+  const [allFindings, setAllFindings] = useState(false);
   const [showOk, setShowOk] = useState(false);
   // One-host states are already listed above as drifted hosts; as chips they're a wall.
   const [showAllStates, setShowAllStates] = useState(false);
   const oneOffs = role.states.filter(s => s.hosts === 1 && s.sbom_sha256 !== role.modal_sha256).length;
-  const attention = hosts.filter(h => h.state !== "ok" && h.state !== "updating").sort(byHost);
+  // Drifted hosts are shown through the findings they carry, not one by one.
+  const attention = hosts.filter(h => !["ok", "updating", "drifted"].includes(h.state)).sort(byHost);
   const matching = hosts.filter(h => h.state === "ok").sort(byHost);
   const updating = hosts.filter(h => h.state === "updating");
   const os = useMemo(() => [...new Set(hosts.map(h => h.macos_version).filter(Boolean))].join(", "), [hosts]);
 
   return (
-    <div className={`border-b border-gray-800/60 last:border-b-0 ${role.drifted ? "bg-orange-500/[0.025]" : ""}`}>
+    <div className={`border-b border-gray-800/60 last:border-b-0 ${role.findings.length ? "bg-orange-500/[0.025]" : ""}`}>
       <div role="button" tabIndex={0} onClick={() => setOpen(o => !o)}
         onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen(o => !o); } }}
         className="w-full cursor-pointer grid grid-cols-[minmax(240px,340px)_minmax(0,1fr)_120px_32px] gap-6 items-center px-5 py-2.5 text-left hover:bg-white/[0.015] transition-colors">
         <div className="flex items-center gap-2 min-w-0">
           <ChevronRight size={13} className={`text-gray-600 flex-shrink-0 transition-transform duration-150 ${open ? "rotate-90" : ""}`} />
           <div className="min-w-0 flex items-baseline gap-2">
-            <span className="font-mono text-[13px] text-gray-100 truncate">{role.puppet_role}</span>
+            <span className="font-mono text-[13px] text-gray-100 flex-shrink-0">{role.puppet_role}</span>
+            {role.puppet_branch && (
+              <span className="text-[10px] font-mono text-purple-300/90 border border-purple-400/25 bg-purple-500/[0.06] rounded px-1.5 py-px truncate min-w-0"
+                title={`pinned to puppet branch ${role.puppet_branch}; compared only with hosts on the same branch`}>
+                {role.puppet_branch}
+              </span>
+            )}
             <span className="text-[11px] text-gray-600 whitespace-nowrap">
               {role.hosts}{os && <> · {os}</>}
             </span>
@@ -292,6 +351,19 @@ function RoleCard({ role, hosts, now, onInspect }: {
 
       {open && (
         <div className="pl-[46px] pr-5 pb-4 space-y-4">
+          {role.findings.length > 0 && (
+            <div className="divide-y divide-gray-800/40">
+              {(allFindings ? role.findings : role.findings.slice(0, FINDINGS_SHOWN)).map(f => (
+                <FindingRow key={f.id} finding={f} total={role.hosts} />
+              ))}
+              {role.findings.length > FINDINGS_SHOWN && (
+                <button onClick={() => setAllFindings(v => !v)} className="pt-2.5 text-[11px] text-gray-600 hover:text-gray-300">
+                  {allFindings ? "show fewer" : `show ${role.findings.length - FINDINGS_SHOWN} more differences`}
+                </button>
+              )}
+            </div>
+          )}
+
           {attention.length > 0 && (
             <div className="divide-y divide-gray-800/40">
               {groupAttention(attention).map(g => (
@@ -382,13 +454,13 @@ function verdict(data: SbomResponse): { pose: KitPose; headline: React.ReactNode
       detail: `Last sweep ${data.last_collected_at ? "was over 3 hours ago" : "never happened"} — what's below may be out of date.`,
     };
   }
-  if (t.drifted > 0) {
-    const others = t.reporting - t.drifted - t.updating;
+  if (t.findings > 0) {
+    const matching = t.reporting - t.drifted - t.pending - t.updating;
     return {
       pose: "inquisitive",
-      headline: <><span className="text-orange-300">{plural(t.drifted, "host")}</span> {t.drifted === 1 ? "doesn't" : "don't"} match {t.drifted === 1 ? "its role" : "their role"}</>,
-      detail: `${t.roles_drifted} of ${roles} affected. The other ${others} hosts match theirs.`
-        + (t.updating ? ` ${t.updating} more are still updating and not compared yet.` : ""),
+      headline: <><span className="text-orange-300">{plural(t.findings, "difference")}</span> across {plural(t.roles_drifted, "role")}</>,
+      detail: `${plural(t.drifted, "host")} ${t.drifted === 1 ? "carries" : "carry"} at least one; the other ${matching} match their role exactly.`
+        + (t.updating ? ` ${t.updating} more are still updating.` : ""),
     };
   }
   return {
@@ -411,7 +483,7 @@ export function Sbom() {
   const hostsByRole = useMemo(() => {
     const m = new Map<string, SbomHost[]>();
     for (const h of data?.hosts ?? []) {
-      const k = h.puppet_role ?? "(unknown role)";
+      const k = h.cohort ?? h.puppet_role ?? "(unknown role)";
       m.set(k, [...(m.get(k) ?? []), h]);
     }
     return m;
@@ -422,7 +494,7 @@ export function Sbom() {
 
   // The open configuration lives in the URL, so it can be linked and survives a reload.
   const [params, setParams] = useSearchParams();
-  const configRole = data?.roles.find(r => r.puppet_role === params.get("config")) ?? null;
+  const configRole = data?.roles.find(r => r.key === params.get("config")) ?? null;
   const closeConfig = () => setParams(p => { p.delete("config"); return p; });
 
   return (
@@ -492,19 +564,19 @@ export function Sbom() {
               const roles = data.roles.filter(r => family(r.puppet_role) === label);
               if (!roles.length) return null;
               const hostCount = roles.reduce((n, r) => n + r.hosts, 0);
-              const drifted = roles.reduce((n, r) => n + r.drifted, 0);
+              const differences = roles.reduce((n, r) => n + r.findings.length, 0);
               return (
                 <section key={label}>
                   <div className="flex items-baseline gap-2 px-5 pt-4 pb-1.5 text-[10px] uppercase tracking-wider text-gray-500 border-b border-gray-800/40">
                     {label}
                     <span className="normal-case tracking-normal text-gray-600">
                       {plural(roles.length, "role")} · {plural(hostCount, "host")}
-                      {drifted > 0 && <span className="text-orange-300/80"> · {drifted} drifted</span>}
+                      {differences > 0 && <span className="text-orange-300/80"> · {plural(differences, "difference")}</span>}
                     </span>
                   </div>
                   {roles.map(r => (
-                    <RoleCard key={r.puppet_role} role={r} hosts={hostsByRole.get(r.puppet_role) ?? []} now={now}
-                      onInspect={() => setParams(p => { p.set("config", r.puppet_role); return p; })} />
+                    <RoleCard key={r.key} role={r} hosts={hostsByRole.get(r.key) ?? []} now={now}
+                      onInspect={() => setParams(p => { p.set("config", r.key); return p; })} />
                   ))}
                 </section>
               );
