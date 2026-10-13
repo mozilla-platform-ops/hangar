@@ -282,3 +282,41 @@ def test_hosts_on_an_older_generator_are_updating_not_drifted(db: Session) -> No
     assert role["generator_version"] == "2.2.0"
     assert [s["sbom_sha256"] for s in role["states"]] == [SHA]
     assert out["totals"]["distinct_states"] == 1
+
+
+CUSTOM_SIP = (
+    "unknown (Custom Configuration).\n\nConfiguration:\n\tApple Internal: disabled\n"
+    "\tKext Signing: enabled\n\tFilesystem Protections: disabled\n\tDebugging Restrictions: enabled\n"
+    "\tDTrace Restrictions: enabled\n\tNVRAM Protections: enabled\n\tBaseSystem Verification: enabled\n\n"
+    "This is an unsupported configuration, likely to break in the future and leave your machine in an unknown state."
+)
+
+
+def test_sip_custom_configuration_is_reduced_to_its_first_line(db: Session) -> None:
+    push(db, [{"hostname": "macmini-r8-36", "fingerprint": fingerprint(SHA, sip=CUSTOM_SIP)}])
+    row = db.get(WorkerSbom, "macmini-r8-36.test.releng.mdc1.mozilla.com")
+    assert row.sip == "unknown (Custom Configuration)"
+
+
+def test_every_fingerprint_string_fits_its_column() -> None:
+    # SQLite doesn't enforce VARCHAR lengths, Postgres does: check the clipping itself.
+    long = "x" * 500
+    assert len(sbom._clip(long, 32)) == 32
+    assert sbom._clip("  ", 32) is None
+    assert sbom._clip(None, 32) is None
+    assert sbom._sip(CUSTOM_SIP) == "unknown (Custom Configuration)"
+    assert sbom._sip("System Integrity Protection status: enabled.") is not None
+
+
+def test_no_stored_fingerprint_value_exceeds_its_column(db: Session) -> None:
+    # SQLite won't enforce VARCHAR(n); Postgres will, and one over-long value fails the
+    # whole push. So assert the rule Postgres enforces, for every string column.
+    huge = {k: "x" * 500 for k in ("puppet_role", "macos_version", "macos_build", "arch",
+                                   "hw_model", "sip", "generator_version")}
+    push(db, [{"hostname": "macmini-r8-36", "fingerprint": fingerprint(SHA, **huge)}])
+    row = db.get(WorkerSbom, "macmini-r8-36.test.releng.mdc1.mozilla.com")
+    for col in WorkerSbom.__table__.columns:
+        length = getattr(col.type, "length", None)
+        value = getattr(row, col.name)
+        if length and isinstance(value, str):
+            assert len(value) <= length, f"{col.name}: {len(value)} > {length}"
