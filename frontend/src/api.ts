@@ -678,6 +678,8 @@ export interface ReprovisionJob {
   hostname: string;
   short: string;
   requested_by: string;
+  action?: string;
+  params?: Record<string, unknown>;
   state: "queued" | "claimed" | "running" | "succeeded" | "failed" | "canceled";
   runner: string | null;
   detail: string | null;
@@ -704,6 +706,12 @@ export interface ReprovisionStatus {
 export interface ReprovisionAccess {
   user: string;
   authorized: boolean;
+}
+export interface TartHostMaintenance {
+  host: string;
+  excluded: string | null;
+  active_job: ReprovisionJob | null;
+  last_job: ReprovisionJob | null;
 }
 export type QuarantineDuration = "1h" | "4h" | "1d" | "1w" | "indefinite";
 export interface QuarantineAccess {
@@ -821,6 +829,9 @@ export const api = {
     initiate: (hostname: string) => post<ReprovisionInitiateResponse>(`/reprovision/${hostname}/initiate`),
     enqueue: (hostname: string) => post<{ ok: boolean; job: ReprovisionJob }>(`/reprovision/${hostname}/enqueue`),
     poolStatus: (pool: string) => get<ReprovisionPoolPlan>(`/reprovision/pool/${pool}`),
+    tartHosts: () => get<{ hosts: TartHostMaintenance[]; runner_enabled: boolean }>("/reprovision/tart/hosts"),
+    tartUpdate: (host: string, puppetOnly = false) =>
+      post<{ ok: boolean; job: ReprovisionJob }>(`/reprovision/tart/${host}/update`, { puppet_only: puppetOnly }),
     poolEnqueue: (pool: string, hosts?: string[]) =>
       post<ReprovisionPoolEnqueueResult>(`/reprovision/pool/${pool}/enqueue`, hosts ? { hosts } : undefined),
   },

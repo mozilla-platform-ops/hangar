@@ -6,6 +6,7 @@ import type { TartSlot, TartHealthResponse } from "../api";
 import { FF_GRADIENT } from "../lib/brand";
 import { Badge } from "../components/Badge";
 import { usePoll, useNow } from "../lib/useLive";
+import { TartMaintenance } from "../components/TartMaintenance";
 
 /**
  * Per-slot health of the tart VMs behind gecko-t-osx-1500-m-vms.
@@ -249,6 +250,8 @@ export function TartVMs() {
           it from inside MDC1 — Hangar cannot reach the hosts itself.
         </div>
       )}
+
+      <TartMaintenance />
 
       {data && data.total > 0 && (
         <>

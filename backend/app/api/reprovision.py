@@ -24,7 +24,7 @@ from ..auth import current_user
 from ..config import settings
 from ..database import get_db
 from ..hosts import worker_fqdn
-from ..models import ReprovisionEvent, ReprovisionJob, Worker
+from ..models import ReprovisionEvent, ReprovisionJob, TartSlotHealth, Worker
 
 # Job states that mean a reprovision is still open for a host (blocks a second enqueue).
 _OPEN_JOB_STATES = {"queued", "claimed", "running"}
@@ -34,6 +34,19 @@ _OPEN_JOB_STATES = {"queued", "claimed", "running"}
 # legitimate run: the on-host bootstrap alone can wait up to ~60m for the sentinel
 # (bootstrap_max_wait_seconds) with no streamed output, so keep generous headroom.
 _STALE_JOB_MINUTES = 120
+
+# Tart VM host maintenance (relops-bootstrap `reprovision tart-host-update`): drain both VMs,
+# minor macOS update via SimpleMDM, puppet, reboot, verify. A legitimate run can take ~5h
+# (OS update up to 3h + verify up to 2h), so it gets its own stale ceiling.
+TART_ACTION = "tart-host-update"
+_TART_STALE_JOB_MINUTES = 360
+# One tart host in maintenance at a time: each host is 2 of the pool's ~36 slots.
+_TART_MAX_CONCURRENT = 1
+# Hosts the button refuses, with why. Mirrors the CLI's own EXCLUDED list (defence in depth).
+TART_EXCLUDED = {
+    "macmini-m4-117": "1920x1080 tester-image canary (pinned to a ronin branch)",
+    "macmini-m4-189": "1920x1080 tester-image canary (pinned to a ronin branch)",
+}
 
 router = APIRouter(prefix="/reprovision", tags=["reprovision"])
 
@@ -138,9 +151,10 @@ def _active_job(db: Session, hostname: str) -> ReprovisionJob | None:
     # the host (enqueue 409s while a job is open). Lazy: happens on any status read
     # or enqueue attempt, no background sweep needed.
     ref = job.claimed_at or job.created_at
-    if ref and datetime.utcnow() - ref > timedelta(minutes=_STALE_JOB_MINUTES):
+    limit = _TART_STALE_JOB_MINUTES if job.action == TART_ACTION else _STALE_JOB_MINUTES
+    if ref and datetime.utcnow() - ref > timedelta(minutes=limit):
         job.state = "failed"
-        job.detail = f"stale: no completion within {_STALE_JOB_MINUTES}m — runner presumed gone"
+        job.detail = f"stale: no completion within {limit}m — runner presumed gone"
         job.finished_at = datetime.utcnow()
         db.add(ReprovisionEvent(hostname=job.hostname, user="system", action="stale", detail=job.detail))
         db.commit()
@@ -270,11 +284,21 @@ def jobs(user: str = Depends(require_access), db: Session = Depends(get_db), lim
 @router.post("/runner/claim")
 def runner_claim(runner: str = Depends(require_runner), db: Session = Depends(get_db)) -> dict[str, Any]:
     """Claim the oldest queued job (FIFO). Returns {job: null} when the queue is empty."""
-    job = (
+    queued = (
         db.query(ReprovisionJob)
         .filter(ReprovisionJob.state == "queued")
         .order_by(ReprovisionJob.created_at)
-        .first()
+        .all()
+    )
+    tart_in_flight = (
+        db.query(ReprovisionJob)
+        .filter(ReprovisionJob.action == TART_ACTION, ReprovisionJob.state.in_({"claimed", "running"}))
+        .count()
+    )
+    # FIFO, except a tart-host-update waits while another tart host is mid-maintenance.
+    job = next(
+        (j for j in queued if j.action != TART_ACTION or tart_in_flight < _TART_MAX_CONCURRENT),
+        None,
     )
     if not job:
         return {"job": None}
@@ -322,6 +346,60 @@ def runner_complete(
     db.add(ReprovisionEvent(hostname=job.hostname, user=f"runner:{runner}", action=job.state, detail=detail or f"job {job.id} {job.state}"))
     db.commit()
     return {"ok": True, "state": job.state}
+
+
+# ── Tart VM host maintenance ────────────────────────────────────────────────────────────
+# Declared BEFORE the /{hostname:path} catch-alls so "tart" isn't matched as a hostname.
+
+def _tart_hosts(db: Session) -> list[str]:
+    """Short hostnames of every tart host the health agent reports on."""
+    return sorted({r.hostname.split(".")[0] for r in db.query(TartSlotHealth.hostname).all()})
+
+
+@router.get("/tart/hosts")
+def tart_hosts(user: str = Depends(require_access), db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Tart hosts with their open/last maintenance job, for the tart VMs page."""
+    out = []
+    for short in _tart_hosts(db):
+        fqdn = worker_fqdn(short)
+        active = _active_job(db, fqdn)
+        last = _last_job(db, fqdn)
+        out.append({
+            "host": short,
+            "excluded": TART_EXCLUDED.get(short),
+            "active_job": _job_dict(active) if active else None,
+            "last_job": _job_dict(last) if last else None,
+        })
+    return {"hosts": out, "runner_enabled": bool(settings.reprovision_runner_token or settings.reprovision_runner_host_list)}
+
+
+@router.post("/tart/{hostname}/update")
+def tart_update(
+    hostname: str,
+    user: str = Depends(require_access),
+    db: Session = Depends(get_db),
+    puppet_only: bool = Body(False, embed=True),
+) -> dict[str, Any]:
+    """Queue a tart-host-update for the on-network runner. One open job per host; the claim
+    endpoint runs at most _TART_MAX_CONCURRENT of these at once."""
+    short = _short(unquote(hostname)).lower()
+    if short not in _tart_hosts(db):
+        raise HTTPException(status_code=404, detail=f"{short} is not a known tart host")
+    if short in TART_EXCLUDED:
+        raise HTTPException(status_code=409, detail=f"{short} is excluded: {TART_EXCLUDED[short]}")
+    fqdn = worker_fqdn(short)
+    existing = _active_job(db, fqdn)
+    if existing:
+        raise HTTPException(status_code=409, detail=f"a {existing.action or 'reprovision'} is already {existing.state} for {short}")
+    params = {"puppet_only": True} if puppet_only else {}
+    job = ReprovisionJob(hostname=fqdn, requested_by=user, state="queued", action=TART_ACTION,
+                         params=json.dumps(params))
+    db.add(job)
+    db.add(ReprovisionEvent(hostname=fqdn, user=user, action="enqueued",
+                            detail=f"{TART_ACTION}{' (puppet only)' if puppet_only else ''} enqueued for the on-network runner"))
+    db.commit()
+    db.refresh(job)
+    return {"ok": True, "job": _job_dict(job)}
 
 
 # ── Pool-wide reprovision ────────────────────────────────────────────────────────────────
