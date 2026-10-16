@@ -37,7 +37,7 @@ function MonitoredPoolExtras({ series, sources }: { series?: PoolSeries; sources
       {hasSourceData && (
         <>
           <div>
-            <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-1.5">Job Sources</div>
+            <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-1.5" title="Repos of the tasks running on this pool right now. Queued tasks aren't counted, so low-priority repos like try can be waiting without showing here.">Running now</div>
             {projects.length > 0 ? (
               <div className="flex w-full h-1.5 rounded-full overflow-hidden gap-px">
                 {projects.map(([proj, count]) => (

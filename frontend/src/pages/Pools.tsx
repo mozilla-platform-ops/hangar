@@ -390,7 +390,7 @@ function CloudPoolCard({ pool, sources }: { pool: CloudPool; sources?: PoolSourc
 
       {sources !== undefined && (
         <div>
-          <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-2">Job Sources</div>
+          <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-2" title="Repos of the tasks running on this pool right now. Queued tasks aren't counted, so low-priority repos like try can be waiting without showing here.">Running now</div>
           <SourceBar sources={sources} />
         </div>
       )}
