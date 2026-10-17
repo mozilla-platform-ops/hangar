@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from typing import Any
 
+import mohawk
 import requests
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, or_
@@ -22,6 +23,9 @@ log = logging.getLogger(__name__)
 # Job-source sampling is served through the SWR cache so page loads never block on
 # live Taskcluster fan-out; a task's project/user is immutable, so it's cached too.
 _POOL_SOURCES_TTL = 90
+# The queue sample pulls full task definitions (~8 KB each, up to _QUEUE_CAP), so it
+# refreshes less often than the running sample.
+_POOL_QUEUE_TTL = 300
 
 HW_POOL_PROVISIONERS: dict[str, str] = {worker_type: provisioner for provisioner, worker_type in HW_WORKER_POOLS}
 LINUX_CLOUD_EXCLUDED_PROVISIONERS = {"releng-hardware", "proj-autophone"}
@@ -1052,8 +1056,79 @@ def _task_meta(task_id: str) -> dict[str, str]:
     return meta
 
 
+# Queued work by repo. The running sample can't see a starved repo: on a backlogged
+# pool Taskcluster hands out the highest priority first, so try (the lowest) can be
+# most of the queue while none of it is running. Listing pending tasks needs a
+# credential with queue:pending-list:<provisioner>/<pool>; without one this is off.
+_QUEUE_PAGE = 1000
+_QUEUE_CAP = 2000
+_HW_PROVISIONER: dict[str, str] = {wt: prov for prov, wt in HW_WORKER_POOLS}
+
+
+def _tc_signed_get(url: str, params: dict[str, Any]) -> requests.Response:
+    """GET a Taskcluster API that needs scopes, signed with Hawk (what the official
+    client does, via the same mohawk library)."""
+    full = requests.Request("GET", url, params=params).prepare().url
+    sender = mohawk.Sender(
+        {"id": settings.tc_client_id, "key": settings.tc_access_token, "algorithm": "sha256"},
+        full, "GET", always_hash_content=False,
+    )
+    return requests.get(full, timeout=10, headers={
+        "Authorization": sender.request_header, "User-Agent": "relops-dashboard/1.0",
+    })
+
+
+def _compute_pool_queue(pool: str) -> dict[str, Any]:
+    """Pending tasks for a hardware pool, by project. `queued_sampled` < `queued_total`
+    when the queue is longer than _QUEUE_CAP."""
+    provisioner = _HW_PROVISIONER.get(pool)
+    if not provisioner or not (settings.tc_client_id and settings.tc_access_token):
+        return {"queued_available": False}
+    out: dict[str, Any] = {"queued_available": True, "queued_total": 0, "queued_sampled": 0, "queued_by_project": {}}
+    r = requests.get(f"{settings.tc_root_url}/api/queue/v1/pending/{provisioner}/{pool}",
+                     timeout=4, headers={"User-Agent": "relops-dashboard/1.0"})
+    r.raise_for_status()
+    out["queued_total"] = r.json().get("pendingTasks", 0)
+    if not out["queued_total"]:
+        return out
+
+    url = f"{settings.tc_root_url}/api/queue/v1/task-queues/{provisioner}%2F{pool}/pending"
+    by_project: dict[str, int] = {}
+    sampled = 0
+    token = None
+    while sampled < _QUEUE_CAP:
+        params: dict[str, Any] = {"limit": _QUEUE_PAGE}
+        if token:
+            params["continuationToken"] = token
+        r = _tc_signed_get(url, params)
+        r.raise_for_status()
+        body = r.json()
+        for t in body.get("tasks", []):
+            task = t.get("task") or {}
+            p = (task.get("tags") or {}).get("project") or _scheduler_project(task.get("schedulerId", ""))
+            by_project[p] = by_project.get(p, 0) + 1
+            sampled += 1
+        token = body.get("continuationToken")
+        if not token:
+            break
+    out["queued_sampled"] = sampled
+    out["queued_by_project"] = dict(sorted(by_project.items(), key=lambda x: x[1], reverse=True))
+    return out
+
+
+def _pool_queue(pool: str) -> dict[str, Any]:
+    """Cached queue sample; a failed refresh leaves the card without a queued bar
+    rather than failing the running sample alongside it."""
+    try:
+        return cache.swr(f"pool-queue:{pool}", _POOL_QUEUE_TTL, lambda: _compute_pool_queue(pool))
+    except Exception:
+        log.warning("pool queue sample failed for %s", pool, exc_info=True)
+        return {"queued_available": False}
+
+
 def _compute_pool_sources(pool: str) -> dict[str, Any]:
-    """Sample running tasks for a pool → job-source (project/tree) + submitter mix.
+    """Sample running tasks for a pool → job-source (project/tree) + submitter mix,
+    plus the queued mix from _pool_queue.
 
     Opens its own DB session so it is safe to run from a background thread (the
     SWR refresh / warmer), not just a request."""
@@ -1070,8 +1145,9 @@ def _compute_pool_sources(pool: str) -> dict[str, Any]:
             if row[0]
         ]
 
+    queue = _pool_queue(pool)
     if not task_ids:
-        return {"pool": pool, "sample_size": 0, "by_project": {}, "by_user": {}}
+        return {"pool": pool, "sample_size": 0, "by_project": {}, "by_user": {}, **queue}
 
     by_project: dict[str, int] = {}
     by_user: dict[str, int] = {}
@@ -1087,6 +1163,7 @@ def _compute_pool_sources(pool: str) -> dict[str, Any]:
         "sample_size": len(task_ids),
         "by_project": dict(sorted(by_project.items(), key=lambda x: x[1], reverse=True)),
         "by_user": dict(sorted(by_user.items(), key=lambda x: x[1], reverse=True)[:10]),
+        **queue,
     }
 
 
