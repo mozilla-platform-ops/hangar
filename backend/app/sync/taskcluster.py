@@ -95,6 +95,10 @@ HW_WORKER_POOLS: list[tuple[str, str]] = [
     ("releng-hardware", "win11-64-24h2-hw-ref"),
     ("releng-hardware", "win11-64-24h2-hw-ref-alpha"),
     ("releng-hardware", "win11-64-24h2-hw-relops1213"),
+    ("releng-hardware", "win11-64-25h2-hw"),
+    ("releng-hardware", "win11-64-25h2-hw-alpha"),
+    ("releng-hardware", "win11-64-25h2-hw-ref"),
+    ("releng-hardware", "win11-64-25h2-hw-ref-alpha"),
     ("releng-hardware", "gecko-t-win7-32-hw"),
 ]
 

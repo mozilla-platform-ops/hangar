@@ -208,6 +208,11 @@ export interface PoolSources {
   sample_size: number;
   by_project: Record<string, number>;
   by_user: Record<string, number>;
+  /** Queue sample; absent/false when Hangar has no credential to list pending tasks. */
+  queued_available?: boolean;
+  queued_total?: number;
+  queued_sampled?: number;
+  queued_by_project?: Record<string, number>;
 }
 
 /** Many pools' job-source breakdowns in one response, keyed by pool name. */
