@@ -1062,7 +1062,6 @@ def _task_meta(task_id: str) -> dict[str, str]:
 # credential with queue:pending-list:<provisioner>/<pool>; without one this is off.
 _QUEUE_PAGE = 1000
 _QUEUE_CAP = 2000
-_HW_PROVISIONER: dict[str, str] = {wt: prov for prov, wt in HW_WORKER_POOLS}
 
 
 def _tc_signed_get(url: str, params: dict[str, Any]) -> requests.Response:
@@ -1081,7 +1080,7 @@ def _tc_signed_get(url: str, params: dict[str, Any]) -> requests.Response:
 def _compute_pool_queue(pool: str) -> dict[str, Any]:
     """Pending tasks for a hardware pool, by project. `queued_sampled` < `queued_total`
     when the queue is longer than _QUEUE_CAP."""
-    provisioner = _HW_PROVISIONER.get(pool)
+    provisioner = HW_POOL_PROVISIONERS.get(pool)
     if not provisioner or not (settings.tc_client_id and settings.tc_access_token):
         return {"queued_available": False}
     out: dict[str, Any] = {"queued_available": True, "queued_total": 0, "queued_sampled": 0, "queued_by_project": {}}
