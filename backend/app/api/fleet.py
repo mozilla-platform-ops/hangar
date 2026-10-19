@@ -794,8 +794,9 @@ def _compute_android_pool_sources(pool: str) -> dict[str, Any]:
     except Exception:
         pass
 
+    queue = _pool_queue(pool)
     if not task_ids:
-        return {"pool": pool, "sample_size": 0, "by_project": {}, "by_user": {}}
+        return {"pool": pool, "sample_size": 0, "by_project": {}, "by_user": {}, **queue}
 
     def _scheduler_project(scheduler_id: str) -> str:
         if "level-3" in scheduler_id:
@@ -834,6 +835,7 @@ def _compute_android_pool_sources(pool: str) -> dict[str, Any]:
         "sample_size": len(task_ids),
         "by_project": dict(sorted(by_project.items(), key=lambda x: x[1], reverse=True)),
         "by_user": dict(sorted(by_user.items(), key=lambda x: x[1], reverse=True)[:10]),
+        **queue,
     }
 
 
@@ -1059,7 +1061,8 @@ def _task_meta(task_id: str) -> dict[str, str]:
 # Queued work by repo. The running sample can't see a starved repo: on a backlogged
 # pool Taskcluster hands out the highest priority first, so try (the lowest) can be
 # most of the queue while none of it is running. Listing pending tasks needs a
-# credential with queue:pending-list:<provisioner>/<pool>; without one this is off.
+# credential with queue:pending-list:<provisioner>/<pool> (releng-hardware, and
+# proj-autophone for Android); without one this is off.
 _QUEUE_PAGE = 1000
 _QUEUE_CAP = 2000
 
@@ -1080,7 +1083,7 @@ def _tc_signed_get(url: str, params: dict[str, Any]) -> requests.Response:
 def _compute_pool_queue(pool: str) -> dict[str, Any]:
     """Pending tasks for a hardware pool, by project. `queued_sampled` < `queued_total`
     when the queue is longer than _QUEUE_CAP."""
-    provisioner = HW_POOL_PROVISIONERS.get(pool)
+    provisioner = HW_POOL_PROVISIONERS.get(pool) or _ANDROID_PROVISIONER.get(pool)
     if not provisioner or not (settings.tc_client_id and settings.tc_access_token):
         return {"queued_available": False}
     out: dict[str, Any] = {"queued_available": True, "queued_total": 0, "queued_sampled": 0, "queued_by_project": {}}

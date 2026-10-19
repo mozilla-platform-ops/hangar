@@ -128,3 +128,12 @@ def test_a_queue_failure_leaves_the_card_without_a_queued_bar(monkeypatch):
 
     monkeypatch.setattr(fleet, "_compute_pool_queue", boom)
     assert fleet._pool_queue(POOL) == {"queued_available": False}
+
+
+def test_android_pools_list_their_queue_under_proj_autophone(monkeypatch):
+    prov, pool = fleet.ANDROID_WORKER_POOLS[0]
+    assert prov == "proj-autophone"
+    calls = _fake_tc(monkeypatch, 1, [[_task("try")]])
+    q = fleet._compute_pool_queue(pool)
+    assert q["queued_by_project"] == {"try": 1}
+    assert any(f"task-queues/proj-autophone%2F{pool}/pending" in c["url"] for c in calls)
