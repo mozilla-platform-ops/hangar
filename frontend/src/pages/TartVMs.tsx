@@ -251,8 +251,6 @@ export function TartVMs() {
         </div>
       )}
 
-      <TartMaintenance />
-
       {data && data.total > 0 && (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -347,6 +345,9 @@ export function TartVMs() {
           </p>
         </>
       )}
+
+      {/* Below the slots: a maintenance action, not a status readout. */}
+      <TartMaintenance />
     </div>
   );
 }
