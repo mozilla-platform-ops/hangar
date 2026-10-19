@@ -5,13 +5,51 @@ import { FF_GRADIENT } from "../lib/brand";
 import { PROJECT_COLORS, PROJECT_TEXT } from "../lib/projects";
 import type { PoolSeries, PoolSources } from "../api";
 
-// Detail sections (24h pending, job sources, top submitters) shared by the
+// One repo-mix bar + legend ("Running now" / "Queued"). The legend reserves ~2 rows
+// so cards stay even whether or not a pool has any tasks to show.
+function ProjectMix({ label, byProject, total, empty, title, note }: {
+  label: string; byProject: Record<string, number>; total: number; empty: string; title: string; note?: string;
+}) {
+  const projects = total > 0 ? Object.entries(byProject) : [];
+  return (
+    <div>
+      <div className="flex items-baseline gap-2 mb-1.5">
+        <span className="text-[10px] text-gray-600 uppercase tracking-wider" title={title}>{label}</span>
+        {note && <span className="text-[10px] text-gray-700 ml-auto">{note}</span>}
+      </div>
+      {projects.length > 0 ? (
+        <div className="flex w-full h-1.5 rounded-full overflow-hidden gap-px">
+          {projects.map(([proj, count]) => (
+            <div key={proj} className={PROJECT_COLORS[proj] ?? "bg-gray-500"}
+              style={{ width: `${(count / total) * 100}%` }} title={`${proj}: ${count}`} />
+          ))}
+        </div>
+      ) : (
+        <div className="h-1.5 w-full rounded-full bg-gray-800" />
+      )}
+      <div className="flex flex-wrap gap-x-2.5 gap-y-1 mt-1.5 min-h-[2rem] content-start">
+        {projects.length > 0 ? (
+          projects.map(([proj, count]) => (
+            <span key={proj} className="flex items-center gap-1">
+              <span className={`w-1.5 h-1.5 rounded-full ${PROJECT_COLORS[proj] ?? "bg-gray-500"}`} />
+              <span className={`text-[10px] ${PROJECT_TEXT[proj] ?? "text-gray-400"}`}>{proj}</span>
+              <span className="text-[10px] text-gray-600 tabular-nums">{Math.round((count / total) * 100)}%</span>
+            </span>
+          ))
+        ) : (
+          <span className="text-[10px] text-gray-700">{empty}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Detail sections (24h pending, running/queued repos, top submitters) shared by the
 // Overview and Platforms "Monitored Pools" cards.
 function MonitoredPoolExtras({ series, sources }: { series?: PoolSeries; sources?: PoolSources | null }) {
   const [showSubmitters, setShowSubmitters] = useState(false);
   const pts = (series?.pending ?? []).map(v => v ?? 0);
   const total = sources?.sample_size ?? 0;
-  const projects = total > 0 ? Object.entries(sources!.by_project) : [];
   const submitters = total > 0 ? Object.entries(sources!.by_user).slice(0, 3) : [];
   const submitterCount = total > 0 ? Object.keys(sources!.by_user).length : 0;
   // Whenever sources are provided (even an empty sample) we reserve the Job
@@ -36,33 +74,15 @@ function MonitoredPoolExtras({ series, sources }: { series?: PoolSeries; sources
       </div>
       {hasSourceData && (
         <>
-          <div>
-            <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-1.5" title="Repos of the tasks running on this pool right now. Queued tasks aren't counted, so low-priority repos like try can be waiting without showing here.">Running now</div>
-            {projects.length > 0 ? (
-              <div className="flex w-full h-1.5 rounded-full overflow-hidden gap-px">
-                {projects.map(([proj, count]) => (
-                  <div key={proj} className={PROJECT_COLORS[proj] ?? "bg-gray-500"}
-                    style={{ width: `${(count / total) * 100}%` }} title={`${proj}: ${count}`} />
-                ))}
-              </div>
-            ) : (
-              <div className="h-1.5 w-full rounded-full bg-gray-800" />
-            )}
-            {/* Reserve ~2 legend rows so cards stay even whether or not a pool has job sources. */}
-            <div className="flex flex-wrap gap-x-2.5 gap-y-1 mt-1.5 min-h-[2rem] content-start">
-              {projects.length > 0 ? (
-                projects.map(([proj, count]) => (
-                  <span key={proj} className="flex items-center gap-1">
-                    <span className={`w-1.5 h-1.5 rounded-full ${PROJECT_COLORS[proj] ?? "bg-gray-500"}`} />
-                    <span className={`text-[10px] ${PROJECT_TEXT[proj] ?? "text-gray-400"}`}>{proj}</span>
-                    <span className="text-[10px] text-gray-600 tabular-nums">{Math.round((count / total) * 100)}%</span>
-                  </span>
-                ))
-              ) : (
-                <span className="text-[10px] text-gray-700">No running tasks</span>
-              )}
-            </div>
-          </div>
+          <ProjectMix label="Running now" byProject={sources!.by_project} total={total} empty="No running tasks"
+            title="Repos of the tasks running on this pool right now. Low-priority repos like try can be queued without any running." />
+          {sources!.queued_available && (
+            <ProjectMix label="Queued" byProject={sources!.queued_by_project ?? {}} total={sources!.queued_sampled ?? 0}
+              empty="Nothing queued"
+              note={(sources!.queued_total ?? 0) > (sources!.queued_sampled ?? 0)
+                ? `first ${sources!.queued_sampled} of ${sources!.queued_total}` : undefined}
+              title="Repos of the tasks waiting for a worker on this pool." />
+          )}
           <div>
             <button type="button" onClick={() => setShowSubmitters(s => !s)}
               className="flex items-center gap-1.5 w-full text-[10px] text-gray-600 hover:text-gray-400 uppercase tracking-wider transition-colors">

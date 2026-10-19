@@ -27,3 +27,4 @@ google-api-python-client>=2.198.0
 python-dotenv>=1.0
 pydantic-settings>=2.15.0
 python-json-logger>=2.0
+mohawk>=1.1
