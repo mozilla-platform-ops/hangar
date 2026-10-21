@@ -712,6 +712,15 @@ export interface ReprovisionAccess {
   user: string;
   authorized: boolean;
 }
+export interface BuilderUpgradeHost {
+  host: string;
+  pool: string;
+  os_version: string | null;
+  quarantined: boolean;
+  upgraded: boolean;
+  active_job: ReprovisionJob | null;
+  last_job: ReprovisionJob | null;
+}
 export interface TartHostMaintenance {
   host: string;
   excluded: string | null;
@@ -837,6 +846,10 @@ export const api = {
     tartHosts: () => get<{ hosts: TartHostMaintenance[]; runner_enabled: boolean }>("/reprovision/tart/hosts"),
     tartUpdate: (host: string, puppetOnly = false) =>
       post<{ ok: boolean; job: ReprovisionJob }>(`/reprovision/tart/${host}/update`, { puppet_only: puppetOnly }),
+    builderHosts: () => get<{ hosts: BuilderUpgradeHost[]; runner_enabled: boolean }>("/reprovision/builder/hosts"),
+    builderUpgrade: (host: string, opts: { dryRun?: boolean; unquarantine?: boolean } = {}) =>
+      post<{ ok: boolean; job: ReprovisionJob }>(`/reprovision/builder/${host}/upgrade`,
+        { dry_run: !!opts.dryRun, unquarantine: !!opts.unquarantine }),
     poolEnqueue: (pool: string, hosts?: string[]) =>
       post<ReprovisionPoolEnqueueResult>(`/reprovision/pool/${pool}/enqueue`, hosts ? { hosts } : undefined),
   },

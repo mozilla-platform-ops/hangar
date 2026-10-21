@@ -50,6 +50,23 @@ TART_EXCLUDED = {
     "macmini-m4-189": "1920x1080 tester-image canary (pinned to a ronin branch)",
 }
 
+# Intel r8 builder upgrade to macOS 15 (relops-bootstrap `reprovision builder-upgrade`): drain
+# (builds run ~100 min), startosinstall, Xcode, puppet, verify, reboot. Drain alone can take 3h,
+# so it gets the longest stale ceiling.
+BUILDER_ACTION = "builder-upgrade"
+_BUILDER_STALE_JOB_MINUTES = 9 * 60
+BUILDER_POOLS = {
+    "releng-hardware/gecko-1-b-osx-1015",
+    "releng-hardware/gecko-3-b-osx-1015",
+    "releng-hardware/nss-1-b-osx-1015",
+    "releng-hardware/nss-3-b-osx-1015",
+    "releng-hardware/applicationservices-b-1-osx1015",
+    "releng-hardware/applicationservices-b-3-osx1015",
+}
+# Capacity guard: never take a pool's last in-service worker. gecko-1 at 2 workers backed the
+# L1 queue up to 74 and try tasks hit deadline-exceeded (2026-10-16).
+_BUILDER_MIN_LEFT_IN_SERVICE = 1
+
 router = APIRouter(prefix="/reprovision", tags=["reprovision"])
 
 # TC run states that mean a task is still in flight (mirrors the CLI's safe_runner-based
@@ -158,7 +175,9 @@ def _active_job(db: Session, hostname: str) -> ReprovisionJob | None:
         # can legitimately take many hours. Only reap a queue that has been abandoned for days.
         limit = _QUEUED_STALE_MINUTES
     else:
-        limit = _TART_STALE_JOB_MINUTES if job.action == TART_ACTION else _STALE_JOB_MINUTES
+        limit = {TART_ACTION: _TART_STALE_JOB_MINUTES, BUILDER_ACTION: _BUILDER_STALE_JOB_MINUTES}.get(
+            job.action or "", _STALE_JOB_MINUTES
+        )
     if ref and datetime.utcnow() - ref > timedelta(minutes=limit):
         job.state = "failed"
         job.detail = f"stale: no completion within {limit}m — runner presumed gone"
@@ -302,9 +321,20 @@ def runner_claim(runner: str = Depends(require_runner), db: Session = Depends(ge
         .filter(ReprovisionJob.action == TART_ACTION, ReprovisionJob.state.in_({"claimed", "running"}))
         .count()
     )
-    # FIFO, except a tart-host-update waits while another tart host is mid-maintenance.
+    builder_pools_in_flight = {
+        _builder_pool(j)
+        for j in db.query(ReprovisionJob)
+        .filter(ReprovisionJob.action == BUILDER_ACTION, ReprovisionJob.state.in_({"claimed", "running"}))
+        .all()
+    }
+    # FIFO, except a tart-host-update waits while another tart host is mid-maintenance, and a
+    # builder-upgrade waits while another host in the same pool is mid-upgrade.
     job = next(
-        (j for j in queued if j.action != TART_ACTION or tart_in_flight < _TART_MAX_CONCURRENT),
+        (
+            j for j in queued
+            if (j.action != TART_ACTION or tart_in_flight < _TART_MAX_CONCURRENT)
+            and (j.action != BUILDER_ACTION or _builder_pool(j) not in builder_pools_in_flight)
+        ),
         None,
     )
     if not job:
@@ -424,6 +454,99 @@ def tart_update(
     db.add(job)
     db.add(ReprovisionEvent(hostname=fqdn, user=user, action="enqueued",
                             detail=f"{TART_ACTION}{' (puppet only)' if puppet_only else ''} enqueued for the on-network runner"))
+    db.commit()
+    db.refresh(job)
+    return {"ok": True, "job": _job_dict(job)}
+
+
+# ── Intel builder upgrade to macOS 15 ───────────────────────────────────────────────────
+# Declared BEFORE the /{hostname:path} catch-alls so "builder" isn't matched as a hostname.
+
+def _builder_pool(job: ReprovisionJob) -> str:
+    try:
+        return (json.loads(job.params) if job.params else {}).get("pool", "")
+    except (ValueError, TypeError):
+        return ""
+
+
+def _builder_workers(db: Session) -> list[Worker]:
+    return (
+        db.query(Worker)
+        .filter(Worker.tc_worker_pool_id.in_(BUILDER_POOLS))
+        .order_by(Worker.tc_worker_pool_id, Worker.hostname)
+        .all()
+    )
+
+
+def _builder_in_service(db: Session, pool: str, exclude_short: str) -> int:
+    """Workers in `pool` still taking tasks if `exclude_short` goes out: not quarantined and not
+    already mid-upgrade."""
+    n = 0
+    for w in db.query(Worker).filter(Worker.tc_worker_pool_id == pool).all():
+        short = _short(w.hostname)
+        # counts_toward_pool: a spare/loaner still labelled with the pool isn't capacity.
+        if short == exclude_short or w.tc_quarantined or not w.counts_toward_pool:
+            continue
+        active = _active_job(db, w.hostname)
+        if active and active.action == BUILDER_ACTION:
+            continue
+        n += 1
+    return n
+
+
+@router.get("/builder/hosts")
+def builder_hosts(user: str = Depends(require_access), db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Intel builders in the 1015 pools with OS, quarantine and their open/last upgrade job."""
+    out = []
+    for w in _builder_workers(db):
+        active = _active_job(db, w.hostname)
+        last = _last_job(db, w.hostname)
+        out.append({
+            "host": _short(w.hostname),
+            "pool": w.tc_worker_pool_id,
+            "os_version": w.os_version,
+            "quarantined": bool(w.tc_quarantined),
+            "upgraded": (w.os_version or "").startswith("15"),
+            "active_job": _job_dict(active) if active else None,
+            "last_job": _job_dict(last) if last else None,
+        })
+    return {"hosts": out, "runner_enabled": bool(settings.reprovision_runner_token or settings.reprovision_runner_host_list)}
+
+
+@router.post("/builder/{hostname}/upgrade")
+def builder_upgrade(
+    hostname: str,
+    user: str = Depends(require_access),
+    db: Session = Depends(get_db),
+    dry_run: bool = Body(False, embed=True),
+    unquarantine: bool = Body(False, embed=True),
+) -> dict[str, Any]:
+    """Queue a builder-upgrade for the on-network runner. One open job per host, one upgrade per
+    pool at a time (claim), and never the pool's last in-service worker (here). A dry run only
+    runs the CLI's preflight, so it skips the capacity guard."""
+    short = _short(unquote(hostname)).lower()
+    worker = next((w for w in _builder_workers(db) if _short(w.hostname).lower() == short), None)
+    if not worker:
+        raise HTTPException(status_code=404, detail=f"{short} is not a builder in a 1015 pool")
+    existing = _active_job(db, worker.hostname)
+    if existing:
+        raise HTTPException(status_code=409, detail=f"a {existing.action or 'reprovision'} is already {existing.state} for {short}")
+    pool = worker.tc_worker_pool_id
+    if not dry_run and _builder_in_service(db, pool, short) < _BUILDER_MIN_LEFT_IN_SERVICE:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{short} is the last in-service worker in {pool.split('/')[-1]} -- bring another one back first",
+        )
+    params: dict[str, Any] = {"pool": pool}
+    if dry_run:
+        params["dry_run"] = True
+    if unquarantine:
+        params["unquarantine"] = True
+    job = ReprovisionJob(hostname=worker.hostname, requested_by=user, state="queued", action=BUILDER_ACTION,
+                         params=json.dumps(params))
+    db.add(job)
+    db.add(ReprovisionEvent(hostname=worker.hostname, user=user, action="enqueued",
+                            detail=f"{BUILDER_ACTION}{' (dry run)' if dry_run else ''} enqueued for the on-network runner"))
     db.commit()
     db.refresh(job)
     return {"ok": True, "job": _job_dict(job)}
