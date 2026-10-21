@@ -99,3 +99,39 @@ def test_tart_job_is_not_reaped_at_the_bare_metal_ceiling(db):
     db.commit()
     assert rp._active_job(db, row.hostname) is None
     assert db.get(ReprovisionJob, job["id"]).state == "failed"
+
+
+def test_queued_tart_job_is_not_reaped_while_waiting_its_turn(db):
+    rp.tart_update("macmini-m4-249", user="u", db=db, puppet_only=False)
+    row = db.query(ReprovisionJob).filter(ReprovisionJob.state == "queued").one()
+    row.created_at = datetime.utcnow() - timedelta(minutes=rp._TART_STALE_JOB_MINUTES + 60)  # 7h in the queue
+    db.commit()
+    assert rp._active_job(db, row.hostname) is not None
+    assert db.get(ReprovisionJob, row.id).state == "queued"
+
+
+def test_abandoned_queue_is_reaped_eventually(db):
+    rp.tart_update("macmini-m4-249", user="u", db=db, puppet_only=False)
+    row = db.query(ReprovisionJob).filter(ReprovisionJob.state == "queued").one()
+    row.created_at = datetime.utcnow() - timedelta(minutes=rp._QUEUED_STALE_MINUTES + 1)
+    db.commit()
+    assert rp._active_job(db, row.hostname) is None
+
+
+def test_runner_reset_fails_its_open_jobs_and_frees_the_tart_queue(db):
+    rp.tart_update("macmini-m4-249", user="u", db=db, puppet_only=False)
+    rp.tart_update("macmini-m4-250", user="u", db=db, puppet_only=False)
+    first = rp.runner_claim(runner="m4-81", db=db)["job"]
+    assert rp.runner_claim(runner="m4-81", db=db)["job"] is None  # 250 blocked by 249
+    out = rp.runner_reset(runner="m4-81", db=db)  # runner restarted
+    assert out["failed"] == [first["id"]]
+    assert db.get(ReprovisionJob, first["id"]).state == "failed"
+    assert "restarted mid-job" in db.get(ReprovisionJob, first["id"]).detail
+    assert rp.runner_claim(runner="m4-81", db=db)["job"]["short"] == "macmini-m4-250"
+
+
+def test_runner_reset_leaves_other_runners_jobs_alone(db):
+    rp.tart_update("macmini-m4-249", user="u", db=db, puppet_only=False)
+    job = rp.runner_claim(runner="other-runner", db=db)["job"]
+    assert rp.runner_reset(runner="m4-81", db=db)["failed"] == []
+    assert db.get(ReprovisionJob, job["id"]).state == "running"
