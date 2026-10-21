@@ -115,7 +115,7 @@ def test_failed_read_keeps_last_good_fingerprint(db: Session) -> None:
     assert row.agent_error == "ssh timed out after 120s"
 
 
-def test_rollup_flags_the_host_off_its_roles_modal_state(db: Session) -> None:
+def test_rollup_reports_what_differs_as_findings(db: Session) -> None:
     drift_sha = sbom.component_fingerprint(drifted_components())
     hosts = [{"hostname": f"macmini-m4-{n}", "fingerprint": fingerprint(SHA)} for n in (1, 2, 3)]
     hosts.append({"hostname": "macmini-m4-4", "fingerprint": fingerprint(drift_sha)})
@@ -124,28 +124,60 @@ def test_rollup_flags_the_host_off_its_roles_modal_state(db: Session) -> None:
     out = sbom.sbom_rollup(user="u", db=db)
     role = out["roles"][0]
     assert role["modal_sha256"] == SHA
+    # Both differences are on the same single host, so they read as one finding.
+    assert len(role["findings"]) == 1
+    f = role["findings"][0]
+    assert f["hosts"] == ["macmini-m4-4.test.releng.mdc1.mozilla.com"]
+    assert [i["label"] for i in f["items"]] == ["~ pyyaml 6.0.2 → 6.0.3", "+ com.example.stray 1"]
     assert role["drifted"] == 1
-    assert out["hosts"][0]["hostname"].startswith("macmini-m4-4.")
     assert out["hosts"][0]["state"] == "drifted"
-    assert out["totals"] == {"hosts": 4, "reporting": 4, "distinct_states": 2, "documents": 2, "drifted": 1,
-                             "updating": 0, "roles": 1, "roles_drifted": 1}
-    assert out["hosts"][0]["drift"] == {
-        "added": 1, "removed": 0, "changed": 1,
-        "highlights": ["~ pyyaml 6.0.2 → 6.0.3", "+ com.example.stray 1"],
+    assert out["hosts"][0]["drift"]["highlights"] == ["~ pyyaml 6.0.2 → 6.0.3", "+ com.example.stray 1"]
+    assert out["totals"]["findings"] == 1
+
+
+def test_independent_leftovers_are_separate_findings_not_new_states(db: Session) -> None:
+    # Two leftovers on overlapping host sets: whole-hash comparison would make three
+    # "drifted" states; per-component it's two findings, each with its own hosts.
+    a = COMPONENTS + [{"type": "file", "name": "/usr/local/bin/auto-puppet.sh", "hashes": [{"alg": "SHA-256", "content": "1" * 64}]}]
+    b = COMPONENTS + [{"type": "library", "name": "virtualenv", "version": "20.0"}]
+    ab = a + [b[-1]]
+    sha = {k: sbom.component_fingerprint(v) for k, v in (("a", a), ("b", b), ("ab", ab))}
+    hosts = [{"hostname": f"macmini-m4-{n}", "fingerprint": fingerprint(SHA)} for n in range(1, 7)]
+    hosts += [{"hostname": "macmini-m4-7", "fingerprint": fingerprint(sha["a"])},
+              {"hostname": "macmini-m4-8", "fingerprint": fingerprint(sha["ab"])},
+              {"hostname": "macmini-m4-9", "fingerprint": fingerprint(sha["b"])}]
+    push(db, hosts, {SHA: doc(COMPONENTS), sha["a"]: doc(a), sha["b"]: doc(b), sha["ab"]: doc(ab)})
+
+    role = sbom.sbom_rollup(user="u", db=db)["roles"][0]
+    by_label = {g["items"][0]["label"]: [h.split(".")[0] for h in g["hosts"]] for g in role["findings"]}
+    assert by_label == {
+        "+ auto-puppet.sh": ["macmini-m4-7", "macmini-m4-8"],
+        "+ virtualenv 20.0": ["macmini-m4-8", "macmini-m4-9"],
     }
-    assert out["hosts"][1]["drift"] is None
 
 
-def test_tied_role_is_split_and_flags_nobody(db: Session) -> None:
+def test_a_tie_is_a_disagreement_not_a_guess(db: Session) -> None:
     drift_sha = sbom.component_fingerprint(drifted_components())
     push(db, [
         {"hostname": "macmini-m4-1", "fingerprint": fingerprint(SHA)},
         {"hostname": "macmini-m4-2", "fingerprint": fingerprint(drift_sha)},
-    ])
+    ], {SHA: doc(COMPONENTS), drift_sha: doc(drifted_components())})
     role = sbom.sbom_rollup(user="u", db=db)["roles"][0]
-    assert role["split"] is True
-    assert role["modal_sha256"] is None
-    assert role["drifted"] == 0
+    assert len(role["findings"]) == 1
+    assert len(role["findings"][0]["hosts"]) == 2
+    assert {i["kind"] for i in role["findings"][0]["items"]} == {"split"}
+
+
+def test_hosts_on_a_branch_override_are_their_own_cohort(db: Session) -> None:
+    drift_sha = sbom.component_fingerprint(drifted_components())
+    hosts = [{"hostname": f"macmini-r8-{n}", "fingerprint": fingerprint(SHA, puppet_branch="master")} for n in (1, 2, 3)]
+    hosts += [{"hostname": f"macmini-r8-{n}", "fingerprint": fingerprint(drift_sha, puppet_branch="1400-r8-multiuser-static-rollout")}
+              for n in (4, 5, 6)]
+    push(db, hosts, {SHA: doc(COMPONENTS), drift_sha: doc(drifted_components())})
+    roles = sbom.sbom_rollup(user="u", db=db)["roles"]
+    assert sorted((r["key"], len(r["findings"])) for r in roles) == [
+        (ROLE, 0), (f"{ROLE}@1400-r8-multiuser-static-rollout", 0),
+    ]
 
 
 def test_stale_fingerprint_means_puppet_is_not_converging(db: Session) -> None:
@@ -320,3 +352,17 @@ def test_no_stored_fingerprint_value_exceeds_its_column(db: Session) -> None:
         value = getattr(row, col.name)
         if length and isinstance(value, str):
             assert len(value) <= length, f"{col.name}: {len(value)} > {length}"
+
+
+def test_a_stray_file_built_differently_per_host_is_one_finding(db: Session) -> None:
+    def with_venv(digest: str) -> list[dict]:
+        return COMPONENTS + [{"type": "file", "name": "/usr/local/bin/virtualenv",
+                              "hashes": [{"alg": "SHA-256", "content": digest * 64}]}]
+    v1, v2 = with_venv("1"), with_venv("2")
+    s1, s2 = sbom.component_fingerprint(v1), sbom.component_fingerprint(v2)
+    hosts = [{"hostname": f"macmini-m4-{n}", "fingerprint": fingerprint(SHA)} for n in range(1, 6)]
+    hosts += [{"hostname": "macmini-m4-6", "fingerprint": fingerprint(s1)},
+              {"hostname": "macmini-m4-7", "fingerprint": fingerprint(s2)}]
+    push(db, hosts, {SHA: doc(COMPONENTS), s1: doc(v1), s2: doc(v2)})
+    role = sbom.sbom_rollup(user="u", db=db)["roles"][0]
+    assert [(i["label"], len(f["hosts"])) for f in role["findings"] for i in f["items"]] == [("+ virtualenv", 2)]
