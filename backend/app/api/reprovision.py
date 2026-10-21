@@ -40,6 +40,8 @@ _STALE_JOB_MINUTES = 120
 # (OS update up to 3h + verify up to 2h), so it gets its own stale ceiling.
 TART_ACTION = "tart-host-update"
 _TART_STALE_JOB_MINUTES = 360
+# A job that is still queued (never claimed) is only reaped after this long.
+_QUEUED_STALE_MINUTES = 48 * 60
 # One tart host in maintenance at a time: each host is 2 of the pool's ~36 slots.
 _TART_MAX_CONCURRENT = 1
 # Hosts the button refuses, with why. Mirrors the CLI's own EXCLUDED list (defence in depth).
@@ -151,7 +153,12 @@ def _active_job(db: Session, hostname: str) -> ReprovisionJob | None:
     # the host (enqueue 409s while a job is open). Lazy: happens on any status read
     # or enqueue attempt, no background sweep needed.
     ref = job.claimed_at or job.created_at
-    limit = _TART_STALE_JOB_MINUTES if job.action == TART_ACTION else _STALE_JOB_MINUTES
+    if job.state == "queued":
+        # Nothing has run yet: waiting behind other hosts (one tart host at a time) is normal and
+        # can legitimately take many hours. Only reap a queue that has been abandoned for days.
+        limit = _QUEUED_STALE_MINUTES
+    else:
+        limit = _TART_STALE_JOB_MINUTES if job.action == TART_ACTION else _STALE_JOB_MINUTES
     if ref and datetime.utcnow() - ref > timedelta(minutes=limit):
         job.state = "failed"
         job.detail = f"stale: no completion within {limit}m — runner presumed gone"
@@ -309,6 +316,26 @@ def runner_claim(runner: str = Depends(require_runner), db: Session = Depends(ge
     db.commit()
     db.refresh(job)
     return {"job": _job_dict(job)}
+
+
+@router.post("/runner/reset")
+def runner_reset(runner: str = Depends(require_runner), db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Called by a runner when it starts. Any job this runner still has open can't be running any
+    more -- its subprocess died with the old runner process -- so fail it now rather than leave it
+    'running' until the stale reaper. Otherwise a ghost tart job blocks the one-at-a-time tart queue
+    for hours (2026-10-20: a cert-renewal restart killed m4-191's job mid-verify and m4-192 never ran)."""
+    open_jobs = (
+        db.query(ReprovisionJob)
+        .filter(ReprovisionJob.runner == runner, ReprovisionJob.state.in_({"claimed", "running"}))
+        .all()
+    )
+    for job in open_jobs:
+        job.state = "failed"
+        job.detail = f"runner {runner} restarted mid-job (last: {job.detail or 'no output'})"[:500]
+        job.finished_at = datetime.utcnow()
+        db.add(ReprovisionEvent(hostname=job.hostname, user=f"runner:{runner}", action="failed", detail=job.detail))
+    db.commit()
+    return {"ok": True, "failed": [j.id for j in open_jobs]}
 
 
 @router.post("/runner/jobs/{job_id}/event")
