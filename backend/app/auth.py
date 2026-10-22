@@ -1,15 +1,17 @@
 """Resolve the requesting user's identity from Google IAP.
 
 IAP injects the signed-in identity into every request it forwards. In production we verify the
-signed `X-Goog-IAP-JWT-Assertion` (the plain email header can be spoofed via the direct Cloud Run
-URL that bypasses IAP). Locally — where there's no IAP — we fall back to the plain header, then to
-a fixed dev identity so the app still works under `docker compose`.
+signed `X-Goog-IAP-JWT-Assertion`. The plain email header can be spoofed by anything that reaches
+the app without passing IAP — e.g. the runner hostname (lb_runner.tf), which serves the non-IAP
+backend to the MDC1 NAT — so once IAP_AUDIENCE is set we fail closed and never trust it. Locally —
+where there's no IAP — we fall back to the plain header, then to a fixed dev identity so the app
+still works under `docker compose`.
 """
 from __future__ import annotations
 
 import logging
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 
 from .config import settings
 
@@ -46,6 +48,8 @@ def current_user(request: Request) -> str:
     email = _email_from_assertion(request)
     if email:
         return email
+    if settings.iap_audience:
+        raise HTTPException(status_code=401, detail="missing or invalid IAP identity")
     # Fallback: the convenience header IAP also sets (e.g. "accounts.google.com:user@mozilla.com").
     header = request.headers.get("x-goog-authenticated-user-email", "")
     if header:
