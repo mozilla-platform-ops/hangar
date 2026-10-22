@@ -5,6 +5,7 @@ import logging
 from collections.abc import Generator
 
 from sqlalchemy import Boolean, DateTime, Integer, String, Text, create_engine, inspect, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from .config import settings
@@ -16,8 +17,14 @@ class Base(DeclarativeBase):
     pass
 
 
+# SQLAlchemy 2.1 maps a bare postgresql:// URL to psycopg 3; we ship psycopg2,
+# and the prod URL lives in Secret Manager, so pin the driver here.
+_url = make_url(settings.database_url)
+if _url.drivername == "postgresql":
+    _url = _url.set(drivername="postgresql+psycopg2")
+
 engine = create_engine(
-    settings.database_url,
+    _url,
     pool_pre_ping=True,
     pool_size=5,
     max_overflow=10,
