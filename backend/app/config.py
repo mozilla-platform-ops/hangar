@@ -84,6 +84,7 @@ class Settings(BaseSettings):
     # Google IAP audience for verifying the signed identity assertion, of the form
     # "/projects/<PROJECT_NUMBER>/global/backendServices/<BACKEND_SERVICE_ID>".
     # When unset (local dev), identity falls back to the X-Goog-Authenticated-User-Email header.
+    # When set, an unverifiable request is rejected (401) — never trust the plain header in prod.
     iap_audience: str = ""
 
     # Overview "your recent try pushes" rail derives the Treeherder author from the
