@@ -1,9 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import {
-  useReactTable, getCoreRowModel, getSortedRowModel, getFilteredRowModel,
-  flexRender,
-} from "@tanstack/react-table";
+import { useTable, tableFeatures, rowSortingFeature, flexRender } from "@tanstack/react-table";
 import type { SortingState, ColumnDef } from "@tanstack/react-table";
 import { Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, X, GitBranch } from "lucide-react";
 import { api } from "../api";
@@ -12,6 +9,8 @@ import { ReprovisionPoolButton } from "../components/ReprovisionPoolButton";
 import { QuarantineControl } from "../components/QuarantineControl";
 import { stateBadge, tcStatusBadge, enrollmentBadge, SourceBadges } from "../components/Badge";
 import { usePoll } from "../lib/useLive";
+
+const features = tableFeatures({ rowSortingFeature });
 
 type HealthStatus = "healthy" | "degraded" | "critical" | null;
 
@@ -118,7 +117,7 @@ export function WorkersTableView() {
 
   const hasFilters = !!(search || generation || state || pool || branch);
 
-  const columns: ColumnDef<Worker>[] = [
+  const columns: ColumnDef<typeof features, Worker>[] = [
     {
       id: "health",
       header: "",
@@ -235,16 +234,14 @@ export function WorkersTableView() {
     });
   }
 
-  const table = useReactTable({
+  // Sorting, filtering and paging all happen server-side; the table only
+  // holds the sort state.
+  const table = useTable({
+    features,
     data: workers,
     columns,
     state: { sorting },
     onSortingChange: (updater) => { setPage(0); setSorting(updater); },
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    manualPagination: true,
-    manualFiltering: true,
     manualSorting: true,
   });
 
@@ -422,7 +419,7 @@ export function WorkersTableView() {
                       className={`border-b border-gray-800/40 hover:bg-gray-800/20 cursor-pointer transition-colors group relative ${isQuarantined || isDefective ? "bg-red-950/10" : ""}`}
                       onClick={() => navigate(`/workers/${row.original.hostname}`)}
                     >
-                      {row.getVisibleCells().map(cell => (
+                      {row.getAllCells().map(cell => (
                         <td key={cell.id} className="px-4 py-2">
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </td>
