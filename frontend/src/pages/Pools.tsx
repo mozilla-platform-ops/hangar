@@ -8,6 +8,7 @@ import { PROJECT_COLORS, PROJECT_TEXT } from "../lib/projects";
 import { MacMigrationCard } from "../components/Showcase";
 import { VMImagePipelineCard } from "../components/VMImagePipelineCard";
 import { ReprovisionActivity } from "../components/ReprovisionActivity";
+import { BuilderUpgrades } from "../components/BuilderUpgrades";
 import { MonitoredPoolCard } from "../components/MonitoredPoolCard";
 import { usePoll } from "../lib/useLive";
 
@@ -1130,6 +1131,9 @@ export function Pools() {
       )}
 
       {section === "mac" && <ReprovisionActivity />}
+
+      {/* Intel r8 builders 10.15 -> macOS 15, in place (relops-bootstrap builder-upgrade) */}
+      {section === "mac" && <BuilderUpgrades />}
 
       {/* VM image pipeline — build → promote → rollout for the tester VM image */}
       {section === "mac" && <VMImagePipelineCard />}
