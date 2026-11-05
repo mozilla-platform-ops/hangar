@@ -92,6 +92,17 @@ function TimelineLine({ e, stepIndex }: { e: ReprovisionEventItem; stepIndex: nu
   return <div className={`pl-3 ${cls} whitespace-pre-wrap break-words`}>{raw}</div>;
 }
 
+/** What a job is, in words. The runner's queue carries more than reprovisions (builder
+ *  upgrades, tart host maintenance), and this panel follows whichever is open on the host. */
+function jobLabel(job: ReprovisionJob | null): string {
+  switch (job?.action ?? "reprovision") {
+    case "reprovision": return "reprovision";
+    case "builder-upgrade": return job?.params?.dry_run ? "upgrade check" : "macOS 15 upgrade";
+    case "tart-host-update": return "host update";
+    default: return job?.action ?? "reprovision";
+  }
+}
+
 /** Terminal-styled live view of a reprovision's streamed steps. */
 function RainbowTimeline({ job, events, onClear }: { job: ReprovisionJob | null; events: ReprovisionEventItem[]; onClear?: () => void }) {
   const scroller = useRef<HTMLDivElement>(null);
@@ -110,7 +121,7 @@ function RainbowTimeline({ job, events, onClear }: { job: ReprovisionJob | null;
           {MAC_DOTS.map((c) => (
             <span key={c} style={{ backgroundColor: c }} className="w-2 h-2 rounded-full" />
           ))}
-          <span className="ml-1.5 text-[10px] text-gray-500 font-mono">reprovision · live</span>
+          <span className="ml-1.5 text-[10px] text-gray-500 font-mono">{jobLabel(job)} · {active ? "live" : "last run"}</span>
         </span>
         <span className="flex items-center gap-2 text-[10px] font-mono">
           {job && (
@@ -303,11 +314,11 @@ export function ReprovisionPanel({ hostname }: { hostname: string }) {
                   disabled={active || !supported}
                   className="group relative w-full flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold text-white overflow-hidden transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                   style={{ background: `linear-gradient(90deg, ${APPLE.join(", ")})` }}
-                  title={!supported ? "EACS reprovision is M4-only" : active ? "a reprovision is already running" : "Wipe + re-enroll this worker"}
+                  title={active ? `a ${jobLabel(status.active_job)} is already running` : !supported ? "EACS reprovision is M4-only" : "Wipe + re-enroll this worker"}
                 >
                   <span className="absolute inset-[1.5px] rounded-[7px] bg-gray-950/85 group-hover:bg-gray-950/70 transition-colors" />
                   <Zap size={14} className="relative" />
-                  <span className="relative">{active ? "Reprovision running…" : "Reprovision this worker"}</span>
+                  <span className="relative">{active ? `${jobLabel(status.active_job).replace(/^(?!macOS)./, c => c.toUpperCase())} running…` : "Reprovision this worker"}</span>
                 </button>
               ) : (
                 <div className="rounded-lg border border-red-900/60 bg-red-950/30 p-3 space-y-2.5">

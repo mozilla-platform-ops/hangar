@@ -128,56 +128,52 @@ function HostStrip({ role, hosts }: { role: SbomRole; hosts: SbomHost[] }) {
   );
 }
 
+/** One line: the role's answer. Differences lead; anything not current trails, muted. */
 function RoleVerdict({ role }: { role: SbomRole }) {
   const n = role.findings.length;
+  const main = n ? <span className="text-orange-300">{plural(n, "difference")}</span>
+    : role.pending ? <span className="text-orange-300/70">details pending</span>
+    : role.states.length ? <span className="text-emerald-400/90">converged</span>
+    : <span className="text-gray-600">no data</span>;
+  const extra = [
+    role.unhealthy > 0 ? `${role.unhealthy} not current` : null,
+    role.updating > 0 ? `${role.updating} updating` : null,
+  ].filter(Boolean);
   return (
-    <div className="text-xs text-right whitespace-nowrap">
-      {n ? (
-        <span className="text-orange-300">{plural(n, "difference")}</span>
-      ) : role.pending ? (
-        <span className="text-orange-300/70">details pending</span>
-      ) : role.states.length ? (
-        <span className="text-emerald-400/90">converged</span>
-      ) : (
-        <span className="text-gray-600">no data</span>
-      )}
-      {role.unhealthy > 0 && <div className="text-[11px] text-gray-600 mt-0.5">{role.unhealthy} not current</div>}
-      {role.updating > 0 && <div className="text-[11px] text-gray-600 mt-0.5">{role.updating} updating</div>}
+    <div className="text-xs text-right whitespace-nowrap truncate">
+      {main}
+      {extra.length > 0 && <span className="text-gray-600"> · {extra.join(" · ")}</span>}
     </div>
   );
 }
 
-const FINDING_PREVIEW = 4;
+const FINDING_PREVIEW = 3;
 const FINDINGS_SHOWN = 6;
 
-/** One difference from the cohort's majority, with the hosts that carry it. */
+/** One difference from the cohort's majority. What changed leads; who carries it follows. */
 function FindingRow({ finding, total }: { finding: SbomFinding; total: number }) {
   const [all, setAll] = useState(false);
   const [allHosts, setAllHosts] = useState(false);
   const names = finding.hosts.map(shortHost);
   const items = all ? finding.items : finding.items.slice(0, FINDING_PREVIEW);
-  const hostLine = compressHosts(names);
   return (
-    <div className="grid grid-cols-[200px_1fr] gap-x-4 py-2.5 items-start">
-      <div className="min-w-0">
-        <div className="text-xs text-gray-200">
-          {plural(names.length, "host")}
-          <span className="text-gray-600"> of {total}</span>
-        </div>
-        <button onClick={() => setAllHosts(v => !v)} title={names.join(", ")}
-          style={allHosts ? undefined : { display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}
-          className="block text-left font-mono text-[11px] text-gray-500 hover:text-gray-400 leading-relaxed mt-0.5 break-words">
-          {hostLine}
-        </button>
-      </div>
+    <div className="grid grid-cols-[minmax(0,1fr)_minmax(180px,300px)] gap-x-6 py-2 items-start">
       <div className="min-w-0">
         {items.map(i => <DiffLine key={`${i.kind}${i.name}`} text={i.label} />)}
         {finding.items.length > FINDING_PREVIEW && (
-          <button onClick={() => setAll(v => !v)} className="mt-1 text-[11px] text-gray-600 hover:text-gray-300">
-            {all ? "show fewer" : `+${finding.items.length - FINDING_PREVIEW} more components`}
+          <button onClick={() => setAll(v => !v)} className="mt-0.5 text-[11px] text-gray-600 hover:text-gray-300">
+            {all ? "show fewer" : `+${finding.items.length - FINDING_PREVIEW} more`}
           </button>
         )}
       </div>
+      <button onClick={() => setAllHosts(v => !v)} title={names.join(", ")}
+        className={`min-w-0 text-left text-[11px] leading-5 group ${allHosts ? "break-words" : "truncate"}`}>
+        <span className="text-gray-300 tabular-nums">{names.length}</span>
+        <span className="text-gray-600"> of {total} · </span>
+        <span className="font-mono text-gray-500 group-hover:text-gray-400">
+          {compressHosts(names).replace(/^macmini-/, "")}
+        </span>
+      </button>
     </div>
   );
 }
@@ -186,7 +182,7 @@ function FindingRow({ finding, total }: { finding: SbomFinding; total: number })
 function DiffLine({ text }: { text: string }) {
   const tone = text.startsWith("~") ? "text-yellow-200/80" : text.startsWith("+") ? "text-emerald-300/85"
     : text.startsWith("≠") ? "text-purple-300/85" : "text-red-300/85";
-  return <div className={`font-mono text-[11px] truncate ${tone}`}>{text}</div>;
+  return <div className={`font-mono text-[11px] leading-5 truncate ${tone}`} title={text}>{text}</div>;
 }
 
 function FullDiff({ base, head }: { base: string; head: string }) {
@@ -201,7 +197,7 @@ function FullDiff({ base, head }: { base: string; head: string }) {
     ...diff.removed.map(c => `− ${c.name} ${c.version}`),
   ];
   return (
-    <div className="max-h-64 overflow-y-auto space-y-0.5 pr-2">
+    <div className="max-h-64 overflow-y-auto pr-2">
       {lines.length ? lines.map(l => <DiffLine key={l} text={l} />)
         : <div className="text-[11px] text-gray-500">Same components by name; only unversioned file hashes differ.</div>}
     </div>
@@ -225,58 +221,32 @@ function compressHosts(names: string[]): string {
   return prefix + runs.join(", ");
 }
 
-/** Hosts that share one software state are one finding, not N rows of the same text. */
-function HostNames({ hosts }: { hosts: SbomHost[] }) {
-  const names = hosts.map(x => shortHost(x.hostname));
-  if (names.length === 1) return <div className="font-mono text-xs text-gray-200 pt-px">{names[0]}</div>;
-  return (
-    <div className="pt-px min-w-0">
-      <div className="text-xs text-gray-200">{names.length} hosts</div>
-      <div className="font-mono text-[11px] text-gray-500 leading-relaxed mt-0.5 break-words" title={names.join(", ")}>
-        {compressHosts(names)}
-      </div>
-    </div>
-  );
-}
-
-function AttentionHost({ hosts, modal, now }: { hosts: SbomHost[]; modal: string | null; now: number }) {
+/** A drifted host whose own diff is known but isn't one of the role's shared findings. */
+function DriftDetail({ hosts, modal }: { hosts: SbomHost[]; modal: string }) {
   const h = hosts[0];
   const [full, setFull] = useState(false);
   const d = h.drift;
   const more = d ? d.added + d.removed + d.changed - d.highlights.length : 0;
+  if (!h.sbom_sha256 || new Set(hosts.map(x => x.sbom_sha256)).size > 1 || !d)
+    return <span className="text-gray-600">documents still being collected</span>;
+  if (full) return <FullDiff base={modal} head={h.sbom_sha256} />;
   return (
-    <div className="grid grid-cols-[200px_110px_1fr] gap-x-4 py-2 items-start">
-      <HostNames hosts={hosts} />
-      <div className={`text-xs ${STATE_TEXT[h.state]}`} title={STATE_HINT[h.state]}>{STATE_LABEL[h.state]}</div>
-      <div className="min-w-0">
-        {h.state === "drifted" && modal && h.sbom_sha256 && new Set(hosts.map(x => x.sbom_sha256)).size > 1 ? (
-          <div className="text-[11px] text-gray-600">differ from the role — documents still being collected</div>
-        ) : h.state === "drifted" && modal && h.sbom_sha256 ? (
-          full ? <FullDiff base={modal} head={h.sbom_sha256} /> : (
-            <>
-              {d ? d.highlights.map(l => <DiffLine key={l} text={l} />)
-                : <div className="text-[11px] text-gray-600">differs from the role — documents still being collected</div>}
-              <button onClick={() => setFull(true)}
-                className="mt-1 inline-flex items-center gap-1 text-[11px] text-gray-600 hover:text-gray-300">
-                <GitCompare size={11} /> {more > 0 ? `${more} more` : "full diff"}
-              </button>
-            </>
-          )
-        ) : h.state === "pending" ? (
-          <div className="text-[11px] text-gray-500">differ{hosts.length === 1 ? "s" : ""} from the role — details arrive with the document on the agent's next sweep</div>
-        ) : h.agent_error ? (
-          <div className="text-[11px] text-gray-500 truncate" title={h.agent_error}>
-            {hosts.length > 1 ? reasonOf(h).split(" <host>").join("") : h.agent_error}
-          </div>
-        ) : (
-          <div className="text-[11px] text-gray-500">
-            last generated {ago(hosts.map(x => x.generated_at).filter(Boolean).sort()[0] ?? null, now)}
-            {hosts.length > 1 && " (oldest)"}
-          </div>
-        )}
-      </div>
-    </div>
+    <>
+      {d.highlights.map(l => <DiffLine key={l} text={l} />)}
+      <button onClick={() => setFull(true)} className="inline-flex items-center gap-1 text-[11px] text-gray-600 hover:text-gray-300">
+        <GitCompare size={11} /> {more > 0 ? `${more} more` : "full diff"}
+      </button>
+    </>
   );
+}
+
+/** Why a group of hosts isn't being compared, in one line. */
+function attentionReason(hosts: SbomHost[], now: number): string {
+  const h = hosts[0];
+  if (h.state === "pending") return "details arrive with the document on the agent's next sweep";
+  if (h.agent_error) return hosts.length > 1 ? reasonOf(h).split(" <host>").join("") : h.agent_error;
+  const oldest = hosts.map(x => x.generated_at).filter(Boolean).sort()[0] ?? null;
+  return `last generated ${ago(oldest, now)}${hosts.length > 1 ? " (oldest)" : ""}`;
 }
 
 /** An agent error with the host's own name taken out, so the same failure on two hosts
@@ -304,129 +274,146 @@ function groupAttention(hosts: SbomHost[]): SbomHost[][] {
     order[a[0].state] - order[b[0].state] || b.length - a.length || byHost(a[0], b[0]));
 }
 
+const ROW_GRID = "grid grid-cols-[minmax(0,1fr)_minmax(160px,260px)_minmax(150px,220px)_28px] gap-5 items-center";
+
 function RoleCard({ role, hosts, now, onInspect }: {
   role: SbomRole; hosts: SbomHost[]; now: number; onInspect: () => void;
 }) {
-  const [open, setOpen] = useState(role.findings.length > 0);
-  // Largest first, so the first few are what most of the role is about.
+  // Folded by default: the row itself is the answer. Open it to see why.
+  const [open, setOpen] = useState(false);
   const [allFindings, setAllFindings] = useState(false);
   const [showOk, setShowOk] = useState(false);
-  // One-host states are already listed above as drifted hosts; as chips they're a wall.
-  const [showAllStates, setShowAllStates] = useState(false);
-  const oneOffs = role.states.filter(s => s.hosts === 1 && s.sbom_sha256 !== role.modal_sha256).length;
+  const [showStates, setShowStates] = useState(false);
   // Drifted hosts are shown through the findings they carry, not one by one.
   const attention = hosts.filter(h => !["ok", "updating", "drifted"].includes(h.state)).sort(byHost);
   const matching = hosts.filter(h => h.state === "ok").sort(byHost);
   const updating = hosts.filter(h => h.state === "updating");
   const os = useMemo(() => [...new Set(hosts.map(h => h.macos_version).filter(Boolean))].join(", "), [hosts]);
+  const baseline = role.states.find(s => s.sbom_sha256 === role.modal_sha256);
+  const others = role.states.filter(s => s.sbom_sha256 !== role.modal_sha256);
+  const hasDocs = role.states.some(s => s.document);
 
   return (
-    <div className={`border-b border-gray-800/60 last:border-b-0 ${role.findings.length ? "bg-orange-500/[0.025]" : ""}`}>
-      <div role="button" tabIndex={0} onClick={() => setOpen(o => !o)}
+    <div className="group/role border-t border-gray-800/50 first:border-t-0">
+      <div role="button" tabIndex={0} aria-expanded={open} onClick={() => setOpen(o => !o)}
         onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen(o => !o); } }}
-        className="w-full cursor-pointer grid grid-cols-[minmax(240px,340px)_minmax(0,1fr)_120px_32px] gap-6 items-center px-5 py-2.5 text-left hover:bg-white/[0.015] transition-colors">
+        className={`${ROW_GRID} cursor-pointer px-5 py-2 hover:bg-white/[0.02] transition-colors`}>
         <div className="flex items-center gap-2 min-w-0">
           <ChevronRight size={13} className={`text-gray-600 flex-shrink-0 transition-transform duration-150 ${open ? "rotate-90" : ""}`} />
-          <div className="min-w-0 flex items-baseline gap-2">
-            <span className="font-mono text-[13px] text-gray-100 flex-shrink-0">{role.puppet_role}</span>
-            {role.puppet_branch && (
-              <span className="text-[10px] font-mono text-purple-300/90 border border-purple-400/25 bg-purple-500/[0.06] rounded px-1.5 py-px truncate min-w-0"
-                title={`pinned to puppet branch ${role.puppet_branch}; compared only with hosts on the same branch`}>
-                {role.puppet_branch}
-              </span>
-            )}
-            <span className="text-[11px] text-gray-600 whitespace-nowrap">
-              {role.hosts}{os && <> · {os}</>}
+          <span className="font-mono text-xs text-gray-100 truncate" title={role.puppet_role}>{role.puppet_role}</span>
+          {role.puppet_branch && (
+            <span className="text-[10px] font-mono text-purple-300/90 border border-purple-400/25 rounded px-1 truncate min-w-0 max-w-[14rem]"
+              title={`pinned to puppet branch ${role.puppet_branch}; compared only with hosts on the same branch`}>
+              {role.puppet_branch}
             </span>
-          </div>
+          )}
+          <span className="text-[11px] text-gray-600 whitespace-nowrap flex-shrink-0">
+            {role.hosts}{os && <> · {os}</>}
+          </span>
         </div>
         <HostStrip role={role} hosts={hosts} />
         <RoleVerdict role={role} />
-        <button onClick={e => { e.stopPropagation(); onInspect(); }} disabled={!role.states.some(s => s.document)}
+        <button onClick={e => { e.stopPropagation(); onInspect(); }} disabled={!hasDocs}
           title="Configuration — what's installed" aria-label={`${role.puppet_role} configuration`}
-          className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-600 hover:text-white hover:bg-white/[0.06] transition-colors disabled:opacity-30 disabled:hover:bg-transparent">
-          <SlidersHorizontal size={14} />
+          className="w-6 h-6 rounded-md flex items-center justify-center text-gray-600 hover:text-white hover:bg-white/[0.06] transition opacity-0 group-hover/role:opacity-100 focus-visible:opacity-100 disabled:invisible">
+          <SlidersHorizontal size={13} />
         </button>
       </div>
 
       {open && (
-        <div className="pl-[46px] pr-5 pb-4 space-y-4">
+        <div className="pl-[41px] pr-5 pb-4 pt-1">
           {role.findings.length > 0 && (
             <div className="divide-y divide-gray-800/40">
               {(allFindings ? role.findings : role.findings.slice(0, FINDINGS_SHOWN)).map(f => (
                 <FindingRow key={f.id} finding={f} total={role.hosts} />
               ))}
               {role.findings.length > FINDINGS_SHOWN && (
-                <button onClick={() => setAllFindings(v => !v)} className="pt-2.5 text-[11px] text-gray-600 hover:text-gray-300">
-                  {allFindings ? "show fewer" : `show ${role.findings.length - FINDINGS_SHOWN} more differences`}
+                <button onClick={() => setAllFindings(v => !v)} className="pt-2 text-[11px] text-gray-500 hover:text-gray-300">
+                  {allFindings ? "show fewer" : `${role.findings.length - FINDINGS_SHOWN} more differences`}
                 </button>
               )}
             </div>
           )}
 
           {attention.length > 0 && (
-            <div className="divide-y divide-gray-800/40">
+            <div className={`${role.findings.length ? "mt-3 pt-3 border-t border-gray-800/40" : ""} space-y-1`}>
               {groupAttention(attention).map(g => (
-                <AttentionHost key={g[0].hostname} hosts={g} modal={role.modal_sha256} now={now} />
+                <div key={g[0].hostname} className="grid grid-cols-[minmax(0,1fr)_minmax(180px,300px)] gap-x-6 text-[11px] items-start">
+                  <div className="min-w-0 flex gap-2">
+                    <span className={`flex-shrink-0 ${STATE_TEXT[g[0].state]}`} title={STATE_HINT[g[0].state]}>{STATE_LABEL[g[0].state]}</span>
+                    <div className="min-w-0 text-gray-600">
+                      {g[0].state === "drifted" && role.modal_sha256
+                        ? <DriftDetail hosts={g} modal={role.modal_sha256} />
+                        : <span className="block truncate" title={g[0].agent_error ?? undefined}>{attentionReason(g, now)}</span>}
+                    </div>
+                  </div>
+                  <div className="min-w-0 truncate" title={g.map(x => shortHost(x.hostname)).join(", ")}>
+                    <span className="text-gray-300 tabular-nums">{g.length}</span>
+                    <span className="text-gray-600"> · </span>
+                    <span className="font-mono text-gray-500">{compressHosts(g.map(x => shortHost(x.hostname))).replace(/^macmini-/, "")}</span>
+                  </div>
+                </div>
               ))}
             </div>
           )}
 
-          {updating.length > 0 && (
-            <div className="text-[11px] text-gray-600" title={updating.map(h => shortHost(h.hostname)).join(", ")}>
-              {plural(updating.length, "host")} updating to SBOM generator {role.generator_version} — compared once they regenerate
-            </div>
-          )}
-
-          {matching.length > 0 && (
-            <div>
-              <button onClick={() => setShowOk(v => !v)} className="text-[11px] text-gray-600 hover:text-gray-300">
-                {attention.length === 0
+          {/* Everything else about the role, on one quiet line. */}
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-gray-600">
+            {matching.length > 0 && (
+              <button onClick={() => setShowOk(v => !v)} className="hover:text-gray-300">
+                {attention.length === 0 && role.findings.length === 0
                   ? `All ${plural(matching.length, "host")} match`
-                  : `${plural(matching.length, "other host")} match`}
-                {" · "}{showOk ? "hide" : "show"}
+                  : `${plural(matching.length, "host")} match the baseline`}
               </button>
-              {showOk && (
-                <div className="flex flex-wrap gap-1 mt-2">
-                  {matching.map(h => (
-                    <span key={h.hostname} className="font-mono text-[10px] text-gray-500 bg-gray-800/40 rounded px-1.5 py-0.5">
-                      {shortHost(h.hostname)}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[10px] uppercase tracking-wider text-gray-600 mr-1">States</span>
-            {(showAllStates ? role.states : role.states.filter(s => s.hosts > 1 || s.sbom_sha256 === role.modal_sha256)).map(s => {
-              const baseline = s.sbom_sha256 === role.modal_sha256;
-              return (
-                <span key={s.sbom_sha256}
-                  title={`${s.sbom_sha256}${s.component_count !== null ? ` · ${s.component_count} components` : ""}`}
-                  className={`inline-flex items-center gap-1.5 text-[11px] rounded-md pl-2 pr-1.5 py-0.5 border ${
-                    baseline ? "border-brand-500/30 bg-brand-500/[0.06] text-brand-200" : "border-gray-700/70 text-gray-400"}`}>
-                  {baseline && <span className="text-[10px] uppercase tracking-wider text-brand-300/80">baseline</span>}
-                  <span className="font-mono">{short(s.sbom_sha256)}</span>
-                  <span className="text-gray-600">{s.hosts}</span>
-                  {s.document ? (
-                    <a href={api.sbom.documentUrl(s.sbom_sha256)} className="text-gray-500 hover:text-white p-0.5"
-                      title="download CycloneDX 1.6 JSON">
-                      <Download size={11} />
-                    </a>
-                  ) : (
-                    <span className="text-gray-700" title="document arrives on the agent's next sweep">…</span>
-                  )}
-                </span>
-              );
-            })}
-            {oneOffs > 0 && (
-              <button onClick={() => setShowAllStates(v => !v)} className="text-[11px] text-gray-600 hover:text-gray-300 ml-1">
-                {showAllStates ? "hide one-host states" : `+${oneOffs} one-host state${oneOffs === 1 ? "" : "s"}`}
+            )}
+            {updating.length > 0 && (
+              <span title={updating.map(h => shortHost(h.hostname)).join(", ")}>
+                {updating.length} updating to generator {role.generator_version}
+              </span>
+            )}
+            {baseline && (
+              baseline.document ? (
+                <a href={api.sbom.documentUrl(baseline.sbom_sha256)} title={`${baseline.sbom_sha256} · CycloneDX 1.6 JSON`}
+                  className="inline-flex items-center gap-1 hover:text-gray-300">
+                  <Download size={11} /> baseline <span className="font-mono">{short(baseline.sbom_sha256)}</span>
+                </a>
+              ) : <span>baseline <span className="font-mono">{short(baseline.sbom_sha256)}</span> · document pending</span>
+            )}
+            {others.length > 0 && (
+              <button onClick={() => setShowStates(v => !v)} className="hover:text-gray-300">
+                {showStates ? "hide other states" : `${plural(others.length, "other state")}`}
+              </button>
+            )}
+            {hasDocs && (
+              <button onClick={onInspect} className="inline-flex items-center gap-1 hover:text-gray-300">
+                <SlidersHorizontal size={11} /> configuration
               </button>
             )}
           </div>
+
+          {showOk && (
+            <div className="mt-2 font-mono text-[11px] text-gray-500 break-words">
+              {compressHosts(matching.map(h => shortHost(h.hostname)))}
+            </div>
+          )}
+
+          {showStates && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {others.map(s => (
+                <span key={s.sbom_sha256}
+                  title={`${s.sbom_sha256}${s.component_count !== null ? ` · ${s.component_count} components` : ""}`}
+                  className="inline-flex items-center gap-1.5 text-[11px] rounded border border-gray-800 pl-1.5 pr-1 py-px text-gray-400">
+                  <span className="font-mono">{short(s.sbom_sha256)}</span>
+                  <span className="text-gray-600 tabular-nums">{s.hosts}</span>
+                  {s.document ? (
+                    <a href={api.sbom.documentUrl(s.sbom_sha256)} className="text-gray-500 hover:text-white" title="download CycloneDX 1.6 JSON">
+                      <Download size={10} />
+                    </a>
+                  ) : <span className="text-gray-700" title="document arrives on the agent's next sweep">…</span>}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -541,35 +528,27 @@ export function Sbom() {
                 <span><span className="text-gray-300 tabular-nums">{t.roles}</span> roles</span>
                 <span>collected <span className="text-gray-300">{ago(data.last_collected_at, now)}</span></span>
               </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-[11px] text-gray-600">
+                <Legend cls="bg-brand-500/40" label="matches" />
+                <Legend cls="bg-orange-400" label="drifted" />
+                <Legend cls="bg-yellow-500/55" label="stale" />
+                <Legend cls="bg-brand-500/15" label="updating" />
+                <Legend cls="ring-1 ring-inset ring-gray-600/80" label="not reporting" />
+              </div>
             </div>
           </div>
 
           <div className="card overflow-hidden">
-            <div className="grid grid-cols-[minmax(240px,340px)_minmax(0,1fr)_120px_32px] gap-6 px-5 py-2.5 border-b border-gray-800/60 text-[10px] uppercase tracking-wider text-gray-600">
-              <span className="pl-[21px]">Role</span>
-              <span className="flex items-center gap-3">
-                Hosts
-                <span className="normal-case tracking-normal hidden 2xl:flex items-center gap-3 text-gray-600 whitespace-nowrap">
-                  <Legend cls="bg-brand-500/40" label="matches" />
-                  <Legend cls="bg-orange-400" label="drifted" />
-                  <Legend cls="bg-yellow-500/55" label="stale" />
-                  <Legend cls="bg-brand-500/15" label="updating" />
-                  <Legend cls="ring-1 ring-inset ring-gray-600/80" label="not reporting" />
-                </span>
-              </span>
-              <span className="text-right">State</span>
-              <span />
-            </div>
             {[...FAMILIES.map(f => f.label), "Other"].map(label => {
               const roles = data.roles.filter(r => family(r.puppet_role) === label);
               if (!roles.length) return null;
               const hostCount = roles.reduce((n, r) => n + r.hosts, 0);
               const differences = roles.reduce((n, r) => n + r.findings.length, 0);
               return (
-                <section key={label}>
-                  <div className="flex items-baseline gap-2 px-5 pt-4 pb-1.5 text-[10px] uppercase tracking-wider text-gray-500 border-b border-gray-800/40">
-                    {label}
-                    <span className="normal-case tracking-normal text-gray-600">
+                <section key={label} className="border-t border-gray-800/70 first:border-t-0">
+                  <div className="flex items-baseline gap-2 px-5 pt-4 pb-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">{label}</span>
+                    <span className="text-[11px] text-gray-600">
                       {plural(roles.length, "role")} · {plural(hostCount, "host")}
                       {differences > 0 && <span className="text-orange-300/80"> · {plural(differences, "difference")}</span>}
                     </span>
@@ -583,44 +562,39 @@ export function Sbom() {
             })}
           </div>
 
-          <div className="2xl:hidden flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-gray-600 -mt-3">
-            <Legend cls="bg-brand-500/40" label="matches" />
-            <Legend cls="bg-orange-400" label="drifted" />
-            <Legend cls="bg-yellow-500/55" label="stale" />
-            <Legend cls="bg-brand-500/15" label="updating" />
-            <Legend cls="ring-1 ring-inset ring-gray-600/80" label="not reporting" />
-          </div>
-
-          {data.uncovered.length > 0 && (
-            <div className="text-[11px] text-gray-600 max-w-4xl space-y-0.5">
-              <div className="text-gray-500">Not covered</div>
-              {Object.entries(
-                data.uncovered.reduce<Record<string, { pool: string; hosts: number }[]>>((acc, u) => {
-                  (acc[u.reason] ??= []).push(u);
-                  return acc;
-                }, {}),
-              ).map(([reason, pools]) => {
-                const n = pools.reduce((t, p) => t + p.hosts, 0);
-                const names = pools.map(p => `${p.pool} (${p.hosts})`).join(", ");
-                return (
-                  <div key={reason} title={names}>
-                    <span className="text-gray-400 tabular-nums">{n}</span> {n === 1 ? "host" : "hosts"} in{" "}
-                    {pools.length === 1 ? <span className="font-mono text-gray-500">{pools[0].pool}</span> : plural(pools.length, "pool")}
-                    <span className="text-gray-600"> — {reason}</span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
           {configRole && <SbomConfigSheet key={configRole.puppet_role} role={configRole} onClose={closeConfig} />}
 
-          <p className="text-[11px] text-gray-600 flex items-start gap-1.5 max-w-3xl">
-            <Package size={12} className="mt-0.5 flex-shrink-0" />
-            Covers the provisioned image: installer receipts, Xcode/CLT, pip packages,
-            /usr/local/bin binaries and Homebrew. Toolchains a task fetches at run time are
-            ephemeral and not included. Each state downloads as CycloneDX 1.6 for a scanner.
-          </p>
+          <div className="text-[11px] text-gray-600 max-w-3xl space-y-1.5 -mt-2">
+            <p className="flex items-start gap-1.5">
+              <Package size={12} className="mt-0.5 flex-shrink-0" />
+              <span>
+                Covers the provisioned image: installer receipts, Xcode/CLT, pip packages, /usr/local/bin
+                binaries and Homebrew. Toolchains a task fetches at run time aren't included. Each state
+                downloads as CycloneDX 1.6.
+              </span>
+            </p>
+            {data.uncovered.length > 0 && (
+              <p className="pl-[18px]">
+                Not covered:{" "}
+                {Object.entries(
+                  data.uncovered.reduce<Record<string, { pool: string; hosts: number }[]>>((acc, u) => {
+                    (acc[u.reason] ??= []).push(u);
+                    return acc;
+                  }, {}),
+                ).map(([reason, pools], i) => {
+                  const n = pools.reduce((t, p) => t + p.hosts, 0);
+                  return (
+                    <span key={reason} title={pools.map(p => `${p.pool} (${p.hosts})`).join(", ")}>
+                      {i > 0 && "; "}
+                      <span className="text-gray-400 tabular-nums">{n}</span>{" "}
+                      {pools.length === 1 ? <span className="font-mono">{pools[0].pool}</span> : <>hosts in {plural(pools.length, "pool")}</>}
+                      {" "}({reason})
+                    </span>
+                  );
+                })}
+              </p>
+            )}
+          </div>
         </>
       )}
     </div>
