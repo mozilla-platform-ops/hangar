@@ -5,6 +5,7 @@ import { api } from "../api";
 import type { Worker, FailureScreenshotItem, QuarantineAccess } from "../api";
 import { stateBadge, tcStatusBadge, enrollmentBadge, SourceBadges } from "../components/Badge";
 import { ReprovisionPanel } from "../components/ReprovisionPanel";
+import { BuilderUpgradePanel } from "../components/BuilderUpgradePanel";
 import { QuarantineControl } from "../components/QuarantineControl";
 import { usePoll } from "../lib/useLive";
 
@@ -220,6 +221,9 @@ export function WorkerDetail() {
           </div>
         </div>
       </div>
+
+      {/* Intel 1015 builders only, until they're on macOS 15. */}
+      <BuilderUpgradePanel hostname={worker.hostname} />
 
       <ReprovisionPanel hostname={worker.hostname} />
 
